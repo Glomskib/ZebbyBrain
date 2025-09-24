@@ -107,11 +107,14 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
       return;
     }
 
+    // Convert datetime-local string to proper ISO string
+    const isoTimestamp = new Date(timestamp).toISOString();
+    
     createSymptomLogMutation.mutate({
       symptoms: selectedSymptoms,
       intensity,
       notes: notes.trim() || null,
-      timestamp: new Date(timestamp).toISOString(),
+      timestamp: isoTimestamp,
     });
   };
 

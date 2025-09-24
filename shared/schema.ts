@@ -151,6 +151,8 @@ export const insertSymptomLogSchema = createInsertSchema(symptomLogs).omit({
   createdAt: true,
   aiReflection: true,
   aiProcessed: true,
+}).extend({
+  timestamp: z.string().datetime().transform((str) => new Date(str))
 });
 export type InsertSymptomLog = z.infer<typeof insertSymptomLogSchema>;
 export type SymptomLog = typeof symptomLogs.$inferSelect;
