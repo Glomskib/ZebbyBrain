@@ -1,0 +1,218 @@
+# Zebby Knowledge Base (Living Doc)
+
+> **Purpose:** This is our single source of truth for Zebby. It captures what Zebby is, who it’s for, how it works, and how we’ll build, launch, grow, and measure it. Treat this as a living document—update it as decisions change.
+
+**Last updated:** 2025-09-24
+**Doc owner:** Zebby Core Team
+**Version:** 0.3 (Draft)
+
+---
+
+## 1) One-Page Executive Summary
+
+**Zebby is a** health tracker + social app + marketplace
+**For** people with EDS (Ehlers-Danlos Syndrome) and other rare/odd health conditions who feel misunderstood by others, especially doctors
+**That helps them** track symptoms, feel understood, connect with others, and access discounted EDS-related products
+**By** offering AI-assisted symptom journaling, auto-tagging, community support, and a curated product marketplace
+**Unlike** generic health trackers or forums, **Zebby** combines tracking, validation, social belonging, and access to relevant products in one integrated platform.
+
+**North Star Metric (NSM):** % of users who log symptoms ≥3 times/week and report “feeling understood” (measured via in-app pulse surveys + avatar feedback).
+**NSM Guardrails:** retention %, marketplace conversion rate, latency of AI insights, user privacy satisfaction.
+
+**Launch target:** Webapp MVP (store + tracker), before Kickstarter/Shark Tank campaign.
+**Stage:** Pre-MVP (concept shaping).
+
+---
+
+## 2) Problem → JTBD → Solution
+
+### 2.1 Problem Statements
+
+* People with EDS and similar conditions feel dismissed by medical professionals and lack tools that make sense of their daily struggles.
+* Existing trackers are too clinical or generic, failing to capture the lived experience and emotional context.
+* Accessing affordable, relevant products is fragmented and costly.
+
+### 2.2 Jobs-To-Be-Done (JTBD)
+
+* **When I** experience unexplained or fluctuating symptoms
+  **I want to** log them in a way that feels validating and insightful
+  **So I can** better understand my body, share my journey, and feel less alone.
+
+* **When I** shop for EDS-related or supportive health products
+  **I want to** access vetted, discounted options
+  **So I can** save money and trust what I’m buying.
+
+### 2.3 Solution Overview
+
+* **System boundary:** Zebby includes health tracking, AI-assisted insights, community/social features, and marketplace access. It intentionally excludes clinical diagnosis or replacing professional care.
+* **Value loops:**
+
+  * Logging symptoms → receiving AI avatar reflection + stamped insights → building long-term health portrait → feeling validated → more logging.
+  * Marketplace purchases → discounts → brand trust → repeat usage.
+* **Critical path:** Signup → log first symptom → see AI avatar reflection + feel understood → browse store.
+
+---
+
+## 3) Personas & Segments
+
+| Persona                 | Role & Context                                                | Top JTBD                                 | Key pains                                                         | Success criteria                                        | Channels                                       | Objections                       |
+| ----------------------- | ------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------- | -------------------------------- |
+| **Ellie with EDS**      | 26, struggles with fatigue & pain, feels dismissed by doctors | Track symptoms; feel validated           | Dismissed by doctors; too tired to manually track; feels isolated | Feels “seen”; builds pattern reports; connects socially | Patient groups, TikTok/IG, rare disease forums | “Will this keep my data safe?”   |
+| **Rare Condition Ryan** | 34, rare autoimmune condition, tech-comfortable               | Discover patterns, shop trusted products | Generic apps don’t fit; high product costs                        | Finds clear trends; saves money on products             | Google search, Reddit, word-of-mouth           | “Why not just use Apple Health?” |
+
+---
+
+## 4) Competitive & Alternatives Map
+
+* **Direct competitors:** Apple Health, MySymptoms, Bearable, PatientsLikeMe.
+* **Indirect alternatives:** notebooks, spreadsheets, online forums, Amazon.
+* **Positioning:** Zebby is where *tracking meets empathy*—not just numbers, but meaning.
+* **Table stakes:** symptom logging, charts, data export, account privacy.
+* **Differentiators:** AI avatar (core from MVP), social support baked in, curated discounted marketplace.
+
+---
+
+## 5) Product Scope & Features
+
+### 5.1 MVP (v1)
+
+* As a **user with EDS**, when I **log symptoms**, I can **see AI avatar reflections + stamped insights** so that **I feel validated and closer to understanding my condition**. (✅)
+* As a **user with EDS**, when I **browse products**, I can **see categorized placeholders (tools, braces, supplements, salts/electrolytes, courses, etc.)** so that **I can save money and trust what I buy**. (✅)
+
+**Non-goals:**
+
+* Sleep tracking in v1 (mobile-only feature, deferred).
+* Clinical/diagnostic features (out of scope).
+
+### 5.2 Feature List (prioritized)
+
+|  # | Feature                                    | User value                      | KPI it moves                                     | Priority | Status |
+| -: | ------------------------------------------ | ------------------------------- | ------------------------------------------------ | -------- | ------ |
+|  1 | Symptom logging + AI avatar reflections    | Feel understood, build portrait | Weekly logging rate, “feeling understood” metric | P0       | ✅      |
+|  2 | Marketplace with categories (placeholders) | Save money, trust products      | Conversion, LTV                                  | P0       | ✅      |
+|  3 | Community/social feed                      | Connection, belonging           | Retention, DAU/WAU                               | P1       | 🧪     |
+|  4 | Exports (Google Fit, CSV, PDF)             | Portability, medical sharing    | Data exports/month                               | P1       | 🧪     |
+
+---
+
+## 6) User Journeys & Flows
+
+### 6.1 Critical Journey (New user → Aha → Habit)
+
+1. **Acquire:** Ads/content in rare disease communities.
+2. **Activate:** Onboarding → log first symptom.
+3. **Aha moment:** Avatar gives validating reflection + visual stamp.
+4. **Habit loop:** Daily logging reinforced by community + store perks.
+
+### 6.2 Flow Outline
+
+* Signup & onboarding → first symptom logged → AI avatar reflection → browse store → return for daily logging.
+
+---
+
+## 7) Content & Brand System
+
+* **Brand promise:** “You are understood.”
+* **Voice & tone:** Empathetic, validating, hopeful.
+
+  * Do: “That sounds tough. Let’s track it so we can understand together.”
+  * Don’t: “Your symptoms don’t match medical criteria.”
+* **Naming conventions:** Simple, human, non-clinical.
+* **Accessibility:** Respect cognitive load; gentle color palette; readable type.
+
+---
+
+## 8) Data Model (Draft)
+
+* Core object: **Symptom Log** (id, user\_id, symptom tags, notes, timestamp, AI avatar reflection).
+* Other entities: User, Product, Order, Community Post, Avatar Interaction.
+* Retention: Users can export and self-store; Zebby minimizes storage.
+
+---
+
+## 9) System Architecture (Draft)
+
+* **Client:** Webapp first; later iOS/Android/Desktop.
+* **Backend:** To be finalized (likely Node/TypeScript + Postgres).
+* **Integrations:** Google Fit, heart rate monitors (general integrations if possible), Shopify (store), Stripe (payments), Google auth.
+
+---
+
+## 10) Security, Privacy, Compliance
+
+* Only export for users (data stored externally if chosen).
+* Research whether GDPR/CCPA applies; build consent + deletion flows if required.
+* Privacy-first: no medical diagnosis; user controls data.
+
+---
+
+## 11) Analytics & Experimentation
+
+**Key dashboards (first 5):**
+
+1. Acquisition (traffic → signup → activation)
+2. Activation (% logging symptoms ≥3x/week)
+3. Engagement (% feeling understood, WAU/MAU)
+4. Marketplace (conversion %, ARPU)
+5. Quality (AI latency, error rate)
+
+---
+
+## 12) Go-to-Market (GTM)
+
+* Start with community-driven awareness (rare disease groups, TikTok/IG).
+* Launch MVP webapp + store.
+* Kickstarter/Shark Tank campaign to fund full app build.
+* Leverage social media for trust, reputation, and loyalty.
+
+---
+
+## 13) Monetization
+
+* **Model:** Trial only (no free version).
+* **Price:** \$15/month.
+* Marketplace revenue via Shopify + Stripe.
+
+---
+
+## 14) Roadmap (High-Level)
+
+| Quarter | Theme                  | Big bets                     | Risks             | KPIs                     |
+| ------- | ---------------------- | ---------------------------- | ----------------- | ------------------------ |
+| Q1      | Webapp MVP             | Tracker + Store + Avatar     | Dev resourcing    | Activation, symptom logs |
+| Q2      | Kickstarter/Shark Tank | Fundraise, expand team       | Crowdfunding risk | Funding secured          |
+| Q3      | Mobile App             | Sleep tracking, integrations | Hiring devs       | Mobile DAU               |
+| Q4      | Community Expansion    | Social feed, avatar upgrades | Retention         | WAU/MAU                  |
+
+---
+
+## 15) Risks & Assumptions
+
+* **Market:** Will enough EDS/rare condition users pay \$15/mo without a free tier?
+* **Product:** Avatar must feel supportive + educational without crossing into medical advice.
+* **Tech:** Integration fragility (Google Fit, monitors).
+* **Execution:** Funding dependent on Kickstarter/Shark Tank success.
+* **Mitigation:** Social media strategy to build brand trust and loyalty.
+
+---
+
+## 20) Open Questions (to confirm with you)
+
+1. For “feeling understood,” do we design **in-app mood/validation check-ins** after avatar interactions?
+2. Should we pre-load specific placeholder products for store categories (tools, braces, supplements, salts/electrolytes, courses), or wait for real vendor partnerships?
+3. For heart rate monitor support: confirm if general integrations cover most devices or if we must prioritize brands.
+4. For monetization: should trial length be 7 days, 14 days, or 30 days?
+5. What is the minimum compliance we need before launch (GDPR/CCPA, HIPAA not required)?
+
+---
+
+## 21) Fast “Memory Anchors” (TL;DR for daily use)
+
+* **Mission:** Help people with rare conditions feel understood and supported through tracking, community, and access to products.
+* **Users:** People with EDS + rare conditions.
+* **Aha:** Logging a symptom and receiving an AI avatar validation.
+* **NSM:** % of users logging ≥3x/week and reporting “feeling understood.”
+* **This week’s priorities:** Finalize MVP scope (avatar + store categories), decide trial length, research compliance.
+* **Blocked by:** Confirmation on compliance and trial design.
+
+---
