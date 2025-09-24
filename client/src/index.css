@@ -1,0 +1,104 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(180, 20%, 99%);
+  --foreground: hsl(215, 20%, 20%);
+  --card: hsl(180, 20%, 98%);
+  --card-foreground: hsl(215, 20%, 20%);
+  --popover: hsl(180, 20%, 98%);
+  --popover-foreground: hsl(215, 20%, 20%);
+  --primary: hsl(174, 44%, 56%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(120, 25%, 65%);
+  --secondary-foreground: hsl(215, 20%, 20%);
+  --muted: hsl(174, 20%, 95%);
+  --muted-foreground: hsl(215, 15%, 45%);
+  --accent: hsl(351, 83%, 76%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 70%, 60%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --border: hsl(174, 20%, 90%);
+  --input: hsl(174, 20%, 96%);
+  --ring: hsl(174, 44%, 56%);
+  --radius: 12px;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: Menlo, monospace;
+}
+
+.dark {
+  --background: hsl(215, 20%, 8%);
+  --foreground: hsl(180, 20%, 92%);
+  --card: hsl(215, 20%, 10%);
+  --card-foreground: hsl(180, 20%, 92%);
+  --popover: hsl(215, 20%, 10%);
+  --popover-foreground: hsl(180, 20%, 92%);
+  --primary: hsl(174, 44%, 56%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(120, 25%, 55%);
+  --secondary-foreground: hsl(180, 20%, 92%);
+  --muted: hsl(215, 15%, 15%);
+  --muted-foreground: hsl(174, 15%, 65%);
+  --accent: hsl(351, 83%, 66%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 70%, 60%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --border: hsl(215, 15%, 18%);
+  --input: hsl(215, 15%, 16%);
+  --ring: hsl(174, 44%, 56%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .zebra-pattern {
+    background: linear-gradient(45deg, 
+      transparent 25%, 
+      rgba(79, 209, 199, 0.1) 25%, 
+      rgba(79, 209, 199, 0.1) 50%, 
+      transparent 50%, 
+      transparent 75%, 
+      rgba(79, 209, 199, 0.1) 75%);
+    background-size: 20px 20px;
+  }
+  
+  .glass-effect {
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+  
+  .dark .glass-effect {
+    background: rgba(0, 0, 0, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .symptom-stamp {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+  }
+  
+  .floating-animation {
+    animation: float 3s ease-in-out infinite;
+  }
+}
+
+@keyframes float {
+  0%, 100% { 
+    transform: translateY(0px); 
+  }
+  50% { 
+    transform: translateY(-10px); 
+  }
+}
