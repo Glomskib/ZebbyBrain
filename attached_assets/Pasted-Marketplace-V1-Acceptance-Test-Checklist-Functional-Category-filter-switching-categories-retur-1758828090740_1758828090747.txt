@@ -1,0 +1,191 @@
+Marketplace V1 – Acceptance & Test Checklist
+Functional
+
+Category filter: switching categories returns the right items; no duplicates on the page.
+
+Empty-state: when a category truly has 0 products, show a friendly message (not error).
+
+Search (if present): matches title, brand, tags.
+
+Sorting (if present): price asc/desc, newest.
+
+Pagination/“Load more”: preserves active filters.
+
+Product cards: image, title, brief copy, price and discount math (original vs. sale) are correct.
+
+Data integrity & safety (EDS-specific)
+
+No medical/diagnostic claims; copy uses “may help with…” and not medical advice banner present.
+
+Supplements flagged as “consult your clinician”.
+
+External links open in new tab; affiliate disclosure visible if applicable.
+
+Image rights/attribution OK (no hotlinking you don’t control).
+
+Prices are strings + numeric fields; currency symbol consistent (USD or locale).
+
+If any prices are dynamic, server validates against a trusted source, not just client.
+
+API & security
+
+/api/products?categoryId=X validates X server-side (whitelist), ignores unknown, returns 400 for malformed.
+
+Rate-limit read endpoints (light) to prevent scraping.
+
+Sanitize product fields when rendering (escape HTML) to avoid XSS from CMS/db.
+
+No PII is logged with click/analytics events.
+
+Accessibility
+
+Card images have alt text.
+
+Buttons/filters reachable by keyboard; visible focus ring.
+
+Color contrast ≥ WCAG AA.
+
+Screen reader announcements for filter changes.
+
+Performance
+
+Initial marketplace view ≤ ~200KB added JS (gz) if possible.
+
+Images lazy-load, have width/height set to avoid layout shift.
+
+API p50 < 300ms in Replit.
+
+Analytics (privacy-friendly)
+
+Events: product_view, filter_change, click_out. No personal health data included.
+
+Opt-out toggle in Settings.
+
+SEO
+
+Add Product JSON-LD to product pages (or cards if you have per-product routes).
+
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"Product",
+  "name":"Copper Compression Knee Brace",
+  "description":"Comfort support for joint stability; not medical advice.",
+  "brand": {"@type":"Brand","name":"Copper Compression"},
+  "offers":{
+    "@type":"Offer",
+    "price":"29.99","priceCurrency":"USD","availability":"https://schema.org/InStock"
+  }
+}
+</script>
+
+🧪 Quick spot-checks (run now)
+
+Force a category with a single product and verify no “No Products Available”.
+
+Insert a duplicate in the DB on purpose → ensure UI dedupes it.
+
+Disable images (devtools) → cards still readable.
+
+Turn JS throttling to “Slow 3G” → UI still interactive and images lazy-load.
+
+▶️ After tests pass: Stripe subscription plan (Zebby Plus)
+
+Use Stripe only for app features (e.g., unlimited AI reflections, themes, exports), not physical marketplace items (those usually link out).
+
+Data model additions (Prisma)
+model User {
+  id                String  @id @default(cuid())
+  email             String? @unique
+  stripeCustomerId  String? @unique
+  plan              String  @default("free") // "free" | "plus"
+  planStatus        String  @default("inactive") // "active" | "past_due" | "canceled"
+  currentPeriodEnd  DateTime?
+  createdAt         DateTime @default(now())
+}
+
+Server: create checkout session
+// server/src/routes/billing.ts
+import { Router } from "express";
+import Stripe from "stripe";
+import { prisma } from "../index";
+
+const r = Router();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" });
+const PRICE_ID = process.env.STRIPE_PLUS_PRICE_ID!; // monthly price
+
+r.post("/create-checkout-session", async (req, res) => {
+  const userId = req.body.userId; // from auth session
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return res.status(401).json({ error: "auth required" });
+
+  const customer = user.stripeCustomerId
+    ? user.stripeCustomerId
+    : (await stripe.customers.create({ email: user.email || undefined })).id;
+
+  if (!user.stripeCustomerId) {
+    await prisma.user.update({ where: { id: userId }, data: { stripeCustomerId: customer } });
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    customer,
+    line_items: [{ price: PRICE_ID, quantity: 1 }],
+    success_url: `${process.env.APP_URL}/settings?purchase=success`,
+    cancel_url: `${process.env.APP_URL}/settings?purchase=cancel`,
+    allow_promotion_codes: true,
+  });
+
+  res.json({ url: session.url });
+});
+
+export default r;
+
+Webhook: provision access
+// server/src/routes/stripe-webhook.ts
+import { Router } from "express";
+import Stripe from "stripe";
+import { prisma } from "../index";
+
+const r = Router();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" });
+
+r.post("/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  const sig = req.headers["stripe-signature"] as string;
+  let event: Stripe.Event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
+  } catch (err) {
+    return res.status(400).send(`Webhook error: ${(err as Error).message}`);
+  }
+
+  switch (event.type) {
+    case "checkout.session.completed": {
+      const s = event.data.object as Stripe.Checkout.Session;
+      const subId = s.subscription as string;
+      const sub = await stripe.subscriptions.retrieve(subId);
+      const customerId = sub.customer as string;
+      // Map customerId -> user
+      const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
+      if (user) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            plan: "plus",
+            planStatus: sub.status === "active" ? "active" : "inactive",
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+          },
+        });
+      }
+      break;
+    }
+    case "customer.subscription.updated":
+    case "customer.subscription.deleted": {
+      const sub = event.data.object as Stripe.Subscription;
+      const customerId = sub.customer as string;
+      const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
+      if (user) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            plan: sub.status === "active" ? "plus" : "free",
