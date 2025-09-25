@@ -23,6 +23,7 @@ export default function Navigation() {
     { path: "/", label: "Dashboard", testId: "nav-dashboard" },
     { path: "/tracker", label: "Tracker", testId: "nav-tracker" },
     { path: "/marketplace", label: "Marketplace", testId: "nav-marketplace" },
+    { path: "/settings", label: "Settings", testId: "nav-settings" },
   ];
 
   const getInitials = () => {

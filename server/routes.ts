@@ -1,11 +1,14 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateEmpathicReflection, generatePersonalizedInsight } from "./openai";
-import { insertSymptomLogSchema, products, productCategories } from "@shared/schema";
+import { insertSymptomLogSchema, products, productCategories, users } from "@shared/schema";
 import { db } from "./db";
 import { z } from "zod";
+import Stripe from "stripe";
+import { eq } from "drizzle-orm";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -390,6 +393,216 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error cleaning up marketplace:", error);
       res.status(500).json({ message: "Failed to cleanup marketplace" });
+    }
+  });
+
+  // Helper function to validate Stripe configuration
+  function isValidStripeConfig(): boolean {
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    const priceId = process.env.STRIPE_PLUS_PRICE_ID;
+    
+    return !!(secretKey && 
+             priceId &&
+             secretKey.startsWith('sk_') && 
+             priceId.startsWith('price_') &&
+             secretKey.length > 10);
+  }
+
+  // Check if Stripe is properly configured
+  let stripe: Stripe | null = null;
+  let PRICE_ID: string | null = null;
+  
+  console.log("Checking Stripe configuration...");
+  
+  if (isValidStripeConfig()) {
+    try {
+      console.log("Valid Stripe configuration detected, initializing...");
+      stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { 
+        apiVersion: "2024-09-30.acacia" // Use supported API version
+      });
+      PRICE_ID = process.env.STRIPE_PLUS_PRICE_ID!;
+      console.log("Stripe initialized successfully");
+    } catch (error) {
+      console.log("Stripe initialization failed, falling back to test mode:", (error as Error).message);
+      stripe = null;
+      PRICE_ID = null;
+    }
+  } else {
+    console.log("Invalid or missing Stripe configuration, running in test mode");
+  }
+
+  // Billing routes
+  app.post('/api/create-checkout-session', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      
+      if (!user[0]) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Check if we're in test mode (no valid Stripe configuration)
+      if (!stripe || !PRICE_ID) {
+        console.log("Test mode: Simulating Stripe checkout session creation");
+        // Simulate checkout session for testing
+        return res.json({ 
+          url: "https://checkout.stripe.com/test-session-url",
+          test_mode: true,
+          message: "Test mode: Real Stripe integration requires valid API keys" 
+        });
+      }
+
+      console.log("Creating Stripe checkout session for user:", userId);
+
+      let customerId = user[0].stripeCustomerId;
+      
+      // Create Stripe customer if doesn't exist
+      if (!customerId) {
+        const customer = await stripe.customers.create({ 
+          email: user[0].email || undefined,
+          metadata: { userId: userId }
+        });
+        customerId = customer.id;
+        
+        // Update user with Stripe customer ID
+        await db.update(users)
+          .set({ stripeCustomerId: customerId })
+          .where(eq(users.id, userId));
+      }
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        customer: customerId,
+        line_items: [{ price: PRICE_ID, quantity: 1 }],
+        success_url: `${req.protocol}://${req.get('host')}/settings?purchase=success`,
+        cancel_url: `${req.protocol}://${req.get('host')}/settings?purchase=cancel`,
+        allow_promotion_codes: true,
+        metadata: { userId: userId }
+      });
+
+      res.json({ url: session.url });
+    } catch (error) {
+      console.error("Error creating checkout session:", error);
+      
+      // Handle Stripe authentication errors gracefully
+      if ((error as any).type === 'StripeAuthenticationError' || 
+          (error as Error).message.includes('Invalid API Key')) {
+        console.log("Stripe authentication failed, returning test mode response");
+        return res.json({ 
+          url: "https://checkout.stripe.com/test-session-url",
+          test_mode: true,
+          message: "Test mode: Stripe authentication failed" 
+        });
+      }
+      
+      // Don't expose internal errors to client
+      res.status(500).json({ error: "Unable to create checkout session. Please try again later." });
+    }
+  });
+
+  // Stripe webhook endpoint
+  app.post('/api/stripe/webhook', 
+    express.raw({ type: 'application/json' }), 
+    async (req, res) => {
+      // Skip webhook processing in test mode
+      if (!stripe) {
+        console.log("Test mode: Ignoring webhook");
+        return res.json({ received: true });
+      }
+
+      const sig = req.headers['stripe-signature'] as string;
+      let event: Stripe.Event;
+
+      try {
+        event = stripe.webhooks.constructEvent(
+          req.body, 
+          sig, 
+          process.env.STRIPE_WEBHOOK_SECRET!
+        );
+      } catch (err) {
+        console.error('Webhook signature verification failed:', err);
+        return res.status(400).send(`Webhook error: ${(err as Error).message}`);
+      }
+
+      try {
+        switch (event.type) {
+          case 'checkout.session.completed': {
+            const session = event.data.object as Stripe.Checkout.Session;
+            const customerId = session.customer as string;
+            const subscriptionId = session.subscription as string;
+            
+            if (subscriptionId) {
+              const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+              
+              // Find user by Stripe customer ID
+              const user = await db.select().from(users)
+                .where(eq(users.stripeCustomerId, customerId))
+                .limit(1);
+              
+              if (user[0]) {
+                await db.update(users)
+                  .set({
+                    plan: "plus",
+                    planStatus: subscription.status === "active" ? "active" : "inactive",
+                    currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+                  })
+                  .where(eq(users.id, user[0].id));
+              }
+            }
+            break;
+          }
+          
+          case 'customer.subscription.updated':
+          case 'customer.subscription.deleted': {
+            const subscription = event.data.object as Stripe.Subscription;
+            const customerId = subscription.customer as string;
+            
+            // Find user by Stripe customer ID
+            const user = await db.select().from(users)
+              .where(eq(users.stripeCustomerId, customerId))
+              .limit(1);
+            
+            if (user[0]) {
+              await db.update(users)
+                .set({
+                  plan: subscription.status === "active" ? "plus" : "free",
+                  planStatus: subscription.status,
+                  currentPeriodEnd: subscription.status === "active" 
+                    ? new Date((subscription as any).current_period_end * 1000)
+                    : null,
+                })
+                .where(eq(users.id, user[0].id));
+            }
+            break;
+          }
+        }
+        
+        res.json({ received: true });
+      } catch (error) {
+        console.error('Error processing webhook:', error);
+        res.status(500).json({ error: 'Webhook processing failed' });
+      }
+    }
+  );
+
+  // Get user billing status
+  app.get('/api/billing/status', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await db.select({
+        plan: users.plan,
+        planStatus: users.planStatus,
+        currentPeriodEnd: users.currentPeriodEnd
+      }).from(users).where(eq(users.id, userId)).limit(1);
+      
+      if (!user[0]) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      res.json(user[0]);
+    } catch (error) {
+      console.error("Error fetching billing status:", error);
+      res.status(500).json({ error: "Failed to fetch billing status" });
     }
   });
 

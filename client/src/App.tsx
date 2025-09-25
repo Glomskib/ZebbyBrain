@@ -8,6 +8,7 @@ import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import SymptomTracker from "@/pages/symptom-tracker";
 import Marketplace from "@/pages/marketplace";
+import Settings from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -22,6 +23,7 @@ function Router() {
           <Route path="/" component={Dashboard} />
           <Route path="/tracker" component={SymptomTracker} />
           <Route path="/marketplace" component={Marketplace} />
+          <Route path="/settings" component={Settings} />
         </>
       )}
       <Route component={NotFound} />
