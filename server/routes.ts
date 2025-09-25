@@ -755,10 +755,132 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const formatDate = (date?: Date | string) => 
         date ? new Date(date).toLocaleDateString() : "—";
 
+      // Generate highlight bullets based on data patterns
+      const generateHighlights = (symptoms: SymptomLog[], aiInteractions: AIInteraction[]) => {
+        const highlights: string[] = [];
+        
+        if (symptoms.length > 0) {
+          // Most common symptoms
+          const symptomCounts: Record<string, number> = {};
+          symptoms.forEach(log => {
+            log.symptoms.forEach(symptom => {
+              symptomCounts[symptom] = (symptomCounts[symptom] || 0) + 1;
+            });
+          });
+          const topSymptom = Object.entries(symptomCounts).sort(([,a], [,b]) => b - a)[0];
+          if (topSymptom) {
+            highlights.push(`Most frequent symptom: ${topSymptom[0]} (${topSymptom[1]} occurrences)`);
+          }
+
+          // Average intensity
+          const avgIntensity = symptoms.reduce((sum, log) => sum + log.intensity, 0) / symptoms.length;
+          highlights.push(`Average symptom intensity: ${avgIntensity.toFixed(1)}/10`);
+
+          // Recent activity
+          const recentLogs = symptoms.filter(log => 
+            new Date(log.timestamp) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+          );
+          highlights.push(`Symptom logs in past 7 days: ${recentLogs.length}`);
+        }
+
+        if (aiInteractions.length > 0) {
+          highlights.push(`AI support interactions: ${aiInteractions.length} conversations`);
+        }
+
+        // Date range summary
+        const dateRange = from && to 
+          ? `${formatDate(fromDate)} to ${formatDate(toDate)}`
+          : `Complete health history`;
+        highlights.push(`Report covers: ${dateRange}`);
+
+        return highlights.slice(0, 5); // Limit to 5 bullets
+      };
+
+      const highlights = generateHighlights(symptoms, aiInteractions);
+
       const content: any[] = [
-        { text: "Zebby — Health Export Report", style: "h1" },
-        { text: `Range: ${from ? formatDate(fromDate) : "start"} – ${to ? formatDate(toDate) : "now"}`, margin: [0,0,0,10] },
-        { text: "This report is informational only and not medical advice.", style: "disclaimer", margin: [0,0,0,14] },
+        // Cover Page
+        { 
+          stack: [
+            { text: "🦓", fontSize: 48, alignment: "center", margin: [0, 60, 0, 20] },
+            { text: "ZEBBY", style: "logo", alignment: "center" },
+            { text: "Health Tracking Report", style: "subtitle", alignment: "center", margin: [0, 5, 0, 40] },
+            { text: `Patient: ${user?.firstName} ${user?.lastName}`, style: "patientInfo", alignment: "center" },
+            { text: `Report Date: ${new Date().toLocaleDateString()}`, style: "patientInfo", alignment: "center", margin: [0, 5, 0, 40] },
+            { text: "CLINICIAN PACK", style: "clinicianPack", alignment: "center", margin: [0, 20, 0, 60] },
+            { 
+              text: "This report contains comprehensive health tracking data for clinical review. All information is patient-reported and should be considered alongside clinical assessment.", 
+              style: "coverDisclaimer", 
+              alignment: "center",
+              margin: [40, 0, 40, 0]
+            }
+          ],
+          pageBreak: "after"
+        },
+
+        // Key Highlights Section
+        { text: "Key Highlights", style: "h1" },
+        { text: "Recent patterns and notable information for clinical consideration:", style: "subtitle", margin: [0, 0, 0, 10] },
+        {
+          ul: highlights,
+          margin: [0, 0, 0, 20],
+          style: "highlights"
+        },
+
+        // Key Changes Since Last Visit
+        { text: "Key Changes Since Last Visit", style: "h2" },
+        { text: "Notable patterns and changes in the past 30 days (when applicable):", style: "subtitle", margin: [0, 0, 0, 10] },
+        (() => {
+          const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+          const recentSymptoms = symptoms.filter(log => new Date(log.timestamp) > thirtyDaysAgo);
+          const olderSymptoms = symptoms.filter(log => new Date(log.timestamp) <= thirtyDaysAgo);
+          
+          const changes: string[] = [];
+          
+          if (recentSymptoms.length > 0) {
+            const recentAvgIntensity = recentSymptoms.reduce((sum, log) => sum + log.intensity, 0) / recentSymptoms.length;
+            const olderAvgIntensity = olderSymptoms.length > 0 
+              ? olderSymptoms.reduce((sum, log) => sum + log.intensity, 0) / olderSymptoms.length 
+              : null;
+              
+            if (olderAvgIntensity !== null) {
+              const change = recentAvgIntensity - olderAvgIntensity;
+              const direction = change > 0.5 ? "increased" : change < -0.5 ? "decreased" : "remained stable";
+              changes.push(`Average symptom intensity has ${direction} (${recentAvgIntensity.toFixed(1)} vs ${olderAvgIntensity.toFixed(1)})`);
+            } else {
+              changes.push(`Started tracking symptoms with average intensity of ${recentAvgIntensity.toFixed(1)}/10`);
+            }
+            
+            changes.push(`Recorded ${recentSymptoms.length} symptom logs in past 30 days`);
+            
+            // Most frequent recent symptoms
+            const recentSymptomCounts: Record<string, number> = {};
+            recentSymptoms.forEach(log => {
+              log.symptoms.forEach(symptom => {
+                recentSymptomCounts[symptom] = (recentSymptomCounts[symptom] || 0) + 1;
+              });
+            });
+            const topRecentSymptom = Object.entries(recentSymptomCounts).sort(([,a], [,b]) => b - a)[0];
+            if (topRecentSymptom) {
+              changes.push(`Most frequent recent symptom: ${topRecentSymptom[0]} (${topRecentSymptom[1]} times)`);
+            }
+          } else {
+            changes.push("No symptom logs recorded in the past 30 days");
+          }
+          
+          if (changes.length === 0) {
+            changes.push("Insufficient data to determine changes since last visit");
+          }
+          
+          return {
+            ul: changes,
+            margin: [0, 0, 0, 20],
+            style: "highlights"
+          };
+        })(),
+
+        { text: "Data Range & Summary", style: "h2" },
+        { text: `Range: ${from ? formatDate(fromDate) : "All available data"} – ${to ? formatDate(toDate) : "Present"}`, margin: [0,0,0,10] },
       ];
 
       if (sections.includes("summary")) {
@@ -789,58 +911,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (sections.includes("symptoms") && symptoms.length) {
         content.push({ text: "Symptom Logs", style: "h2" });
+        content.push({ text: `Total entries: ${symptoms.length}`, style: "subtitle", margin: [0, 0, 0, 8] });
         content.push({
           table: {
             headerRows: 1,
-            widths: ["auto", "*", "auto", "*"],
+            widths: ["15%", "35%", "12%", "38%"],
             body: [
-              [{text:"Date",bold:true}, {text:"Symptoms",bold:true}, {text:"Intensity",bold:true}, {text:"Notes",bold:true}],
+              [
+                {text:"Date", style:"tableHeader"}, 
+                {text:"Symptoms", style:"tableHeader"}, 
+                {text:"Intensity", style:"tableHeader"}, 
+                {text:"Notes & AI Reflection", style:"tableHeader"}
+              ],
               ...symptoms.map((symptom: SymptomLog) => [
-                formatDate(symptom.timestamp),
-                symptom.symptoms.join(", "),
-                String(symptom.intensity),
-                (symptom.notes || "").slice(0, 100)
+                { text: formatDate(symptom.timestamp), fontSize: 9 },
+                { text: symptom.symptoms.join(", "), fontSize: 9 },
+                { text: `${symptom.intensity}/10`, fontSize: 9, alignment: "center" },
+                { 
+                  text: [
+                    { text: (symptom.notes || "No notes").slice(0, 150), fontSize: 9 },
+                    symptom.aiReflection ? { text: `\n\nAI Insight: ${symptom.aiReflection.slice(0, 100)}...`, fontSize: 8, color: '#059669', italics: true } : ""
+                  ].filter(Boolean)
+                }
               ])
             ]
           },
-          fontSize: 9,
-          layout: "lightHorizontalLines",
-          margin: [0,0,0,10]
+          layout: {
+            fillColor: (rowIndex: number) => rowIndex === 0 ? '#f9fafb' : rowIndex % 2 === 0 ? '#f9fafb' : null,
+            hLineWidth: () => 0.5,
+            vLineWidth: () => 0.5,
+            hLineColor: () => '#e5e7eb',
+            vLineColor: () => '#e5e7eb'
+          },
+          margin: [0,0,0,15]
         });
       }
 
       if (sections.includes("ai-interactions") && aiInteractions.length) {
-        content.push({ text: "AI Interactions", style: "h2" });
+        content.push({ text: "AI Support Conversations", style: "h2" });
+        content.push({ text: `Total conversations: ${aiInteractions.length}`, style: "subtitle", margin: [0, 0, 0, 8] });
         content.push({
           table: {
             headerRows: 1,
-            widths: ["auto", "*", "*"],
+            widths: ["15%", "40%", "45%"],
             body: [
-              [{text:"Date",bold:true}, {text:"Prompt",bold:true}, {text:"Response",bold:true}],
+              [
+                {text:"Date", style:"tableHeader"}, 
+                {text:"Patient Input", style:"tableHeader"}, 
+                {text:"AI Response Summary", style:"tableHeader"}
+              ],
               ...aiInteractions.map((interaction: AIInteraction) => [
-                formatDate(interaction.createdAt || undefined),
-                (interaction.prompt || "").slice(0, 100),
-                (interaction.response || "").slice(0, 200)
+                { text: formatDate(interaction.createdAt || undefined), fontSize: 9 },
+                { text: (interaction.prompt || "No input recorded").slice(0, 120), fontSize: 9 },
+                { text: (interaction.response || "No response recorded").slice(0, 180) + (interaction.response && interaction.response.length > 180 ? "..." : ""), fontSize: 9 }
               ])
             ]
           },
-          fontSize: 9,
-          layout: "lightHorizontalLines",
-          margin: [0,0,0,10]
+          layout: {
+            fillColor: (rowIndex: number) => rowIndex === 0 ? '#f9fafb' : rowIndex % 2 === 0 ? '#f9fafb' : null,
+            hLineWidth: () => 0.5,
+            vLineWidth: () => 0.5,
+            hLineColor: () => '#e5e7eb',
+            vLineColor: () => '#e5e7eb'
+          },
+          margin: [0,0,0,15]
         });
       }
 
       const docDef: any = {
-        pageMargins: [40, 40, 40, 60],
+        pageMargins: [50, 50, 50, 70],
         content,
-        defaultStyle: { font: 'Helvetica' },
+        defaultStyle: { font: 'Helvetica', fontSize: 10, lineHeight: 1.3 },
         styles: {
-          h1: { fontSize: 20, bold: true, margin: [0,0,0,6] },
-          h2: { fontSize: 14, bold: true, margin: [0,10,0,6] },
-          disclaimer: { italics: true, color: "#666" }
+          logo: { fontSize: 32, bold: true, color: '#2563eb', letterSpacing: 3 },
+          subtitle: { fontSize: 14, color: '#666', margin: [0, 0, 0, 10] },
+          patientInfo: { fontSize: 12, bold: true, color: '#374151' },
+          clinicianPack: { fontSize: 16, bold: true, color: '#059669', letterSpacing: 2 },
+          coverDisclaimer: { fontSize: 9, color: '#6b7280', lineHeight: 1.4, italics: true },
+          h1: { fontSize: 18, bold: true, margin: [0, 0, 0, 8], color: '#1f2937' },
+          h2: { fontSize: 14, bold: true, margin: [0, 16, 0, 8], color: '#374151' },
+          highlights: { fontSize: 11, lineHeight: 1.4, margin: [0, 4, 0, 4] },
+          disclaimer: { italics: true, color: "#6b7280", fontSize: 9 },
+          tableHeader: { bold: true, fillColor: '#f3f4f6', color: '#374151' },
+          print: { fontSize: 9, color: '#000' } // Print-optimized styles
         },
-        footer: (currentPage: number, pageCount: number) =>
-          ({ text: `Zebby • Not medical advice • ${currentPage}/${pageCount}`, alignment: "center", fontSize: 8, margin: [0,10,0,0] })
+        header: (currentPage: number) => currentPage > 1 ? {
+          text: `${user?.firstName} ${user?.lastName} • Zebby Health Report`,
+          alignment: 'center',
+          fontSize: 8,
+          color: '#6b7280',
+          margin: [0, 20, 0, 0]
+        } : null,
+        footer: (currentPage: number, pageCount: number) => ({
+          columns: [
+            { text: 'Generated by Zebby Health Tracker', fontSize: 7, color: '#9ca3af' },
+            { text: `${currentPage}/${pageCount}`, fontSize: 7, color: '#9ca3af', alignment: 'right' }
+          ],
+          margin: [50, 15, 50, 0]
+        })
       };
 
       const pdfDoc = printer.createPdfKitDocument(docDef);
