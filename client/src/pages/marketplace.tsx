@@ -28,16 +28,58 @@ export default function Marketplace() {
     }
   }, [isAuthenticated, isLoading, toast]);
 
-  // Fetch product categories
-  const { data: categories = [] } = useQuery({
+  // Fetch product categories and deduplicate by name (take most recent)
+  const { data: categoriesRaw = [] } = useQuery({
     queryKey: ["/api/product-categories"],
     enabled: true, // Public data
     retry: false,
   });
 
+  // Deduplicate categories by name, keeping the most recent one
+  const categories = (categoriesRaw as any[]).reduce((acc: any[], category: any) => {
+    const existing = acc.find(c => c.name === category.name);
+    if (!existing) {
+      acc.push(category);
+    } else if (new Date(category.createdAt) > new Date(existing.createdAt)) {
+      // Replace with more recent category
+      const index = acc.findIndex(c => c.name === category.name);
+      acc[index] = category;
+    }
+    return acc;
+  }, []);
+
   // Fetch products
   const { data: products = [], isLoading: productsLoading } = useQuery({
     queryKey: ["/api/products", selectedCategory],
+    queryFn: async () => {
+      const url = selectedCategory 
+        ? `/api/products?categoryId=${selectedCategory}`
+        : '/api/products';
+      console.log(`🔍 Fetching products from: ${url}`);
+      console.log(`🔍 Selected category: ${selectedCategory}`);
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        throw new Error(`${res.status}: ${res.statusText}`);
+      }
+      const data = await res.json();
+      console.log(`✅ Received ${data.length} products`);
+      
+      // Deduplicate products by name, keeping the most recent one
+      const deduplicatedProducts = data.reduce((acc: any[], product: any) => {
+        const existing = acc.find(p => p.name === product.name);
+        if (!existing) {
+          acc.push(product);
+        } else if (new Date(product.createdAt) > new Date(existing.createdAt)) {
+          // Replace with more recent product
+          const index = acc.findIndex(p => p.name === product.name);
+          acc[index] = product;
+        }
+        return acc;
+      }, []);
+      
+      console.log(`✅ After deduplication: ${deduplicatedProducts.length} products`);
+      return deduplicatedProducts;
+    },
     enabled: true, // Public data
     retry: false,
   });

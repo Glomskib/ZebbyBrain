@@ -3,7 +3,8 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateEmpathicReflection, generatePersonalizedInsight } from "./openai";
-import { insertSymptomLogSchema } from "@shared/schema";
+import { insertSymptomLogSchema, products, productCategories } from "@shared/schema";
+import { db } from "./db";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -201,14 +202,194 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { name: "Courses", description: "Educational resources and self-advocacy training", icon: "📚" },
       ];
 
+      // Check for existing categories first
+      const existingCategories = await storage.getAllProductCategories();
+      const createdCategories = [];
+      
       for (const category of categories) {
-        await storage.createProductCategory(category);
+        const existing = existingCategories.find(c => c.name === category.name);
+        if (existing) {
+          createdCategories.push(existing);
+        } else {
+          try {
+            const created = await storage.createProductCategory(category);
+            createdCategories.push(created);
+          } catch (error) {
+            console.error(`Error creating category ${category.name}:`, error);
+          }
+        }
       }
 
-      res.json({ message: "Default data initialized" });
+      // Create sample products for each category
+      const productData = [
+        // Braces & Support
+        {
+          categoryName: "Braces & Support",
+          products: [
+            {
+              name: "Copper Compression Knee Brace",
+              description: "Medical-grade knee support with copper-infused fabric for pain relief and joint stability. Perfect for EDS joint hypermobility.",
+              price: "29.99",
+              originalPrice: "39.99",
+              discountPercentage: 25,
+              imageUrl: "https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=400"
+            },
+            {
+              name: "Wrist Support Braces (Pair)",
+              description: "Lightweight carpal tunnel braces designed for EDS patients. Provides gentle support without restricting movement.",
+              price: "24.99",
+              originalPrice: null,
+              discountPercentage: null,
+              imageUrl: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400"
+            },
+            {
+              name: "Compression Socks for POTS",
+              description: "20-30mmHg graduated compression socks to improve circulation and reduce POTS symptoms.",
+              price: "19.99",
+              originalPrice: "24.99",
+              discountPercentage: 20,
+              imageUrl: "https://images.unsplash.com/photo-1584464491033-06628f3a6b7b?w=400"
+            }
+          ]
+        },
+        // Supplements
+        {
+          categoryName: "Supplements",
+          products: [
+            {
+              name: "Collagen Peptides for Joint Health",
+              description: "Type I & III collagen peptides specifically formulated for connective tissue support. Essential for EDS management.",
+              price: "34.99",
+              originalPrice: "44.99",
+              discountPercentage: 22,
+              imageUrl: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400"
+            },
+            {
+              name: "Magnesium Glycinate 400mg",
+              description: "Gentle, bioavailable magnesium for muscle cramps, sleep support, and nervous system function. EDS-friendly formulation.",
+              price: "18.99",
+              originalPrice: null,
+              discountPercentage: null,
+              imageUrl: "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=400"
+            },
+            {
+              name: "Vitamin D3 + K2 Complex",
+              description: "High-potency vitamin D3 with K2 for bone health and immune support. Important for EDS patients with frequent deficiencies.",
+              price: "22.99",
+              originalPrice: "27.99",
+              discountPercentage: 18,
+              imageUrl: "https://images.unsplash.com/photo-1550572017-edd951aa8ca5?w=400"
+            }
+          ]
+        },
+        // Electrolytes
+        {
+          categoryName: "Electrolytes",
+          products: [
+            {
+              name: "POTS Electrolyte Powder",
+              description: "Sodium-rich electrolyte blend specifically designed for POTS and dysautonomia. No artificial sweeteners.",
+              price: "28.99",
+              originalPrice: "34.99",
+              discountPercentage: 17,
+              imageUrl: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400"
+            },
+            {
+              name: "Sea Salt Hydration Tablets",
+              description: "Natural sea salt tablets for quick sodium replacement. Dissolves easily and tastes great.",
+              price: "16.99",
+              originalPrice: null,
+              discountPercentage: null,
+              imageUrl: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400"
+            }
+          ]
+        },
+        // Tools & Aids
+        {
+          categoryName: "Tools & Aids",
+          products: [
+            {
+              name: "Ergonomic Kitchen Utensils Set",
+              description: "Lightweight, easy-grip kitchen tools designed for people with joint pain and limited hand strength.",
+              price: "45.99",
+              originalPrice: "59.99",
+              discountPercentage: 23,
+              imageUrl: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400"
+            },
+            {
+              name: "Memory Foam Seat Cushion",
+              description: "Orthopedic coccyx cushion for tailbone pain relief. Perfect for long sitting periods.",
+              price: "32.99",
+              originalPrice: null,
+              discountPercentage: null,
+              imageUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=400"
+            }
+          ]
+        },
+        // Courses
+        {
+          categoryName: "Courses",
+          products: [
+            {
+              name: "EDS Self-Advocacy Masterclass",
+              description: "Learn how to effectively communicate with doctors and advocate for your health needs. Includes printable resources.",
+              price: "79.99",
+              originalPrice: "99.99",
+              discountPercentage: 20,
+              imageUrl: "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400"
+            },
+            {
+              name: "POTS Management Guide",
+              description: "Comprehensive course on managing POTS symptoms, including exercise protocols and lifestyle modifications.",
+              price: "59.99",
+              originalPrice: null,
+              discountPercentage: null,
+              imageUrl: "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=400"
+            }
+          ]
+        }
+      ];
+
+      // Create products for each category
+      for (const categoryData of productData) {
+        const category = createdCategories.find(c => c.name === categoryData.categoryName);
+        if (category) {
+          for (const productInfo of categoryData.products) {
+            try {
+              await storage.createProduct({
+                categoryId: category.id,
+                name: productInfo.name,
+                description: productInfo.description,
+                price: productInfo.price,
+                originalPrice: productInfo.originalPrice,
+                discountPercentage: productInfo.discountPercentage,
+                imageUrl: productInfo.imageUrl,
+                isActive: true,
+              });
+            } catch (error) {
+              // Product might already exist, skip silently
+            }
+          }
+        }
+      }
+
+      res.json({ message: "Default data initialized with products" });
     } catch (error) {
       console.error("Error initializing data:", error);
       res.status(500).json({ message: "Failed to initialize data" });
+    }
+  });
+
+  // Cleanup endpoint to reset marketplace data (development only)
+  app.post('/api/cleanup-marketplace', async (req, res) => {
+    try {
+      // Delete all products and categories to start fresh
+      await db.delete(products);
+      await db.delete(productCategories);
+      res.json({ message: "Marketplace data cleaned up" });
+    } catch (error) {
+      console.error("Error cleaning up marketplace:", error);
+      res.status(500).json({ message: "Failed to cleanup marketplace" });
     }
   });
 
