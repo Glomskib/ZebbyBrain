@@ -4,7 +4,18 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateEmpathicReflection, generatePersonalizedInsight } from "./openai";
-import { insertSymptomLogSchema, products, productCategories, users, type SymptomLog, type AIInteraction } from "@shared/schema";
+import { 
+  insertSymptomLogSchema, 
+  insertVitalsLogSchema,
+  insertSleepLogSchema,
+  products, 
+  productCategories, 
+  users, 
+  type SymptomLog, 
+  type AIInteraction,
+  type VitalsLog,
+  type SleepLog 
+} from "@shared/schema";
 import { db } from "./db";
 import { z } from "zod";
 import Stripe from "stripe";
@@ -12,10 +23,19 @@ import { eq, and, gte, lte } from "drizzle-orm";
 import { Parser } from "json2csv";
 // @ts-ignore
 import PdfPrinter from "pdfmake";
+import { parseString } from "xml2js";
+import multer from "multer";
+import yauzl from "yauzl";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
+
+  // Configure multer for file uploads
+  const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
+  });
 
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
@@ -113,6 +133,253 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching AI interactions:", error);
       res.status(500).json({ message: "Failed to fetch AI interactions" });
+    }
+  });
+
+  // Vitals tracking routes
+  app.post('/api/vitals', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const validatedData = insertVitalsLogSchema.parse({
+        ...req.body,
+        userId,
+      });
+
+      const vitalsLog = await storage.createVitalsLog(validatedData);
+      res.json(vitalsLog);
+    } catch (error) {
+      console.error("Error creating vitals log:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid vitals data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create vitals log" });
+    }
+  });
+
+  app.get('/api/vitals', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const type = req.query.type as string;
+      const limit = parseInt(req.query.limit as string) || 100;
+      const vitalsLogs = await storage.getUserVitalsLogs(userId, type, limit);
+      res.json(vitalsLogs);
+    } catch (error) {
+      console.error("Error fetching vitals logs:", error);
+      res.status(500).json({ message: "Failed to fetch vitals logs" });
+    }
+  });
+
+  // Sleep tracking routes
+  app.post('/api/sleep', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const validatedData = insertSleepLogSchema.parse({
+        ...req.body,
+        userId,
+      });
+
+      const sleepLog = await storage.createSleepLog(validatedData);
+      res.json(sleepLog);
+    } catch (error) {
+      console.error("Error creating sleep log:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid sleep data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create sleep log" });
+    }
+  });
+
+  app.get('/api/sleep', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const limit = parseInt(req.query.limit as string) || 100;
+      const sleepLogs = await storage.getUserSleepLogs(userId, limit);
+      res.json(sleepLogs);
+    } catch (error) {
+      console.error("Error fetching sleep logs:", error);
+      res.status(500).json({ message: "Failed to fetch sleep logs" });
+    }
+  });
+
+  // Data import source management routes
+  app.get('/api/import-sources', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const sources = await storage.getUserDataImportSources(userId);
+      res.json(sources);
+    } catch (error) {
+      console.error("Error fetching import sources:", error);
+      res.status(500).json({ message: "Failed to fetch import sources" });
+    }
+  });
+
+  app.post('/api/import-sources/google-fit/authorize', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      // Google Fit OAuth2 authorization URL
+      const googleOAuthUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+      googleOAuthUrl.searchParams.set('client_id', process.env.GOOGLE_CLIENT_ID || '');
+      googleOAuthUrl.searchParams.set('redirect_uri', `${req.protocol}://${req.get('host')}/api/import-sources/google-fit/callback`);
+      googleOAuthUrl.searchParams.set('scope', 'https://www.googleapis.com/auth/fitness.heart_rate.read https://www.googleapis.com/auth/fitness.sleep.read https://www.googleapis.com/auth/fitness.activity.read');
+      googleOAuthUrl.searchParams.set('response_type', 'code');
+      googleOAuthUrl.searchParams.set('state', userId);
+      googleOAuthUrl.searchParams.set('access_type', 'offline');
+      
+      res.json({ authUrl: googleOAuthUrl.toString() });
+    } catch (error) {
+      console.error("Error creating Google Fit auth URL:", error);
+      res.status(500).json({ message: "Failed to create authorization URL" });
+    }
+  });
+
+  app.get('/api/import-sources/google-fit/callback', async (req, res) => {
+    try {
+      const { code, state: userId } = req.query;
+      
+      if (!code || !userId) {
+        return res.status(400).send('Missing authorization code or user ID');
+      }
+
+      // Real Google Fit OAuth2 token exchange
+      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          client_id: process.env.GOOGLE_CLIENT_ID || '',
+          client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+          code: code as string,
+          grant_type: 'authorization_code',
+          redirect_uri: `${req.protocol}://${req.get('host')}/api/import-sources/google-fit/callback`
+        })
+      });
+
+      if (!tokenResponse.ok) {
+        throw new Error('Failed to exchange code for tokens');
+      }
+
+      const tokens = await tokenResponse.json();
+
+      // Store the data import source
+      const importSource = await storage.createDataImportSource({
+        userId: userId as string,
+        source: 'google_fit',
+        isEnabled: true,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        tokenExpiry: new Date(Date.now() + tokens.expires_in * 1000),
+        syncPreferences: {
+          heart_rate: true,
+          sleep: true,
+          steps: true
+        }
+      });
+
+      // Immediately sync initial data
+      await syncGoogleFitData(userId as string, importSource);
+
+      res.send(`
+        <script>
+          window.opener.postMessage({ success: true, source: 'google_fit' }, '*');
+          window.close();
+        </script>
+      `);
+    } catch (error) {
+      console.error("Error handling Google Fit callback:", error);
+      res.status(500).send('Authorization failed');
+    }
+  });
+
+  // Apple Health data import (ZIP file upload)
+  app.post('/api/import-sources/apple-health/upload', isAuthenticated, upload.single('healthExport'), async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const file = req.file;
+      
+      if (!file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      if (!file.originalname.endsWith('.zip')) {
+        return res.status(400).json({ message: "Please upload a ZIP file from Apple Health export" });
+      }
+
+      // Extract and parse Apple Health XML from ZIP
+      const xmlData = await extractAppleHealthXML(file.buffer);
+      const parsedData = await parseAppleHealthXML(xmlData);
+      
+      // Process and import Apple Health data
+      const importResults = await processAppleHealthData(userId, parsedData);
+      
+      res.json({
+        imported: importResults.imported,
+        conflicts: importResults.conflicts,
+        skipped: importResults.skipped
+      });
+    } catch (error) {
+      console.error("Error importing Apple Health data:", error);
+      res.status(500).json({ message: "Failed to import Apple Health data" });
+    }
+  });
+
+  // Sync data from connected sources
+  app.post('/api/import-sources/:sourceId/sync', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { sourceId } = req.params;
+      
+      // Get the import source
+      const sources = await storage.getUserDataImportSources(userId);
+      const source = sources.find(s => s.id === sourceId);
+      
+      if (!source || !source.isEnabled) {
+        return res.status(404).json({ message: "Data source not found or disabled" });
+      }
+
+      let syncResults;
+      if (source.source === 'google_fit') {
+        syncResults = await syncGoogleFitData(userId, source);
+      } else {
+        return res.status(400).json({ message: "Unsupported data source" });
+      }
+
+      // Update last sync time
+      await storage.updateDataImportSource(sourceId, {
+        lastSync: new Date()
+      });
+
+      res.json(syncResults);
+    } catch (error) {
+      console.error("Error syncing data:", error);
+      res.status(500).json({ message: "Failed to sync data" });
+    }
+  });
+
+  // Import conflicts management
+  app.get('/api/import-conflicts', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const status = req.query.status as string;
+      const conflicts = await storage.getUserImportConflicts(userId, status);
+      res.json(conflicts);
+    } catch (error) {
+      console.error("Error fetching import conflicts:", error);
+      res.status(500).json({ message: "Failed to fetch import conflicts" });
+    }
+  });
+
+  app.post('/api/import-conflicts/:conflictId/resolve', isAuthenticated, async (req: any, res) => {
+    try {
+      const { conflictId } = req.params;
+      const { resolution } = req.body; // "keep_existing", "use_import", "merge"
+      
+      await storage.resolveImportConflict(conflictId, resolution);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error resolving import conflict:", error);
+      res.status(500).json({ message: "Failed to resolve conflict" });
     }
   });
 
@@ -1041,4 +1308,446 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
   return httpServer;
+}
+
+// Helper functions for health data import
+async function processAppleHealthData(userId: string, parsedData: any) {
+  const results = {
+    imported: 0,
+    conflicts: 0,
+    skipped: 0
+  };
+
+  // Process heart rate data
+  for (const record of parsedData.heartRate || []) {
+    try {
+      const existingVitals = await storage.getUserVitalsLogs(userId, 'heart_rate', 1000);
+      const conflictFound = existingVitals.find(v => 
+        Math.abs(new Date(v.timestamp).getTime() - new Date(record.startDate).getTime()) < 300000 // 5 min window
+      );
+
+      if (conflictFound) {
+        await storage.createImportConflict({
+          userId,
+          source: 'apple_health',
+          dataType: 'vitals',
+          existingDataId: conflictFound.id,
+          importData: record,
+          conflictReason: 'similar_time',
+          status: 'pending'
+        });
+        results.conflicts++;
+      } else {
+        await storage.createVitalsLog({
+          userId,
+          type: 'heart_rate',
+          value: record.value.toString(),
+          unit: 'bpm',
+          source: 'apple_health',
+          sourceId: record.uuid,
+          timestamp: new Date(record.startDate)
+        });
+        results.imported++;
+      }
+    } catch (error) {
+      console.error('Error processing Apple Health heart rate record:', error);
+      results.skipped++;
+    }
+  }
+
+  // Process steps data
+  for (const record of parsedData.steps || []) {
+    try {
+      const existingVitals = await storage.getUserVitalsLogs(userId, 'steps', 1000);
+      const conflictFound = existingVitals.find(v => 
+        Math.abs(new Date(v.timestamp).getTime() - new Date(record.startDate).getTime()) < 300000 // 5 min window
+      );
+
+      if (conflictFound) {
+        await storage.createImportConflict({
+          userId,
+          source: 'apple_health',
+          dataType: 'vitals',
+          existingDataId: conflictFound.id,
+          importData: record,
+          conflictReason: 'similar_time',
+          status: 'pending'
+        });
+        results.conflicts++;
+      } else {
+        await storage.createVitalsLog({
+          userId,
+          type: 'steps',
+          value: record.value.toString(),
+          unit: record.unit,
+          source: 'apple_health',
+          sourceId: record.uuid,
+          timestamp: new Date(record.startDate)
+        });
+        results.imported++;
+      }
+    } catch (error) {
+      console.error('Error processing Apple Health steps record:', error);
+      results.skipped++;
+    }
+  }
+
+  // Process sleep data
+  for (const record of parsedData.sleep || []) {
+    try {
+      const existingSleep = await storage.getUserSleepLogs(userId, 1000);
+      const conflictFound = existingSleep.find(s => 
+        Math.abs(new Date(s.bedtime).getTime() - new Date(record.startDate).getTime()) < 3600000 // 1 hour window
+      );
+
+      if (conflictFound) {
+        await storage.createImportConflict({
+          userId,
+          source: 'apple_health',
+          dataType: 'sleep',
+          existingDataId: conflictFound.id,
+          importData: record,
+          conflictReason: 'similar_time',
+          status: 'pending'
+        });
+        results.conflicts++;
+      } else {
+        const duration = new Date(record.endDate).getTime() - new Date(record.startDate).getTime();
+        await storage.createSleepLog({
+          userId,
+          bedtime: new Date(record.startDate),
+          wakeTime: new Date(record.endDate),
+          totalMinutes: Math.round(duration / 60000),
+          source: 'apple_health',
+          sourceId: record.uuid
+        });
+        results.imported++;
+      }
+    } catch (error) {
+      console.error('Error processing Apple Health sleep record:', error);
+      results.skipped++;
+    }
+  }
+
+  return results;
+}
+
+async function syncGoogleFitData(userId: string, source: any) {
+  const results = {
+    imported: 0,
+    conflicts: 0,
+    skipped: 0
+  };
+
+  try {
+    // Fetch heart rate data from Google Fit API
+    const endTime = Date.now();
+    const startTime = endTime - (7 * 24 * 60 * 60 * 1000); // Last 7 days
+
+    const heartRateResponse = await fetch(
+      `https://www.googleapis.com/fitness/v1/users/me/dataSources/derived:com.google.heart_rate.bpm:com.google.android.gms:merge_heart_rate_bpm/datasets/${startTime * 1000000}-${endTime * 1000000}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${source.accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (heartRateResponse.ok) {
+      const heartRateData = await heartRateResponse.json();
+      
+      for (const point of heartRateData.point || []) {
+        const timestamp = new Date(parseInt(point.startTimeNanos) / 1000000);
+        const value = point.value[0]?.fpVal || point.value[0]?.intVal;
+        
+        if (!value) continue;
+
+        // Check for conflicts
+        const existingVitals = await storage.getUserVitalsLogs(userId, 'heart_rate', 1000);
+        const conflictFound = existingVitals.find(v => 
+          Math.abs(new Date(v.timestamp).getTime() - timestamp.getTime()) < 300000 // 5 min window
+        );
+
+        if (conflictFound) {
+          await storage.createImportConflict({
+            userId,
+            source: 'google_fit',
+            dataType: 'vitals',
+            existingDataId: conflictFound.id,
+            importData: { timestamp, value, unit: 'bpm' },
+            conflictReason: 'similar_time',
+            status: 'pending'
+          });
+          results.conflicts++;
+        } else {
+          await storage.createVitalsLog({
+            userId,
+            type: 'heart_rate',
+            value: value.toString(),
+            unit: 'bpm',
+            source: 'google_fit',
+            sourceId: `gfit_hr_${point.startTimeNanos}`,
+            timestamp
+          });
+          results.imported++;
+        }
+      }
+    }
+
+    // Fetch steps data from Google Fit API
+    const stepsResponse = await fetch(
+      `https://www.googleapis.com/fitness/v1/users/me/dataSources/derived:com.google.step_count.delta:com.google.android.gms:estimated_steps/datasets/${startTime * 1000000}-${endTime * 1000000}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${source.accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (stepsResponse.ok) {
+      const stepsData = await stepsResponse.json();
+      
+      for (const point of stepsData.point || []) {
+        const timestamp = new Date(parseInt(point.startTimeNanos) / 1000000);
+        const value = point.value[0]?.intVal;
+        
+        if (!value) continue;
+
+        // Check for conflicts
+        const existingVitals = await storage.getUserVitalsLogs(userId, 'steps', 1000);
+        const conflictFound = existingVitals.find(v => 
+          Math.abs(new Date(v.timestamp).getTime() - timestamp.getTime()) < 300000 // 5 min window
+        );
+
+        if (conflictFound) {
+          await storage.createImportConflict({
+            userId,
+            source: 'google_fit',
+            dataType: 'vitals',
+            existingDataId: conflictFound.id,
+            importData: { timestamp, value, unit: 'steps' },
+            conflictReason: 'similar_time',
+            status: 'pending'
+          });
+          results.conflicts++;
+        } else {
+          await storage.createVitalsLog({
+            userId,
+            type: 'steps',
+            value: value.toString(),
+            unit: 'steps',
+            source: 'google_fit',
+            sourceId: `gfit_steps_${point.startTimeNanos}`,
+            timestamp
+          });
+          results.imported++;
+        }
+      }
+    }
+
+    // Fetch sleep data from Google Fit API
+    const sleepResponse = await fetch(
+      `https://www.googleapis.com/fitness/v1/users/me/dataSources/derived:com.google.sleep.segment:com.google.android.gms:merged/datasets/${startTime * 1000000}-${endTime * 1000000}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${source.accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (sleepResponse.ok) {
+      const sleepData = await sleepResponse.json();
+      
+      // Group sleep points by session
+      const sleepSessions = groupSleepSessions(sleepData.point || []);
+      
+      for (const session of sleepSessions) {
+        // Check for conflicts
+        const existingSleep = await storage.getUserSleepLogs(userId, 1000);
+        const conflictFound = existingSleep.find(s => 
+          Math.abs(new Date(s.bedtime).getTime() - session.bedtime.getTime()) < 3600000 // 1 hour window
+        );
+
+        if (conflictFound) {
+          await storage.createImportConflict({
+            userId,
+            source: 'google_fit',
+            dataType: 'sleep',
+            existingDataId: conflictFound.id,
+            importData: session,
+            conflictReason: 'similar_time',
+            status: 'pending'
+          });
+          results.conflicts++;
+        } else {
+          await storage.createSleepLog({
+            userId,
+            bedtime: session.bedtime,
+            wakeTime: session.wakeTime,
+            totalMinutes: session.totalMinutes,
+            deepMinutes: session.deepMinutes,
+            remMinutes: session.remMinutes,
+            lightMinutes: session.lightMinutes,
+            source: 'google_fit',
+            sourceId: `gfit_sleep_${session.bedtime.getTime()}`
+          });
+          results.imported++;
+        }
+      }
+    }
+
+  } catch (error) {
+    console.error('Error syncing Google Fit data:', error);
+    // If token expired, we could refresh it here
+    if (error.message?.includes('401')) {
+      // Token refresh logic could go here
+    }
+  }
+
+  return results;
+}
+
+function groupSleepSessions(sleepPoints: any[]) {
+  const sessions: any[] = [];
+  let currentSession: any = null;
+
+  for (const point of sleepPoints) {
+    const startTime = new Date(parseInt(point.startTimeNanos) / 1000000);
+    const endTime = new Date(parseInt(point.endTimeNanos) / 1000000);
+    const sleepType = point.value[0]?.intVal; // 1=awake, 2=sleep, 3=out-of-bed, 4=light sleep, 5=deep sleep, 6=REM sleep
+
+    if (!currentSession || (startTime.getTime() - currentSession.wakeTime.getTime()) > 4 * 60 * 60 * 1000) {
+      // New session if more than 4 hours gap
+      if (currentSession) sessions.push(currentSession);
+      currentSession = {
+        bedtime: startTime,
+        wakeTime: endTime,
+        totalMinutes: 0,
+        deepMinutes: 0,
+        remMinutes: 0,
+        lightMinutes: 0
+      };
+    }
+
+    const duration = (endTime.getTime() - startTime.getTime()) / (1000 * 60);
+    currentSession.wakeTime = endTime;
+    currentSession.totalMinutes += duration;
+
+    if (sleepType === 5) currentSession.deepMinutes += duration;
+    else if (sleepType === 6) currentSession.remMinutes += duration;
+    else if (sleepType === 4) currentSession.lightMinutes += duration;
+  }
+
+  if (currentSession) sessions.push(currentSession);
+  return sessions;
+}
+
+async function extractAppleHealthXML(zipBuffer: Buffer): Promise<string> {
+  return new Promise((resolve, reject) => {
+    yauzl.fromBuffer(zipBuffer, { lazyEntries: true }, (err, zipFile) => {
+      if (err) {
+        reject(new Error(`Failed to read ZIP file: ${err.message}`));
+        return;
+      }
+
+      if (!zipFile) {
+        reject(new Error('Invalid ZIP file'));
+        return;
+      }
+
+      zipFile.readEntry();
+      
+      zipFile.on('entry', (entry) => {
+        if (entry.fileName === 'apple_health_export/export.xml' || entry.fileName === 'export.xml') {
+          zipFile.openReadStream(entry, (err, readStream) => {
+            if (err) {
+              reject(new Error(`Failed to read export.xml: ${err.message}`));
+              return;
+            }
+
+            if (!readStream) {
+              reject(new Error('Could not open export.xml'));
+              return;
+            }
+
+            const chunks: Buffer[] = [];
+            readStream.on('data', (chunk) => chunks.push(chunk));
+            readStream.on('end', () => {
+              const xmlData = Buffer.concat(chunks).toString('utf8');
+              resolve(xmlData);
+            });
+            readStream.on('error', (err) => reject(err));
+          });
+        } else {
+          zipFile.readEntry();
+        }
+      });
+
+      zipFile.on('end', () => {
+        reject(new Error('export.xml not found in ZIP file'));
+      });
+
+      zipFile.on('error', (err) => {
+        reject(new Error(`ZIP processing error: ${err.message}`));
+      });
+    });
+  });
+}
+
+async function parseAppleHealthXML(xmlData: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    parseString(xmlData, (err, result) => {
+      if (err) {
+        reject(new Error(`Failed to parse Apple Health XML: ${err.message}`));
+        return;
+      }
+
+      const healthData = result?.HealthData;
+      if (!healthData) {
+        reject(new Error('Invalid Apple Health XML format - missing HealthData'));
+        return;
+      }
+
+      // Extract relevant data
+      const records = healthData.Record || [];
+      const heartRateRecords = records.filter((r: any) => 
+        r.$.type === 'HKQuantityTypeIdentifierHeartRate'
+      );
+      const stepsRecords = records.filter((r: any) => 
+        r.$.type === 'HKQuantityTypeIdentifierStepCount'
+      );
+      const sleepRecords = records.filter((r: any) => 
+        r.$.type === 'HKCategoryTypeIdentifierSleepAnalysis'
+      );
+
+      resolve({
+        heartRate: heartRateRecords.map((r: any) => ({
+          type: 'heart_rate',
+          value: parseFloat(r.$.value),
+          unit: r.$.unit,
+          startDate: r.$.startDate,
+          endDate: r.$.endDate,
+          uuid: r.$.uuid || `apple_${Date.now()}_${Math.random()}`
+        })),
+        steps: stepsRecords.map((r: any) => ({
+          type: 'steps',
+          value: parseInt(r.$.value),
+          unit: r.$.unit || 'count',
+          startDate: r.$.startDate,
+          endDate: r.$.endDate,
+          uuid: r.$.uuid || `apple_steps_${Date.now()}_${Math.random()}`
+        })),
+        sleep: sleepRecords.map((r: any) => ({
+          type: 'sleep',
+          value: parseInt(r.$.value), // 0=inBed, 1=asleep, 2=awake
+          startDate: r.$.startDate,
+          endDate: r.$.endDate,
+          uuid: r.$.uuid || `apple_sleep_${Date.now()}_${Math.random()}`
+        }))
+      });
+    });
+  });
 }

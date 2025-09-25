@@ -5,6 +5,10 @@ import {
   productCategories,
   aiInteractions,
   userFavorites,
+  vitalsLogs,
+  sleepLogs,
+  dataImportSources,
+  importConflicts,
   type User,
   type UpsertUser,
   type SymptomLog,
@@ -15,6 +19,13 @@ import {
   type InsertProductCategory,
   type AIInteraction,
   type UserFavorite,
+  type VitalsLog,
+  type InsertVitalsLog,
+  type SleepLog,
+  type InsertSleepLog,
+  type DataImportSource,
+  type InsertDataImportSource,
+  type ImportConflict,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, inArray, gte, lte } from "drizzle-orm";
@@ -48,6 +59,29 @@ export interface IStorage {
   // User favorites
   toggleUserFavorite(userId: string, productId: string): Promise<boolean>;
   getUserFavorites(userId: string): Promise<UserFavorite[]>;
+  
+  // Vitals operations
+  createVitalsLog(log: InsertVitalsLog): Promise<VitalsLog>;
+  getUserVitalsLogs(userId: string, type?: string, limit?: number): Promise<VitalsLog[]>;
+  getVitalsLog(id: string): Promise<VitalsLog | undefined>;
+  exportUserVitalsLogs(userId: string, fromDate?: Date, toDate?: Date): Promise<VitalsLog[]>;
+  
+  // Sleep operations
+  createSleepLog(log: InsertSleepLog): Promise<SleepLog>;
+  getUserSleepLogs(userId: string, limit?: number): Promise<SleepLog[]>;
+  getSleepLog(id: string): Promise<SleepLog | undefined>;
+  exportUserSleepLogs(userId: string, fromDate?: Date, toDate?: Date): Promise<SleepLog[]>;
+  
+  // Data import source management
+  createDataImportSource(source: InsertDataImportSource): Promise<DataImportSource>;
+  getUserDataImportSources(userId: string): Promise<DataImportSource[]>;
+  updateDataImportSource(id: string, updates: Partial<InsertDataImportSource>): Promise<DataImportSource>;
+  deleteDataImportSource(id: string): Promise<void>;
+  
+  // Import conflict management
+  createImportConflict(conflict: Omit<ImportConflict, 'id' | 'createdAt' | 'resolvedAt' | 'resolution'>): Promise<ImportConflict>;
+  getUserImportConflicts(userId: string, status?: string): Promise<ImportConflict[]>;
+  resolveImportConflict(id: string, resolution: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -236,6 +270,156 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(userFavorites)
       .where(eq(userFavorites.userId, userId));
+  }
+
+  // Vitals operations
+  async createVitalsLog(log: InsertVitalsLog): Promise<VitalsLog> {
+    const [newVitalsLog] = await db
+      .insert(vitalsLogs)
+      .values(log)
+      .returning();
+    return newVitalsLog;
+  }
+
+  async getUserVitalsLogs(userId: string, type?: string, limit = 1000): Promise<VitalsLog[]> {
+    const conditions = [eq(vitalsLogs.userId, userId)];
+    if (type) {
+      conditions.push(eq(vitalsLogs.type, type));
+    }
+
+    return await db
+      .select()
+      .from(vitalsLogs)
+      .where(and(...conditions))
+      .orderBy(desc(vitalsLogs.timestamp))
+      .limit(limit);
+  }
+
+  async getVitalsLog(id: string): Promise<VitalsLog | undefined> {
+    const [vitalsLog] = await db.select().from(vitalsLogs).where(eq(vitalsLogs.id, id));
+    return vitalsLog;
+  }
+
+  async exportUserVitalsLogs(userId: string, fromDate?: Date, toDate?: Date): Promise<VitalsLog[]> {
+    const conditions = [eq(vitalsLogs.userId, userId)];
+    
+    if (fromDate) {
+      conditions.push(gte(vitalsLogs.timestamp, fromDate));
+    }
+    if (toDate) {
+      conditions.push(lte(vitalsLogs.timestamp, toDate));
+    }
+    
+    return await db
+      .select()
+      .from(vitalsLogs)
+      .where(and(...conditions))
+      .orderBy(desc(vitalsLogs.timestamp));
+  }
+
+  // Sleep operations
+  async createSleepLog(log: InsertSleepLog): Promise<SleepLog> {
+    const [newSleepLog] = await db
+      .insert(sleepLogs)
+      .values(log)
+      .returning();
+    return newSleepLog;
+  }
+
+  async getUserSleepLogs(userId: string, limit = 1000): Promise<SleepLog[]> {
+    return await db
+      .select()
+      .from(sleepLogs)
+      .where(eq(sleepLogs.userId, userId))
+      .orderBy(desc(sleepLogs.bedtime))
+      .limit(limit);
+  }
+
+  async getSleepLog(id: string): Promise<SleepLog | undefined> {
+    const [sleepLog] = await db.select().from(sleepLogs).where(eq(sleepLogs.id, id));
+    return sleepLog;
+  }
+
+  async exportUserSleepLogs(userId: string, fromDate?: Date, toDate?: Date): Promise<SleepLog[]> {
+    const conditions = [eq(sleepLogs.userId, userId)];
+    
+    if (fromDate) {
+      conditions.push(gte(sleepLogs.bedtime, fromDate));
+    }
+    if (toDate) {
+      conditions.push(lte(sleepLogs.bedtime, toDate));
+    }
+    
+    return await db
+      .select()
+      .from(sleepLogs)
+      .where(and(...conditions))
+      .orderBy(desc(sleepLogs.bedtime));
+  }
+
+  // Data import source management
+  async createDataImportSource(source: InsertDataImportSource): Promise<DataImportSource> {
+    const [newSource] = await db
+      .insert(dataImportSources)
+      .values(source)
+      .returning();
+    return newSource;
+  }
+
+  async getUserDataImportSources(userId: string): Promise<DataImportSource[]> {
+    return await db
+      .select()
+      .from(dataImportSources)
+      .where(eq(dataImportSources.userId, userId))
+      .orderBy(desc(dataImportSources.createdAt));
+  }
+
+  async updateDataImportSource(id: string, updates: Partial<InsertDataImportSource>): Promise<DataImportSource> {
+    const [updatedSource] = await db
+      .update(dataImportSources)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(dataImportSources.id, id))
+      .returning();
+    return updatedSource;
+  }
+
+  async deleteDataImportSource(id: string): Promise<void> {
+    await db
+      .delete(dataImportSources)
+      .where(eq(dataImportSources.id, id));
+  }
+
+  // Import conflict management
+  async createImportConflict(conflict: Omit<ImportConflict, 'id' | 'createdAt' | 'resolvedAt' | 'resolution'>): Promise<ImportConflict> {
+    const [newConflict] = await db
+      .insert(importConflicts)
+      .values(conflict)
+      .returning();
+    return newConflict;
+  }
+
+  async getUserImportConflicts(userId: string, status?: string): Promise<ImportConflict[]> {
+    const conditions = [eq(importConflicts.userId, userId)];
+    if (status) {
+      conditions.push(eq(importConflicts.status, status));
+    }
+
+    return await db
+      .select()
+      .from(importConflicts)
+      .where(and(...conditions))
+      .orderBy(desc(importConflicts.createdAt));
+  }
+
+  async resolveImportConflict(id: string, resolution: string): Promise<void> {
+    await db
+      .update(importConflicts)
+      .set({ 
+        status: 'resolved',
+        resolution,
+        resolvedAt: new Date()
+      })
+      .where(eq(importConflicts.id, id));
   }
 }
 
