@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Crown, Check, X, Loader2 } from "lucide-react";
+import { Crown, Check, X, Loader2, Download } from "lucide-react";
+import { ExportSection } from "@/components/ExportSection";
 
 interface BillingStatus {
   plan: string;
@@ -269,6 +270,22 @@ export default function Settings() {
           </CardContent>
         </Card>
       )}
+
+      {/* Export Data Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Download className="h-5 w-5" />
+            Export Your Data
+          </CardTitle>
+          <CardDescription>
+            Download your health data for personal records or sharing with healthcare providers
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ExportSection />
+        </CardContent>
+      </Card>
     </div>
   );
 }

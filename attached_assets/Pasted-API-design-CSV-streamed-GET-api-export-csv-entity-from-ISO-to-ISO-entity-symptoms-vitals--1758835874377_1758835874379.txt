@@ -1,0 +1,458 @@
+API design
+CSV (streamed)
+
+GET /api/export/csv/:entity?from=ISO&to=ISO
+
+:entity ∈ {symptoms, vitals, meds, exercises, sleep, hydration}
+
+Streams text/csv with a filename like zebby_symptoms_2025-09-25.csv.
+
+PDF (compiled report)
+
+POST /api/export/pdf
+
+{
+  "from": "2025-08-01",
+  "to": "2025-09-25",
+  "sections": ["summary","symptoms","vitals","meds","exercises","sleep","hydration","ice"]
+}
+
+
+Returns application/pdf with a clinician-friendly layout (no diagnosis).
+
+2) Server: routes (Express + TS + Prisma)
+
+Install deps:
+
+cd server
+npm i zod json2csv pdfmake
+npm i -D @types/pdfmake
+
+
+server/src/routes/exports.ts
+
+import { Router } from "express";
+import { PrismaClient } from "@prisma/client";
+import { Parser } from "json2csv";
+import { z } from "zod";
+import PdfPrinter from "pdfmake";
+
+const prisma = new PrismaClient();
+const r = Router();
+
+const entitySchema = z.enum([
+  "symptoms","vitals","meds","exercises","sleep","hydration"
+]);
+
+const rangeQuery = z.object({
+  from: z.string().datetime({ offset: false }).optional(),
+  to: z.string().datetime({ offset: false }).optional()
+});
+
+function parseRange(q: any) {
+  const { from, to } = rangeQuery.parse(q);
+  const where: any = {};
+  if (from || to) {
+    where.dateTime = {};
+    if (from) where.dateTime.gte = new Date(from);
+    if (to) where.dateTime.lte = new Date(to);
+  }
+  return where;
+}
+
+function filename(prefix: string, ext: string) {
+  const stamp = new Date().toISOString().slice(0,10);
+  return `${prefix}_${stamp}.${ext}`;
+}
+
+/** ---------- CSV ---------- */
+r.get("/csv/:entity", async (req, res) => {
+  const entity = entitySchema.parse(req.params.entity);
+  const userId = (req as any).user?.id ?? "DEMO_USER"; // replace with real auth
+
+  // Build queries per entity
+  const range = parseRange(req.query);
+  let rows: any[] = [];
+  switch (entity) {
+    case "symptoms":
+      rows = await prisma.symptomEvent.findMany({
+        where: { userId, ...range },
+        orderBy: { dateTime: "desc" }
+      });
+      break;
+    case "vitals":
+      rows = await prisma.vitalsReading.findMany({
+        where: { userId, ...range }, orderBy: { dateTime: "desc" }
+      });
+      break;
+    case "meds":
+      // flatten meds + latest logs for export
+      const meds = await prisma.medication.findMany({ where: { userId }});
+      rows = meds;
+      break;
+    case "exercises":
+      rows = await prisma.exerciseLog.findMany({
+        where: { userId, ...range }, orderBy: { dateTime: "desc" }
+      });
+      break;
+    case "sleep":
+      rows = await prisma.sleepLog.findMany({
+        where: { userId }, orderBy: { date: "desc" }
+      });
+      break;
+    case "hydration":
+      rows = await prisma.hydrationLog.findMany({
+        where: { userId }, orderBy: { date: "desc" }
+      });
+      break;
+  }
+
+  // Normalize: convert arrays/objects to semicolon strings, ISO dates
+  const normalized = rows.map((r) => {
+    const o: any = { ...r };
+    Object.keys(o).forEach(k => {
+      const v = (o as any)[k];
+      if (v instanceof Date) o[k] = v.toISOString();
+      else if (Array.isArray(v)) o[k] = v.join("; ");
+      else if (typeof v === "object" && v !== null) o[k] = JSON.stringify(v);
+    });
+    return o;
+  });
+
+  const parser = new Parser();
+  const csv = parser.parse(normalized);
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename(`zebby_${entity}`, "csv")}"`);
+  res.send(csv);
+});
+
+/** ---------- PDF ---------- */
+const pdfBodySchema = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+  sections: z.array(z.enum([
+    "summary","symptoms","vitals","meds","exercises","sleep","hydration","ice"
+  ])).nonempty()
+});
+
+r.post("/pdf", async (req, res) => {
+  const userId = (req as any).user?.id ?? "DEMO_USER";
+  const { from, to, sections } = pdfBodySchema.parse(req.body || {});
+  const fromD = from ? new Date(from) : undefined;
+  const toD = to ? new Date(to) : undefined;
+
+  // Fetch minimal data
+  const [symptoms, vitals, meds, exercises, sleep, hydration, emergency] = await Promise.all([
+    sections.includes("symptoms")
+      ? prisma.symptomEvent.findMany({ where: { userId, ...(fromD||toD ? { dateTime: { gte: fromD, lte: toD } } : {}) }, orderBy:{dateTime:"desc"}, take: 100 })
+      : Promise.resolve([]),
+    sections.includes("vitals")
+      ? prisma.vitalsReading.findMany({ where: { userId, ...(fromD||toD ? { dateTime: { gte: fromD, lte: toD } } : {}) }, orderBy:{dateTime:"desc"}, take: 200 })
+      : Promise.resolve([]),
+    sections.includes("meds")
+      ? prisma.medication.findMany({ where: { userId } })
+      : Promise.resolve([]),
+    sections.includes("exercises")
+      ? prisma.exerciseLog.findMany({ where: { userId, ...(fromD||toD ? { dateTime: { gte: fromD, lte: toD } } : {}) }, orderBy:{dateTime:"desc"}, take: 100 })
+      : Promise.resolve([]),
+    sections.includes("sleep")
+      ? prisma.sleepLog.findMany({ where: { userId }, orderBy:{date:"desc"}, take: 60 })
+      : Promise.resolve([]),
+    sections.includes("hydration")
+      ? prisma.hydrationLog.findMany({ where: { userId }, orderBy:{date:"desc"}, take: 60 })
+      : Promise.resolve([]),
+    sections.includes("ice")
+      ? prisma.emergencyProfile.findFirst({ where: { userId } })
+      : Promise.resolve(null),
+  ]);
+
+  // Build PDF with pdfmake
+  const fonts = {
+    Inter: {
+      normal: "node_modules/pdfmake/build/vfs_fonts.js", // we’ll use built-in vfs; override below
+      bold: "node_modules/pdfmake/build/vfs_fonts.js",
+    },
+  };
+  const printer = new PdfPrinter({
+    Roboto: { normal: "node_modules/pdfmake/build/vfs_fonts.js" } // fallback
+  } as any);
+
+  const fmt = (d?: Date) => d ? new Date(d).toLocaleDateString() : "—";
+
+  const content: any[] = [
+    { text: "Zebby — Health Report", style: "h1" },
+    { text: `Range: ${from ? fmt(fromD) : "start"} – ${to ? fmt(toD) : "now"}`, margin: [0,0,0,10] },
+    { text: "This report is informational only and not medical advice.", style: "disclaimer", margin: [0,0,0,14] },
+  ];
+
+  if (sections.includes("summary")) {
+    content.push({ text: "Summary", style: "h2" });
+    content.push({
+      ul: [
+        `Symptoms logged: ${symptoms.length}`,
+        `Vitals entries: ${vitals.length}`,
+        `Active medications: ${meds.length}`,
+        `Exercise logs: ${exercises.length}`,
+        `Sleep entries: ${sleep.length}, Hydration entries: ${hydration.length}`
+      ],
+      margin: [0,0,0,12]
+    });
+  }
+
+  if (sections.includes("symptoms") && symptoms.length) {
+    content.push({ text: "Symptoms", style: "h2" });
+    content.push({
+      table: {
+        headerRows: 1,
+        widths: ["auto","auto","*","*"],
+        body: [
+          [{text:"Date",bold:true},{text:"Type",bold:true},{text:"Intensity",bold:true},{text:"Notes",bold:true}],
+          ...symptoms.map(s => [fmt(s.dateTime), s.type, String(s.intensity ?? ""), (s.notes||"").slice(0,140)])
+        ]
+      },
+      fontSize: 9,
+      layout: "lightHorizontalLines",
+      margin: [0,0,0,10]
+    });
+  }
+
+  if (sections.includes("vitals") && vitals.length) {
+    content.push({ text: "Vitals", style: "h2" });
+    content.push({
+      table: {
+        headerRows: 1, widths: ["auto","auto","auto","auto","auto"],
+        body: [
+          [{text:"Date",bold:true},{text:"Posture",bold:true},{text:"HR",bold:true},{text:"Sys",bold:true},{text:"Dia",bold:true}],
+          ...vitals.map(v => [fmt(v.dateTime), v.posture ?? "", v.hrBpm ?? "", v.bpSystolic ?? "", v.bpDiastolic ?? ""])
+        ]
+      },
+      fontSize: 9, layout: "lightHorizontalLines", margin: [0,0,0,10]
+    });
+  }
+
+  if (sections.includes("meds") && meds.length) {
+    content.push({ text: "Medications", style: "h2" });
+    content.push({
+      table: {
+        headerRows: 1, widths: ["*", "auto", "auto", "*"],
+        body: [
+          [{text:"Name",bold:true},{text:"Dose",bold:true},{text:"Schedule",bold:true},{text:"Notes",bold:true}],
+          ...meds.map(m => [m.name, `${m.dose ?? ""} ${m.unit ?? ""}`, m.frequency ?? "", m.notes ?? ""])
+        ]
+      },
+      fontSize: 9, layout: "lightHorizontalLines", margin: [0,0,0,10]
+    });
+  }
+
+  if (sections.includes("exercises") && exercises.length) {
+    content.push({ text: "Exercises", style: "h2" });
+    content.push({
+      table: {
+        headerRows: 1, widths: ["auto","*", "auto", "auto", "auto"],
+        body: [
+          [{text:"Date",bold:true},{text:"Exercise",bold:true},{text:"Duration",bold:true},{text:"Pain Before",bold:true},{text:"Pain After",bold:true}],
+          ...exercises.map(e => [fmt(e.dateTime), e.notes ?? e.exerciseId, e.durationMin ?? "", e.painBefore ?? "", e.painAfter ?? ""])
+        ]
+      },
+      fontSize: 9, layout: "lightHorizontalLines", margin: [0,0,0,10]
+    });
+  }
+
+  if (sections.includes("sleep") && sleep.length) {
+    content.push({ text: "Sleep", style: "h2" });
+    content.push({
+      table: {
+        headerRows: 1, widths: ["auto","auto","*"],
+        body: [
+          [{text:"Date",bold:true},{text:"Hours",bold:true},{text:"Quality",bold:true}],
+          ...sleep.map(s => [fmt(s.date), s.hours, s.quality ?? ""])
+        ]
+      },
+      fontSize: 9, layout: "lightHorizontalLines", margin: [0,0,0,10]
+    });
+  }
+
+  if (sections.includes("hydration") && hydration.length) {
+    content.push({ text: "Hydration", style: "h2" });
+    content.push({
+      table: {
+        headerRows: 1, widths: ["auto","auto","auto"],
+        body: [
+          [{text:"Date",bold:true},{text:"Fluids (ml)",bold:true},{text:"Salt (g)",bold:true}],
+          ...hydration.map(h => [fmt(h.date), h.fluidsMl ?? "", h.saltGrams ?? ""])
+        ]
+      },
+      fontSize: 9, layout: "lightHorizontalLines", margin: [0,0,0,10]
+    });
+  }
+
+  if (sections.includes("ice") && emergency) {
+    content.push({ text: "Emergency / ICE", style: "h2" });
+    content.push({
+      ul: [
+        `Conditions: ${(emergency.conditions||[]).join(", ") || "—"}`,
+        `Allergies: ${(emergency.allergies||[]).join(", ") || "—"}`,
+        `Medications: ${(emergency.medications||[]).join(", ") || "—"}`,
+        `Notes: ${emergency.notes || "—"}`
+      ],
+      margin: [0,0,0,10]
+    });
+  }
+
+  const docDef: any = {
+    pageMargins: [40, 40, 40, 60],
+    content,
+    styles: {
+      h1: { fontSize: 20, bold: true, margin: [0,0,0,6] },
+      h2: { fontSize: 14, bold: true, margin: [0,10,0,6] },
+      disclaimer: { italics: true, color: "#666" }
+    },
+    footer: (currentPage: number, pageCount: number) =>
+      ({ text: `Zebby • Not medical advice • ${currentPage}/${pageCount}`, alignment: "center", fontSize: 8, margin: [0,10,0,0] })
+  };
+
+  const printer2 = new PdfPrinter({
+    Roboto: {
+      // pdfmake will inject default VFS fonts; this works in Replit
+      normal: "node_modules/pdfmake/build/vfs_fonts.js"
+    }
+  } as any);
+
+  const pdfDoc = printer2.createPdfKitDocument(docDef);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename("zebby_report","pdf")}"`);
+  pdfDoc.pipe(res);
+  pdfDoc.end();
+});
+
+export default r;
+
+
+server/src/index.ts (mount route)
+
+import express from "express";
+import cors from "cors";
+import exportsRoute from "./routes/exports";
+import stripeWebhook from "./routes/stripe-webhook";
+import billing from "./routes/billing";
+
+const app = express();
+app.use(cors());
+
+// webhook first (raw body inside that file)
+app.use("/stripe/webhook", stripeWebhook);
+
+// normal JSON afterwards
+app.use(express.json());
+
+app.use("/api/exports", exportsRoute);
+app.use("/api/billing", billing);
+
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
+app.listen(process.env.PORT || 3001);
+
+3) Client: Settings → Export panel (React)
+// client/src/pages/SettingsExport.tsx
+import { useState } from "react";
+
+export default function SettingsExport() {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [sections, setSections] = useState<string[]>([
+    "summary","symptoms","vitals","meds","exercises","sleep","hydration","ice"
+  ]);
+  const allCsv = ["symptoms","vitals","meds","exercises","sleep","hydration"] as const;
+
+  const downloadCsv = (entity: string) => {
+    const url = new URL(`/api/exports/csv/${entity}`, window.location.origin);
+    if (from) url.searchParams.set("from", new Date(from).toISOString());
+    if (to) url.searchParams.set("to", new Date(to).toISOString());
+    window.open(url.toString(), "_blank");
+  };
+
+  const downloadPdf = async () => {
+    const res = await fetch("/api/exports/pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: from || undefined,
+        to: to || undefined,
+        sections
+      })
+    });
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "zebby_report.pdf";
+    a.click();
+  };
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      <h2 className="text-xl font-semibold">Export Your Data</h2>
+      <p className="text-sm opacity-80">
+        Exports are for your personal records and clinician sharing. This app provides information only and is not medical advice.
+      </p>
+
+      <div className="grid grid-cols-2 gap-4">
+        <label className="block">
+          <div className="text-sm font-medium">From</div>
+          <input type="date" className="w-full rounded border p-2" value={from} onChange={e=>setFrom(e.target.value)} />
+        </label>
+        <label className="block">
+          <div className="text-sm font-medium">To</div>
+          <input type="date" className="w-full rounded border p-2" value={to} onChange={e=>setTo(e.target.value)} />
+        </label>
+      </div>
+
+      <div>
+        <div className="text-sm font-medium mb-2">PDF sections</div>
+        <div className="flex flex-wrap gap-2">
+          {["summary","symptoms","vitals","meds","exercises","sleep","hydration","ice"].map(s => {
+            const on = sections.includes(s);
+            return (
+              <button
+                key={s}
+                onClick={() =>
+                  setSections(on ? sections.filter(x=>x!==s) : [...sections, s])
+                }
+                className={`px-3 py-1 rounded-full border ${on ? "bg-blue-600 text-white border-blue-600" : ""}`}
+              >
+                {s}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <button onClick={downloadPdf} className="rounded px-4 py-2 bg-blue-600 text-white">Download PDF Report</button>
+        <div className="text-sm font-medium mt-4">CSV by dataset</div>
+        <div className="flex flex-wrap gap-2">
+          {allCsv.map(e => (
+            <button key={e} onClick={() => downloadCsv(e)} className="rounded px-3 py-2 border">
+              {e}.csv
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+4) Acceptance checks
+
+ GET /api/exports/csv/symptoms downloads CSV; ISO datetimes; arrays flattened.
+
+ POST /api/exports/pdf returns a readable PDF (< 5 MB) with disclaimer and selected sections only.
+
+ Date range filtering works for CSV and PDF.
+
+ No PII beyond what the user entered; no diagnoses or treatment claims in the PDF text.
+
+ Exports work whether user is Free or Plus (you choose policy). If Plus-only, protect endpoints with plan check.
+
+5) Privacy & safety copy (put in Settings and PDF)
+
+Important: This report is for personal tracking only and is not medical advice. Share carefully and avoid including sensitive identifiers you don’t want in your records.

@@ -4,11 +4,14 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateEmpathicReflection, generatePersonalizedInsight } from "./openai";
-import { insertSymptomLogSchema, products, productCategories, users } from "@shared/schema";
+import { insertSymptomLogSchema, products, productCategories, users, type SymptomLog, type AIInteraction } from "@shared/schema";
 import { db } from "./db";
 import { z } from "zod";
 import Stripe from "stripe";
-import { eq } from "drizzle-orm";
+import { eq, and, gte, lte } from "drizzle-orm";
+import { Parser } from "json2csv";
+// @ts-ignore
+import PdfPrinter from "pdfmake";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -603,6 +606,254 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching billing status:", error);
       res.status(500).json({ error: "Failed to fetch billing status" });
+    }
+  });
+
+  // Helper function to validate date range queries
+  const rangeQuerySchema = z.object({
+    from: z.string().datetime({ offset: false }).optional(),
+    to: z.string().datetime({ offset: false }).optional()
+  });
+
+  function parseRange(query: any) {
+    const { from, to } = rangeQuerySchema.parse(query);
+    return { from, to };
+  }
+
+  function generateFilename(prefix: string, ext: string) {
+    const stamp = new Date().toISOString().slice(0, 10);
+    return `${prefix}_${stamp}.${ext}`;
+  }
+
+  // CSV Export endpoints
+  const entitySchema = z.enum(["symptoms", "ai-interactions", "profile"]);
+
+  app.get('/api/export/csv/:entity', isAuthenticated, async (req: any, res) => {
+    try {
+      const entity = entitySchema.parse(req.params.entity);
+      const userId = req.user.claims.sub;
+      const rangeConditions = parseRange(req.query);
+
+      let rows: any[] = [];
+      
+      // Use validated range from parseRange and check for valid dates
+      const { from, to } = rangeConditions;
+      let fromDate: Date | undefined;
+      let toDate: Date | undefined;
+      
+      if (from) {
+        fromDate = new Date(from);
+        if (isNaN(fromDate.getTime())) {
+          return res.status(400).json({ message: "Invalid 'from' date format" });
+        }
+      }
+      
+      if (to) {
+        toDate = new Date(to);
+        if (isNaN(toDate.getTime())) {
+          return res.status(400).json({ message: "Invalid 'to' date format" });
+        }
+      }
+
+      switch (entity) {
+        case "symptoms":
+          rows = await storage.exportUserSymptomLogs(userId, fromDate, toDate);
+          break;
+          
+        case "ai-interactions":
+          rows = await storage.exportUserAIInteractions(userId, fromDate, toDate);
+          break;
+          
+        case "profile":
+          const user = await storage.getUser(userId);
+          rows = user ? [user] : [];
+          break;
+      }
+
+      // Normalize data for CSV export
+      const normalized = rows.map((row) => {
+        const obj: any = { ...row };
+        Object.keys(obj).forEach(key => {
+          const value = obj[key];
+          if (value instanceof Date) {
+            obj[key] = value.toISOString();
+          } else if (Array.isArray(value)) {
+            obj[key] = value.join("; ");
+          } else if (typeof value === "object" && value !== null) {
+            obj[key] = JSON.stringify(value);
+          }
+        });
+        return obj;
+      });
+
+      // Handle empty data by providing default fields
+      let parserOptions: any = {};
+      if (normalized.length === 0) {
+        // Define default fields for each entity type when no data exists
+        const defaultFields: Record<string, string[]> = {
+          "symptoms": ["id", "userId", "symptoms", "intensity", "notes", "timestamp", "aiReflection", "aiProcessed", "createdAt"],
+          "ai-interactions": ["id", "userId", "symptomLogId", "prompt", "response", "sentiment", "createdAt"],
+          "profile": ["id", "email", "firstName", "lastName", "plan", "planStatus", "createdAt"]
+        };
+        parserOptions.fields = defaultFields[entity] || [];
+      }
+
+      const parser = new Parser(parserOptions);
+      const csv = parser.parse(normalized);
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${generateFilename(`zebby_${entity}`, "csv")}"`);
+      res.send(csv);
+    } catch (error) {
+      console.error("Error exporting CSV:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid entity type", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to export data" });
+    }
+  });
+
+  // PDF Export endpoint
+  const pdfSectionsSchema = z.object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    sections: z.array(z.enum([
+      "summary", "symptoms", "ai-interactions", "profile"
+    ])).nonempty()
+  });
+
+  app.post('/api/export/pdf', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { from, to, sections } = pdfSectionsSchema.parse(req.body || {});
+      const fromDate = from ? new Date(from) : undefined;
+      const toDate = to ? new Date(to) : undefined;
+
+      // Fetch data based on requested sections
+      const [user, symptoms, aiInteractions] = await Promise.all([
+        sections.includes("profile") || sections.includes("summary") 
+          ? storage.getUser(userId) 
+          : Promise.resolve(null),
+        sections.includes("symptoms") || sections.includes("summary")
+          ? storage.exportUserSymptomLogs(userId, fromDate, toDate)
+          : Promise.resolve([]),
+        sections.includes("ai-interactions") || sections.includes("summary")
+          ? storage.exportUserAIInteractions(userId, fromDate, toDate)
+          : Promise.resolve([])
+      ]);
+
+      // Create PDF document with built-in fonts that support bold styles
+      const printer = new PdfPrinter({
+        Helvetica: {
+          normal: 'Helvetica',
+          bold: 'Helvetica-Bold',
+          italics: 'Helvetica-Oblique',
+          bolditalics: 'Helvetica-BoldOblique'
+        }
+      } as any);
+
+      const formatDate = (date?: Date | string) => 
+        date ? new Date(date).toLocaleDateString() : "—";
+
+      const content: any[] = [
+        { text: "Zebby — Health Export Report", style: "h1" },
+        { text: `Range: ${from ? formatDate(fromDate) : "start"} – ${to ? formatDate(toDate) : "now"}`, margin: [0,0,0,10] },
+        { text: "This report is informational only and not medical advice.", style: "disclaimer", margin: [0,0,0,14] },
+      ];
+
+      if (sections.includes("summary")) {
+        content.push({ text: "Summary", style: "h2" });
+        content.push({
+          ul: [
+            `User: ${user?.firstName} ${user?.lastName} (${user?.email})`,
+            `Symptoms logged: ${symptoms.length}`,
+            `AI interactions: ${aiInteractions.length}`,
+            `Plan: ${user?.plan || "Free"}`
+          ],
+          margin: [0,0,0,12]
+        });
+      }
+
+      if (sections.includes("profile") && user) {
+        content.push({ text: "Profile", style: "h2" });
+        content.push({
+          ul: [
+            `Name: ${user.firstName} ${user.lastName}`,
+            `Email: ${user.email}`,
+            `Plan: ${user.plan} (${user.planStatus})`,
+            `Member since: ${formatDate(user.createdAt || undefined)}`
+          ],
+          margin: [0,0,0,12]
+        });
+      }
+
+      if (sections.includes("symptoms") && symptoms.length) {
+        content.push({ text: "Symptom Logs", style: "h2" });
+        content.push({
+          table: {
+            headerRows: 1,
+            widths: ["auto", "*", "auto", "*"],
+            body: [
+              [{text:"Date",bold:true}, {text:"Symptoms",bold:true}, {text:"Intensity",bold:true}, {text:"Notes",bold:true}],
+              ...symptoms.map((symptom: SymptomLog) => [
+                formatDate(symptom.timestamp),
+                symptom.symptoms.join(", "),
+                String(symptom.intensity),
+                (symptom.notes || "").slice(0, 100)
+              ])
+            ]
+          },
+          fontSize: 9,
+          layout: "lightHorizontalLines",
+          margin: [0,0,0,10]
+        });
+      }
+
+      if (sections.includes("ai-interactions") && aiInteractions.length) {
+        content.push({ text: "AI Interactions", style: "h2" });
+        content.push({
+          table: {
+            headerRows: 1,
+            widths: ["auto", "*", "*"],
+            body: [
+              [{text:"Date",bold:true}, {text:"Prompt",bold:true}, {text:"Response",bold:true}],
+              ...aiInteractions.map((interaction: AIInteraction) => [
+                formatDate(interaction.createdAt || undefined),
+                (interaction.prompt || "").slice(0, 100),
+                (interaction.response || "").slice(0, 200)
+              ])
+            ]
+          },
+          fontSize: 9,
+          layout: "lightHorizontalLines",
+          margin: [0,0,0,10]
+        });
+      }
+
+      const docDef: any = {
+        pageMargins: [40, 40, 40, 60],
+        content,
+        defaultStyle: { font: 'Helvetica' },
+        styles: {
+          h1: { fontSize: 20, bold: true, margin: [0,0,0,6] },
+          h2: { fontSize: 14, bold: true, margin: [0,10,0,6] },
+          disclaimer: { italics: true, color: "#666" }
+        },
+        footer: (currentPage: number, pageCount: number) =>
+          ({ text: `Zebby • Not medical advice • ${currentPage}/${pageCount}`, alignment: "center", fontSize: 8, margin: [0,10,0,0] })
+      };
+
+      const pdfDoc = printer.createPdfKitDocument(docDef);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${generateFilename("zebby_report", "pdf")}"`);
+      pdfDoc.pipe(res);
+      pdfDoc.end();
+    } catch (error) {
+      console.error("Error exporting PDF:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to export PDF" });
     }
   });
 

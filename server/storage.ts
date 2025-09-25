@@ -17,7 +17,7 @@ import {
   type UserFavorite,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, gte, lte } from "drizzle-orm";
 
 export interface IStorage {
   // User operations (mandatory for Replit Auth)
@@ -33,6 +33,10 @@ export interface IStorage {
   // AI interaction operations
   createAIInteraction(userId: string, symptomLogId: string | null, prompt: string, response: string, sentiment?: string): Promise<AIInteraction>;
   getUserAIInteractions(userId: string, limit?: number): Promise<AIInteraction[]>;
+  
+  // Export-specific operations (unlimited with date filtering)
+  exportUserSymptomLogs(userId: string, fromDate?: Date, toDate?: Date): Promise<SymptomLog[]>;
+  exportUserAIInteractions(userId: string, fromDate?: Date, toDate?: Date): Promise<AIInteraction[]>;
   
   // Product operations
   getAllProductCategories(): Promise<ProductCategory[]>;
@@ -129,6 +133,41 @@ export class DatabaseStorage implements IStorage {
       .where(eq(aiInteractions.userId, userId))
       .orderBy(desc(aiInteractions.createdAt))
       .limit(limit);
+  }
+
+  // Export-specific operations (unlimited with date filtering)
+  async exportUserSymptomLogs(userId: string, fromDate?: Date, toDate?: Date): Promise<SymptomLog[]> {
+    const conditions = [eq(symptomLogs.userId, userId)];
+    
+    if (fromDate) {
+      conditions.push(gte(symptomLogs.timestamp, fromDate));
+    }
+    if (toDate) {
+      conditions.push(lte(symptomLogs.timestamp, toDate));
+    }
+    
+    return await db
+      .select()
+      .from(symptomLogs)
+      .where(and(...conditions))
+      .orderBy(desc(symptomLogs.timestamp));
+  }
+
+  async exportUserAIInteractions(userId: string, fromDate?: Date, toDate?: Date): Promise<AIInteraction[]> {
+    const conditions = [eq(aiInteractions.userId, userId)];
+    
+    if (fromDate) {
+      conditions.push(gte(aiInteractions.createdAt, fromDate));
+    }
+    if (toDate) {
+      conditions.push(lte(aiInteractions.createdAt, toDate));
+    }
+    
+    return await db
+      .select()
+      .from(aiInteractions)
+      .where(and(...conditions))
+      .orderBy(desc(aiInteractions.createdAt));
   }
 
   // Product operations
