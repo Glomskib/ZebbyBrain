@@ -109,6 +109,15 @@ export function ExportSection() {
       });
       
       if (!response.ok) {
+        if (response.status === 402) {
+          const errorData = await response.json();
+          toast({
+            title: "Upgrade Required",
+            description: errorData.message || "PDF exports are available with Zebby Plus subscription only.",
+            variant: "destructive"
+          });
+          return;
+        }
         throw new Error(`PDF export failed: ${response.statusText}`);
       }
       
@@ -271,9 +280,16 @@ export function ExportSection() {
         </CardContent>
       </Card>
 
-      <div className="text-sm text-muted-foreground p-4 bg-muted rounded-lg">
-        <strong>Note:</strong> All exported data is informational only and should not be considered medical advice. 
-        Share these reports with your healthcare providers to help them understand your symptom patterns and health journey.
+      <div className="text-sm text-muted-foreground p-4 bg-muted rounded-lg space-y-2">
+        <div>
+          <strong>Privacy & Medical Disclaimer:</strong>
+        </div>
+        <ul className="space-y-1 list-disc list-inside">
+          <li>Your exports are private to you. Zebby never gives medical advice.</li>
+          <li>Share with clinicians at your discretion.</li>
+          <li>All exported data is informational only and should not be considered medical advice.</li>
+          <li>These reports help healthcare providers understand your symptom patterns and health journey.</li>
+        </ul>
       </div>
     </div>
   );

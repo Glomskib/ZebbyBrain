@@ -729,6 +729,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fromDate = from ? new Date(from) : undefined;
       const toDate = to ? new Date(to) : undefined;
 
+      // Check if user has Plus plan for PDF exports (read from database where Stripe updates are stored)
+      const userPlanQuery = await db.select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      
+      const userPlan = userPlanQuery[0];
+      if (!userPlan || (userPlan.plan !== "plus" || userPlan.planStatus !== "active")) {
+        return res.status(402).json({ 
+          error: "plus_required",
+          message: "PDF exports are available with Zebby Plus subscription only. Upgrade to Plus to access this feature."
+        });
+      }
+
       // Fetch data based on requested sections
       const [user, symptoms, aiInteractions] = await Promise.all([
         sections.includes("profile") || sections.includes("summary") 
