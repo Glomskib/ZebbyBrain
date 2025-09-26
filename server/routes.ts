@@ -1452,6 +1452,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
                   })
                   .where(eq(users.id, user[0].id));
+
+                // Structured security logging without PII
+                log(JSON.stringify({
+                  userId: user[0].id,
+                  subStatus: subscription.status,
+                  periodEnd: subscription.current_period_end,
+                  event: "billing:subscription_created"
+                }), "billing");
               }
             }
             
@@ -1502,6 +1510,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     : null,
                 })
                 .where(eq(users.id, user[0].id));
+
+              // Structured security logging without PII
+              log(JSON.stringify({
+                userId: user[0].id,
+                subStatus: subscription.status,
+                periodEnd: subscription.current_period_end,
+                event: "billing:subscription_updated"
+              }), "billing");
             }
             break;
           }

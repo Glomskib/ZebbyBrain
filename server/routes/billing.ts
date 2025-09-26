@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
+import { log } from "../vite";
 
 const r = Router();
 
@@ -134,6 +135,16 @@ r.post("/create-checkout-session", checkoutRateLimit, async (req, res) => {
     const session = await stripe.checkout.sessions.create(params, {
       idempotencyKey: idemKey
     });
+
+    // Structured security logging without PII
+    log(JSON.stringify({
+      userId: uid,
+      trialMonths: trialMonths || 0,
+      couponId: !!couponId,
+      promoCode: !!promoCode,
+      event: "billing:create_checkout_session"
+    }), "billing");
+
     return res.json({ ok: true, url: session.url });
 
   } catch (error) {
