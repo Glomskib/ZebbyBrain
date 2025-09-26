@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { authOptional } from "./middleware/auth";
+import { requireAuth } from "./middleware/requireAuth";
 import authTestRoutes from "./routes/auth-test";
 import billingRoutes from "./routes/billing";
 import { generateEmpathicReflection, generatePersonalizedInsight } from "./openai";
@@ -45,7 +46,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Mount new enhanced routes
   app.use('/api/auth', authTestRoutes);
-  app.use('/api/billing', billingRoutes);
+  app.use('/api/billing', requireAuth, billingRoutes);
 
   // Configure multer for file uploads
   const upload = multer({ 

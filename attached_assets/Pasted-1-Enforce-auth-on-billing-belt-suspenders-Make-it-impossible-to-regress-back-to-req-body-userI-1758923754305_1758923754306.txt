@@ -1,0 +1,162 @@
+1) Enforce auth on billing (belt & suspenders)
+
+Make it impossible to regress back to req.body.userId.
+
+// server/src/middleware/requireAuth.ts
+import { Request, Response, NextFunction } from "express";
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const user = (req as any).user;
+  if (!user?.id) return res.status(401).json({ error: "auth_required" });
+  next();
+}
+
+
+Apply to both endpoints:
+
+// server/src/index.ts
+import { requireAuth } from "./middleware/requireAuth";
+app.use("/api/billing", requireAuth, billing);
+app.use("/api/billing-portal", requireAuth, billingPortal); // if separate
+
+
+And in billing.ts, delete any userId from body/params; only use req.user.id.
+
+2) Unit tests that prevent future regressions
+
+Add these Supertest checks:
+
+// server/tests/billing.auth.test.ts
+import request from "supertest";
+import app from "../src/index"; // your express app
+
+describe("Billing auth", () => {
+  test("rejects unauthenticated checkout session", async () => {
+    const res = await request(app)
+      .post("/api/billing/create-checkout-session")
+      .send({ userId: "forged" }); // should be ignored anyway
+    expect(res.status).toBe(401);
+  });
+
+  test("rejects forged userId even if token missing", async () => {
+    const res = await request(app)
+      .post("/api/billing/create-checkout-session")
+      .send({ userId: "someone-else" });
+    expect(res.status).toBe(401);
+  });
+});
+
+
+Optional positive test (with a valid JWT helper) to ensure happy path.
+
+3) Promo/trial abuse controls (lightweight, effective)
+
+Prevent edge-case abuse of coupons/trials.
+
+// server/src/routes/billing.ts (before creating the session)
+const MAX_TRIAL_MONTHS = 3;
+if (trialMonths && (trialMonths < 0 || trialMonths > MAX_TRIAL_MONTHS)) {
+  return res.status(400).json({ error: "invalid_trial" });
+}
+
+// Optional: whitelist coupons you’ll accept
+const ALLOWED_COUPONS = new Set(
+  (process.env.ALLOWED_COUPON_IDS || "").split(",").filter(Boolean)
+);
+// when couponId provided:
+if (couponId && !ALLOWED_COUPONS.has(couponId)) {
+  return res.status(400).json({ error: "coupon_not_allowed" });
+}
+
+
+Env example:
+
+ALLOWED_COUPON_IDS=coupon_KS100OFF3,coupon_BETA50
+
+4) Idempotency + rate-limit on billing creation
+
+Avoid duplicate subscriptions if a user double-clicks.
+
+// Idempotency key based on user + minute
+import crypto from "crypto";
+const idemKey = crypto
+  .createHash("sha256")
+  .update(`${req.user.id}:${new Date().toISOString().slice(0,16)}`)
+  .digest("hex");
+
+const session = await stripe.checkout.sessions.create(params, {
+  idempotencyKey: idemKey
+});
+
+
+And throttle:
+
+import rateLimit from "express-rate-limit";
+app.use("/api/billing/create-checkout-session",
+  rateLimit({ windowMs: 60_000, max: 5 })
+);
+
+5) Structured security logs (no PII)
+
+Record just enough to audit without leaking.
+
+// when creating checkout:
+logger.info(
+  { userId: req.user.id, trialMonths, couponId: !!couponId, promoCode: !!promoCode },
+  "billing: create_checkout_session"
+);
+
+// webhook success:
+logger.info(
+  { userId: user?.id, subStatus: sub.status, periodEnd: sub.current_period_end },
+  "billing: subscription_updated"
+);
+
+6) Stripe mode guard + health check
+
+Make misconfiguration obvious (you already do test-mode fallbacks—keep them).
+
+// server/src/routes/billing.ts
+const isTestKey = process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_");
+if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PLUS_PRICE_ID) {
+  return res.json({ ok: true, test_mode: true, url: null });
+}
+
+
+Expose a quick status:
+
+// server/src/routes/meta.ts
+r.get("/status", (req, res) => {
+  res.json({
+    stripe: {
+      configured: !!process.env.STRIPE_SECRET_KEY && !!process.env.STRIPE_PLUS_PRICE_ID,
+      mode: process.env.STRIPE_SECRET_KEY?.split("_")[1] === "test" ? "test" : "live",
+    }
+  });
+});
+
+7) Customer Portal link (UX polish)
+
+Let users manage cards/cancel:
+
+// /api/billing/create-portal-session (requires auth)
+const portal = await stripe.billingPortal.sessions.create({
+  customer: user.stripeCustomerId!,
+  return_url: `${process.env.APP_URL}/settings`
+});
+res.json({ ok: true, url: portal.url });
+
+8) Frontend guardrails
+
+Hide checkout button if not logged in; show “Sign in to upgrade”.
+
+At Checkout open, pass only promo inputs; no user IDs.
+
+Show the plan badge: “Plus • renews on {date}”.
+
+9) CI hooks
+
+Run your new auth tests + a security header test on each push.
+
+Fail CI if someone reintroduces req.body.userId in billing:
+
+Simple grep/check in CI for userId usage inside /routes/billing.ts that isn’t req.user.id.
