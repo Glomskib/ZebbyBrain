@@ -1,5 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import ZebbyAvatar from "@/components/zebby-avatar";
 
 export default function Landing() {
   const handleLogin = () => {
@@ -13,10 +14,8 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
-                <span className="text-xl">🦓</span>
-              </div>
-              <h1 className="text-xl font-bold text-foreground">Zebby</h1>
+              <ZebbyAvatar size="small" />
+              <h1 className="text-xl font-bold text-foreground">Zebby's World</h1>
             </div>
             
             <Button 
@@ -35,10 +34,8 @@ export default function Landing() {
         <section className="relative py-20 px-4 sm:px-6 lg:px-8 overflow-hidden">
           <div className="zebra-pattern absolute inset-0 opacity-10"></div>
           <div className="max-w-4xl mx-auto text-center relative z-10">
-            <div className="w-32 h-32 mx-auto mb-8 floating-animation">
-              <div className="w-full h-full bg-primary rounded-full p-6 shadow-lg glass-effect">
-                <div className="text-8xl">🦓</div>
-              </div>
+            <div className="mx-auto mb-8">
+              <ZebbyAvatar size="large" className="mx-auto" />
             </div>
             
             <h1 className="text-5xl font-bold text-foreground mb-6">
@@ -137,7 +134,7 @@ export default function Landing() {
               className="bg-white text-primary hover:bg-white/90 text-lg px-8 py-3"
               data-testid="button-join-now"
             >
-              Join Zebby Today
+              Join Zebby's World Today
             </Button>
           </div>
         </section>
@@ -147,10 +144,8 @@ export default function Landing() {
       <footer className="bg-card border-t border-border py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-              <span className="text-sm">🦓</span>
-            </div>
-            <span className="font-semibold text-foreground">Zebby</span>
+            <ZebbyAvatar size="small" />
+            <span className="font-semibold text-foreground">Zebby's World</span>
           </div>
           <p className="text-muted-foreground text-sm">
             Made with ❤️ for the EDS community. You are understood here.

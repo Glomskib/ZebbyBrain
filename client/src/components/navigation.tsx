@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Bell, Menu } from "lucide-react";
 import { ShoppingCart } from "@/components/ShoppingCart";
+import ZebbyAvatar from "@/components/zebby-avatar";
 
 export default function Navigation() {
   const [location] = useLocation();
@@ -47,10 +48,8 @@ export default function Navigation() {
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-3" data-testid="logo-link">
-            <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
-              <span className="text-xl">🦓</span>
-            </div>
-            <h1 className="text-xl font-bold text-foreground">Zebby</h1>
+            <ZebbyAvatar size="small" />
+            <h1 className="text-xl font-bold text-foreground">Zebby's World</h1>
           </Link>
           
           {/* Desktop Navigation */}
