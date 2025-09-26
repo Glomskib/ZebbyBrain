@@ -1,7 +1,8 @@
 import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import Navigation from "@/components/navigation";
 import ZebbyAvatar from "@/components/zebby-avatar";
@@ -52,6 +53,33 @@ export default function Dashboard() {
     enabled: isAuthenticated,
     retry: false,
   });
+
+  // Feedback mutation
+  const feedbackMutation = useMutation({
+    mutationFn: async ({ interactionId, feltUnderstood }: { interactionId: string, feltUnderstood: boolean }) => {
+      return apiRequest('PUT', `/api/ai-interactions/${interactionId}/feedback`, { feltUnderstood });
+    },
+    onSuccess: () => {
+      // Invalidate AI interactions to refresh the data
+      queryClient.invalidateQueries({ queryKey: ["/api/ai-interactions"] });
+      toast({
+        title: "Thank you!",
+        description: "Your feedback helps Zebby learn to support you better.",
+      });
+    },
+    onError: (error) => {
+      console.error("Failed to submit feedback:", error);
+      toast({
+        title: "Error",
+        description: "Failed to submit feedback. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleFeedback = (interactionId: string, feltUnderstood: boolean) => {
+    feedbackMutation.mutate({ interactionId, feltUnderstood });
+  };
 
   if (isLoading) {
     return (
@@ -210,6 +238,42 @@ export default function Dashboard() {
                               Understood
                             </span>
                           </div>
+                          
+                          {/* Feeling Understood Feedback */}
+                          {interaction.feltUnderstood === null && (
+                            <div className="mt-4 p-3 bg-muted/30 rounded-lg border border-dashed border-muted-foreground/30">
+                              <p className="text-sm text-muted-foreground mb-2">Did this reflection help you feel understood?</p>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleFeedback(interaction.id, true)}
+                                  className="bg-green-600 hover:bg-green-700 text-white"
+                                  data-testid={`button-feedback-yes-${index}`}
+                                >
+                                  Yes 💚
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleFeedback(interaction.id, false)}
+                                  className="border-red-300 text-red-600 hover:bg-red-50"
+                                  data-testid={`button-feedback-no-${index}`}
+                                >
+                                  Not quite 💔
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Feedback Received */}
+                          {interaction.feltUnderstood !== null && (
+                            <div className="mt-3 text-xs text-muted-foreground">
+                              {interaction.feltUnderstood ? 
+                                "Thank you for your feedback! 💚" : 
+                                "Thank you for your feedback. I'll keep learning to support you better. 💙"
+                              }
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

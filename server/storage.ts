@@ -44,6 +44,7 @@ export interface IStorage {
   // AI interaction operations
   createAIInteraction(userId: string, symptomLogId: string | null, prompt: string, response: string, sentiment?: string): Promise<AIInteraction>;
   getUserAIInteractions(userId: string, limit?: number): Promise<AIInteraction[]>;
+  updateAIInteractionFeedback(id: string, userId: string, feltUnderstood: boolean): Promise<void>;
   
   // Export-specific operations (unlimited with date filtering)
   exportUserSymptomLogs(userId: string, fromDate?: Date, toDate?: Date): Promise<SymptomLog[]>;
@@ -167,6 +168,18 @@ export class DatabaseStorage implements IStorage {
       .where(eq(aiInteractions.userId, userId))
       .orderBy(desc(aiInteractions.createdAt))
       .limit(limit);
+  }
+
+  async updateAIInteractionFeedback(id: string, userId: string, feltUnderstood: boolean): Promise<void> {
+    const result = await db
+      .update(aiInteractions)
+      .set({ feltUnderstood })
+      .where(and(eq(aiInteractions.id, id), eq(aiInteractions.userId, userId)))
+      .returning({ id: aiInteractions.id });
+    
+    if (result.length === 0) {
+      throw new Error("AI interaction not found or access denied");
+    }
   }
 
   // Export-specific operations (unlimited with date filtering)

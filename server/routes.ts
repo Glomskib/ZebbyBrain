@@ -137,6 +137,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update AI interaction feedback
+  app.put('/api/ai-interactions/:id/feedback', isAuthenticated, async (req: any, res) => {
+    try {
+      const { feltUnderstood } = req.body;
+      const interactionId = req.params.id;
+      const userId = req.user.claims.sub;
+      
+      if (typeof feltUnderstood !== 'boolean') {
+        return res.status(400).json({ message: "feltUnderstood must be a boolean" });
+      }
+
+      await storage.updateAIInteractionFeedback(interactionId, userId, feltUnderstood);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating AI interaction feedback:", error);
+      if (error instanceof Error && error.message === "AI interaction not found or access denied") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      res.status(500).json({ message: "Failed to update feedback" });
+    }
+  });
+
   // Vitals tracking routes
   app.post('/api/vitals', isAuthenticated, async (req: any, res) => {
     try {

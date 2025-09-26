@@ -94,6 +94,7 @@ export const aiInteractions = pgTable("ai_interactions", {
   prompt: text("prompt").notNull(),
   response: text("response").notNull(),
   sentiment: varchar("sentiment"), // positive, empathetic, validating, etc.
+  feltUnderstood: boolean("felt_understood"), // User feedback on whether they felt understood
   createdAt: timestamp("created_at").defaultNow(),
 });
 

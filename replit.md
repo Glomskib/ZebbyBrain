@@ -1,8 +1,8 @@
-# Zebby - Health Tracker for EDS and Rare Conditions
+# Zebby's World - Health Tracker for EDS and Rare Conditions
 
 ## Overview
 
-Zebby is a comprehensive health tracking application specifically designed for people with Ehlers-Danlos Syndrome (EDS) and other rare conditions. The platform combines symptom tracking, AI-powered empathetic responses, community features, and a curated product marketplace. Built as a full-stack web application, Zebby aims to provide validation and understanding for users who often feel dismissed by traditional healthcare systems.
+Zebby's World is a comprehensive health tracking application specifically designed for people with Ehlers-Danlos Syndrome (EDS) and other rare conditions. The platform combines symptom tracking, AI-powered empathetic responses, community features, and a curated product marketplace. Built as a full-stack web application, Zebby aims to provide validation and understanding for users who often feel dismissed by traditional healthcare systems.
 
 ## User Preferences
 
@@ -41,7 +41,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Core Features
 - **Symptom Tracking**: Multi-symptom logging with intensity scales and notes
-- **AI Companion**: Zebby the AI zebra provides empathetic responses to symptom logs
+- **AI Companion**: Zebby the AI companion provides empathetic responses to symptom logs
 - **Data Visualization**: Charts showing symptom patterns and trends
 - **Marketplace Integration**: Curated products for EDS/rare condition management
 - **User Dashboard**: Centralized view of recent activity and AI insights

@@ -1,0 +1,166 @@
+Zebby’s World – Feature & Function Checklist (from Living Doc)
+1. MVP Scope (Q1 – Webapp first)
+
+ Signup & Onboarding
+
+Email/Google login (Stripe integration follows for trial → subscription).
+
+Intro flow leading straight into first symptom log.
+
+ Symptom Logging
+
+Freeform journaling with text input.
+
+Auto-tagging of symptom categories.
+
+Timestamping, notes, and tags stored in structured “Symptom Log” object.
+
+ AI Avatar Reflections
+
+Avatar receives symptom log.
+
+Returns empathetic reflection + “stamp” (visual marker).
+
+Optional “feeling understood?” quick check-in for metrics.
+
+ Marketplace (placeholder categories)
+
+Categories visible: tools, braces, supplements, salts/electrolytes, courses.
+
+Products initially placeholders (real vendor integration later).
+
+Shopify + Stripe integration for checkout.
+
+Discount framing visible.
+
+ Critical Flow
+
+Signup → log first symptom → see avatar reflection → browse store.
+
+2. Post-MVP / Phase 2
+
+ Community / Social Feed (P1)
+
+Users can post, react, and connect (support/belonging).
+
+Safety guardrails + moderation (to be defined).
+
+ Data Export (P1)
+
+Export symptom logs to:
+
+Google Fit
+
+CSV
+
+PDF
+
+ Mobile App Expansion (Q3)
+
+Sleep tracking (deferred from MVP).
+
+Deeper integrations (Google Fit, heart rate monitors).
+
+ Community Expansion (Q4)
+
+Avatar upgrades.
+
+Enriched feed with social reinforcement.
+
+3. Backend & Architecture
+
+ Stack: Node/TypeScript + Postgres (draft).
+
+ Integrations:
+
+Shopify (storefront)
+
+Stripe (payments + subscriptions)
+
+Google Fit (exports)
+
+OAuth (Google login)
+
+ Data Model:
+
+Symptom Log (core object).
+
+User.
+
+Product.
+
+Order.
+
+Community Post.
+
+Avatar Interaction.
+
+4. Analytics & Metrics
+
+ Dashboards (first 5):
+
+Acquisition (traffic → signup → activation).
+
+Activation (% logging ≥3x/week).
+
+Engagement (% reporting “feeling understood”).
+
+Marketplace conversion % + ARPU.
+
+Quality (AI latency + error rate).
+
+ NSM: % of users logging ≥3x/week and reporting “feeling understood.”
+
+ Guardrails: Retention %, marketplace conversion, latency, privacy satisfaction.
+
+5. Security, Privacy, Compliance
+
+ GDPR/CCPA consent + deletion flows.
+
+ No HIPAA scope (not a diagnostic tool).
+
+ Export-first philosophy: users control their data.
+
+ Encryption at rest + in transit.
+
+6. Monetization
+
+ Trial-only model (no free tier).
+
+ Subscription: $15/month.
+
+ Trial length TBD (7 / 14 / 30 days — open question).
+
+ Marketplace revenue: Shopify + Stripe.
+
+7. Content & Brand
+
+ Voice: empathetic, validating, hopeful.
+
+ Branding: “You are understood.”
+
+ UX: gentle palette, cognitive load–friendly.
+
+ Avatar copywriting reflects support, not diagnosis.
+
+8. Roadmap Anchors
+
+Q1 → Webapp MVP (Tracker + Store + Avatar).
+
+Q2 → Kickstarter / Shark Tank campaign.
+
+Q3 → Mobile app (sleep + integrations).
+
+Q4 → Community feed + avatar upgrades.
+
+9. Open Questions (Needs Confirmation)
+
+ Design of in-app “feeling understood” survey after avatar interaction.
+
+ Placeholder products vs. waiting for vendor partners.
+
+ Heart rate monitor integrations (general vs. brand-specific).
+
+ Trial length (7/14/30 days).
+
+ Minimum compliance before launch (GDPR/CCPA baseline).
