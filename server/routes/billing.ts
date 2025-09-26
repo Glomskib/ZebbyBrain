@@ -78,13 +78,24 @@ r.post("/create-checkout-session", checkoutRateLimit, async (req, res) => {
     const [user] = await db.select().from(users).where(eq(users.id, uid));
     if (!user) return res.status(404).json({ error: "user_not_found" });
 
+    // Stripe mode guard + health check
+    const isTestKey = process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_");
+    if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PLUS_PRICE_ID) {
+      return res.json({ 
+        ok: true, 
+        test_mode: true, 
+        url: null,
+        message: "Stripe configuration missing - set STRIPE_SECRET_KEY and STRIPE_PLUS_PRICE_ID"
+      });
+    }
+
     // Check if we're in test mode (no valid Stripe configuration)
     if (!stripe || !PRICE_ID) {
       return res.json({
         ok: true,
         test_mode: true,
         url: "https://checkout.stripe.com/test-session-url",
-        message: "Test mode: Real Stripe integration requires valid API keys"
+        message: `Test mode: Stripe ${isTestKey ? "test" : "live"} mode - authentication failed`
       });
     }
 
