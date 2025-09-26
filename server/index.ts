@@ -62,6 +62,27 @@ app.use(helmet({
   }
 }));
 
+// CSP Report-Only for monitoring violations without blocking
+app.use(helmet.contentSecurityPolicy({
+  reportOnly: true,
+  useDefaults: true,
+  directives: {
+    "default-src": ["'self'"],
+    "img-src": ["'self'", "data:", "blob:"],
+    "font-src": ["'self'", "https://fonts.gstatic.com"],
+    "style-src": ["'self'", "https://fonts.googleapis.com", "'unsafe-inline'"], // for Tailwind + Google Fonts
+    "script-src": process.env.NODE_ENV === "development" 
+      ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"] // Allow inline scripts in development for Vite + Stripe
+      : ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],
+    "connect-src": ["'self'", "https://api.stripe.com", "https://api.openai.com"],
+    "frame-src": ["https://js.stripe.com"],
+    "frame-ancestors": ["'none'"],
+    "object-src": ["'none'"],
+    "base-uri": ["'self'"],
+    "report-uri": ["/csp/report"]
+  }
+}));
+
 // HTTP Parameter Pollution protection
 app.use(hpp());
 
@@ -132,6 +153,12 @@ app.use((req, res, next) => {
   
   // Apply rate limiting to API routes BEFORE they're registered
   app.use("/api", authdLimiter);
+  
+  // CSP violation reporting endpoint
+  app.post("/csp/report", express.json({ type: "application/csp-report" }), (req, res) => {
+    console.warn("CSP violation report:", JSON.stringify(req.body?.['csp-report'] ?? req.body, null, 2));
+    res.sendStatus(204);
+  });
   
   const server = await registerRoutes(app);
 
