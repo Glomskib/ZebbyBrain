@@ -1,0 +1,110 @@
+High-impact next steps (pick 1–2 to ship next)
+1) Automated security checks in CI (prevent regressions)
+
+Run header tests, auth tests, and npm audit on every PR.
+
+Block merges if someone reintroduces req.body.userId in billing.
+
+Example GitHub Actions job
+
+name: security-ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm ci
+      - run: npm run build --workspaces=false || true
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
+      - name: forbid-billing-userid
+        run: "! grep -R \"req.body.userId\" server/src/routes/billing.ts"
+
+2) CSP “Report-Only” monitor (catch issues before users do)
+
+Keep your strict CSP, but run a Report-Only twin for a week to surface any blocked resources.
+
+Server
+
+app.post("/csp/report", express.json({ type: "application/csp-report" }), (req, res) => {
+  console.warn("CSP report:", JSON.stringify(req.body?.['csp-report'] ?? req.body));
+  res.sendStatus(204);
+});
+
+
+Add header alongside your enforced CSP
+
+app.use(helmet.contentSecurityPolicyReportOnly({
+  useDefaults: true,
+  directives: {
+    "default-src": ["'self'"],
+    "img-src": ["'self'","data:","blob:"],
+    "script-src": ["'self'","https://js.stripe.com"],
+    "style-src": ["'self'","https://fonts.googleapis.com"],
+    "font-src": ["'self'","https://fonts.gstatic.com"],
+    "connect-src": ["'self'","https://api.stripe.com"],
+    "frame-src": ["https://js.stripe.com"],
+    "report-uri": "/csp/report"
+  }
+}));
+
+3) Secrets rotation helper + health alarm
+
+Quarterly rotation is policy; make it trivial and observable.
+
+Require env (fail fast)
+
+const requireEnv = (k: string) => {
+  const v = process.env[k]; if (!v) throw new Error(`Missing env: ${k}`); return v;
+};
+export const SESSION_SECRET = requireEnv("SESSION_SECRET");
+export const STRIPE_WEBHOOK_SECRET = requireEnv("STRIPE_WEBHOOK_SECRET");
+
+
+Expose status for uptime monitors
+
+app.get("/api/meta/status", (_req,res) => {
+  const key = process.env.STRIPE_SECRET_KEY || "";
+  res.json({
+    ok: true,
+    stripe: {
+      configured: Boolean(key && process.env.STRIPE_PLUS_PRICE_ID),
+      mode: key.startsWith("sk_live_") ? "live" : key.startsWith("sk_test_") ? "test" : "unknown",
+    }
+  });
+});
+
+
+Point your monitor to /api/meta/status and alert if configured:false or mode:unknown.
+
+4) DB least-privilege & RLS (extra hardening)
+
+Create a read/write role scoped to your app schema only.
+
+Add explicit WHERE user_id = $current_user_id in every query (which you already enforce in code)—or implement DB-level RLS if supported.
+
+5) “Clinician Pack” polish for exports (fast UX win)
+
+Add a cover page, logo/mascot, and “Key changes since last visit” bullets.
+
+Include export metadata footer: user id (hashed), generation time, page X/Y.
+
+pdfmake snippet (footer)
+
+footer: (page, pages) => ({
+  text: `Zebby • Not medical advice • ${page}/${pages}`,
+  alignment: "center", fontSize: 8, margin: [0,10,0,0]
+})
+
+6) Bug-bounty-lite disclosure
+
+Add /.well-known/security.txt pointing to your disclosure email and supported scope to encourage responsible reports.
+
+security.txt
+
+Contact: mailto:security@yourdomain.com
+Policy: https://yourdomain.com/security
+Preferred-Languages: en

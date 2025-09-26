@@ -1,0 +1,101 @@
+name: Security CI
+on: 
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  security-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build application
+        run: npm run build --if-present || true
+        
+      - name: Run security tests
+        run: npm test
+        
+      - name: Security audit
+        run: npm audit --omit=dev --audit-level=high
+        
+      - name: Prevent billing auth bypass
+        run: |
+          echo "Checking for req.body.userId in billing routes..."
+          if grep -r "req\.body\.userId" server/routes/billing.ts server/routes.ts; then
+            echo "❌ SECURITY VIOLATION: Found req.body.userId in billing code!"
+            echo "This creates authentication bypass vulnerabilities."
+            exit 1
+          else
+            echo "✅ No req.body.userId found in billing routes"
+          fi
+          
+      - name: Validate security headers
+        run: |
+          echo "Checking for required security headers in server configuration..."
+          
+          # Check for helmet configuration
+          if ! grep -q "helmet(" server/index.ts; then
+            echo "❌ SECURITY: Missing helmet configuration"
+            exit 1
+          fi
+          
+          # Check for CSP configuration
+          if ! grep -q "contentSecurityPolicy" server/index.ts; then
+            echo "❌ SECURITY: Missing Content Security Policy"
+            exit 1
+          fi
+          
+          # Check for rate limiting
+          if ! grep -q "rateLimit" server/index.ts; then
+            echo "❌ SECURITY: Missing rate limiting"
+            exit 1
+          fi
+          
+          # Check for authentication middleware
+          if ! grep -q "requireAuth" server/middleware/requireAuth.ts; then
+            echo "❌ SECURITY: Missing authentication middleware"
+            exit 1
+          fi
+          
+          echo "✅ All security headers and middleware checks passed"
+          
+      - name: Validate secret management
+        run: |
+          echo "Checking for hardcoded secrets..."
+          
+          # Check for potential hardcoded secrets (case insensitive)
+          if grep -ri "sk_live_\|sk_test_\|whsec_" --exclude-dir=node_modules --exclude="*.log" .; then
+            echo "❌ SECURITY: Potential hardcoded secrets found!"
+            exit 1
+          fi
+          
+          # Check for secret validation on boot
+          if ! grep -q "SESSION_SECRET.*throw" server/index.ts; then
+            echo "❌ SECURITY: Missing SESSION_SECRET validation on boot"
+            exit 1
+          fi
+          
+          echo "✅ Secret management validation passed"
+          
+      - name: Check cache control on exports
+        run: |
+          echo "Checking for cache control headers on export endpoints..."
+          
+          if ! grep -q 'Cache-Control.*no-store' server/routes.ts; then
+            echo "❌ SECURITY: Missing Cache-Control: no-store on export endpoints"
+            exit 1
+          fi
+          
+          echo "✅ Export cache control validation passed"
