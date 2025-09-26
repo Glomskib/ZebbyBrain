@@ -239,6 +239,53 @@ export const orderItems = pgTable("order_items", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Product reviews with EDS-specific feedback
+export const productReviews = pgTable("product_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  productId: varchar("product_id").notNull().references(() => products.id),
+  orderId: varchar("order_id").references(() => orders.id), // For verified purchase tracking
+  
+  // Overall rating
+  overallRating: integer("overall_rating").notNull(), // 1-5 stars
+  
+  // EDS-specific ratings (1-5 scale)
+  edsHelpfulness: integer("eds_helpfulness"), // How helpful is this for EDS symptoms?
+  comfortRating: integer("comfort_rating"), // Daily use comfort for sensitive joints/skin
+  durabilityRating: integer("durability_rating"), // Holds up to frequent EDS-related use
+  symptomReliefRating: integer("symptom_relief_rating"), // Effectiveness for symptom management
+  
+  // Text feedback
+  reviewTitle: varchar("review_title"),
+  reviewText: text("review_text"),
+  prosText: text("pros_text"), // What worked well
+  consText: text("cons_text"), // What didn't work or could improve
+  
+  // EDS-specific feedback
+  recommendToEdsPatients: boolean("recommend_to_eds_patients").default(false),
+  specificEdsSymptoms: text("specific_eds_symptoms").array(), // Which EDS symptoms it helped with
+  dailyUseContext: text("daily_use_context"), // How they use it in daily life
+  
+  // Verification and moderation
+  verifiedPurchase: boolean("verified_purchase").default(false),
+  isApproved: boolean("is_approved").default(false), // For moderation
+  moderatorNotes: text("moderator_notes"),
+  
+  // Metadata
+  helpfulCount: integer("helpful_count").default(0), // Users can mark reviews as helpful
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Track which users found reviews helpful
+export const reviewHelpfulness = pgTable("review_helpfulness", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  reviewId: varchar("review_id").notNull().references(() => productReviews.id),
+  isHelpful: boolean("is_helpful").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   symptomLogs: many(symptomLogs),
@@ -490,3 +537,23 @@ export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
 });
 export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
 export type OrderItem = typeof orderItems.$inferSelect;
+
+// Product review types
+export const insertProductReviewSchema = createInsertSchema(productReviews).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  helpfulCount: true,
+  verifiedPurchase: true,
+  isApproved: true,
+  moderatorNotes: true,
+});
+export type InsertProductReview = z.infer<typeof insertProductReviewSchema>;
+export type ProductReview = typeof productReviews.$inferSelect;
+
+export const insertReviewHelpfulnessSchema = createInsertSchema(reviewHelpfulness).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertReviewHelpfulness = z.infer<typeof insertReviewHelpfulnessSchema>;
+export type ReviewHelpfulness = typeof reviewHelpfulness.$inferSelect;

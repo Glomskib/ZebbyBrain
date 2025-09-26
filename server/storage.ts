@@ -15,6 +15,8 @@ import {
   cartItems,
   orders,
   orderItems,
+  productReviews,
+  reviewHelpfulness,
   type User,
   type UpsertUser,
   type SymptomLog,
@@ -44,6 +46,10 @@ import {
   type InsertOrder,
   type OrderItem,
   type InsertOrderItem,
+  type ProductReview,
+  type InsertProductReview,
+  type ReviewHelpfulness,
+  type InsertReviewHelpfulness,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, inArray, gte, lte } from "drizzle-orm";
@@ -82,6 +88,13 @@ export interface IStorage {
   getProduct(id: string): Promise<Product | undefined>;
   createProduct(product: InsertProduct): Promise<Product>;
   createProductCategory(category: InsertProductCategory): Promise<ProductCategory>;
+  
+  // Product review operations
+  createProductReview(review: InsertProductReview): Promise<ProductReview>;
+  getProductReviews(productId: string): Promise<(ProductReview & { user: { firstName: string; lastName: string } })[]>;
+  getUserReviews(userId: string): Promise<(ProductReview & { product: Product })[]>;
+  updateReviewApproval(id: string, isApproved: boolean, moderatorNotes?: string): Promise<void>;
+  markReviewHelpful(userId: string, reviewId: string, isHelpful: boolean): Promise<void>;
   
   // User favorites
   toggleUserFavorite(userId: string, productId: string): Promise<boolean>;
@@ -398,6 +411,136 @@ export class DatabaseStorage implements IStorage {
       .values(category)
       .returning();
     return newCategory;
+  }
+
+  // Product review operations
+  async createProductReview(review: InsertProductReview): Promise<ProductReview> {
+    const [newReview] = await db
+      .insert(productReviews)
+      .values(review)
+      .returning();
+    return newReview;
+  }
+
+  async getProductReviews(productId: string): Promise<(ProductReview & { user: { firstName: string; lastName: string } })[]> {
+    return await db
+      .select({
+        id: productReviews.id,
+        userId: productReviews.userId,
+        productId: productReviews.productId,
+        orderId: productReviews.orderId,
+        overallRating: productReviews.overallRating,
+        edsHelpfulness: productReviews.edsHelpfulness,
+        comfortRating: productReviews.comfortRating,
+        durabilityRating: productReviews.durabilityRating,
+        symptomReliefRating: productReviews.symptomReliefRating,
+        reviewTitle: productReviews.reviewTitle,
+        reviewText: productReviews.reviewText,
+        prosText: productReviews.prosText,
+        consText: productReviews.consText,
+        recommendToEdsPatients: productReviews.recommendToEdsPatients,
+        specificEdsSymptoms: productReviews.specificEdsSymptoms,
+        dailyUseContext: productReviews.dailyUseContext,
+        verifiedPurchase: productReviews.verifiedPurchase,
+        isApproved: productReviews.isApproved,
+        moderatorNotes: productReviews.moderatorNotes,
+        helpfulCount: productReviews.helpfulCount,
+        createdAt: productReviews.createdAt,
+        updatedAt: productReviews.updatedAt,
+        user: {
+          firstName: users.firstName,
+          lastName: users.lastName,
+        },
+      })
+      .from(productReviews)
+      .innerJoin(users, eq(productReviews.userId, users.id))
+      .where(and(eq(productReviews.productId, productId), eq(productReviews.isApproved, true)))
+      .orderBy(desc(productReviews.createdAt));
+  }
+
+  async getUserReviews(userId: string): Promise<(ProductReview & { product: Product })[]> {
+    return await db
+      .select({
+        id: productReviews.id,
+        userId: productReviews.userId,
+        productId: productReviews.productId,
+        orderId: productReviews.orderId,
+        overallRating: productReviews.overallRating,
+        edsHelpfulness: productReviews.edsHelpfulness,
+        comfortRating: productReviews.comfortRating,
+        durabilityRating: productReviews.durabilityRating,
+        symptomReliefRating: productReviews.symptomReliefRating,
+        reviewTitle: productReviews.reviewTitle,
+        reviewText: productReviews.reviewText,
+        prosText: productReviews.prosText,
+        consText: productReviews.consText,
+        recommendToEdsPatients: productReviews.recommendToEdsPatients,
+        specificEdsSymptoms: productReviews.specificEdsSymptoms,
+        dailyUseContext: productReviews.dailyUseContext,
+        verifiedPurchase: productReviews.verifiedPurchase,
+        isApproved: productReviews.isApproved,
+        moderatorNotes: productReviews.moderatorNotes,
+        helpfulCount: productReviews.helpfulCount,
+        createdAt: productReviews.createdAt,
+        updatedAt: productReviews.updatedAt,
+        product: products,
+      })
+      .from(productReviews)
+      .innerJoin(products, eq(productReviews.productId, products.id))
+      .where(eq(productReviews.userId, userId))
+      .orderBy(desc(productReviews.createdAt));
+  }
+
+  async updateReviewApproval(id: string, isApproved: boolean, moderatorNotes?: string): Promise<void> {
+    await db
+      .update(productReviews)
+      .set({ 
+        isApproved, 
+        moderatorNotes,
+        updatedAt: new Date() 
+      })
+      .where(eq(productReviews.id, id));
+  }
+
+  async markReviewHelpful(userId: string, reviewId: string, isHelpful: boolean): Promise<void> {
+    // First check if user already marked this review
+    const [existing] = await db
+      .select()
+      .from(reviewHelpfulness)
+      .where(and(
+        eq(reviewHelpfulness.userId, userId),
+        eq(reviewHelpfulness.reviewId, reviewId)
+      ));
+
+    if (existing) {
+      // Update existing helpfulness rating
+      await db
+        .update(reviewHelpfulness)
+        .set({ isHelpful })
+        .where(eq(reviewHelpfulness.id, existing.id));
+    } else {
+      // Create new helpfulness rating
+      await db
+        .insert(reviewHelpfulness)
+        .values({ userId, reviewId, isHelpful });
+    }
+
+    // Update helpful count on review
+    const helpfulCountResult = await db
+      .select({ count: productReviews.id })
+      .from(reviewHelpfulness)
+      .where(and(
+        eq(reviewHelpfulness.reviewId, reviewId),
+        eq(reviewHelpfulness.isHelpful, true)
+      ));
+    
+    await db
+      .update(productReviews)
+      .set({ 
+        helpfulCount: helpfulCountResult.length,
+        updatedAt: new Date() 
+      })
+      .where(eq(productReviews.id, reviewId));
   }
 
   // User favorites
