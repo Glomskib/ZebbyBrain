@@ -1,0 +1,459 @@
+Goals
+
+Stripe upgrades:
+
+Allow promotion codes at Checkout (e.g., Kickstarter codes).
+
+Support coupons (e.g., 100% off for X months).
+
+Optional trial months (no charge during trial).
+
+Customer Portal remains available.
+
+Testing login for dev/staging (no real auth required).
+
+Keep all prior security headers and guards.
+
+0) ENV — add these (Replit → Secrets)
+APP_URL=https://<your-repl>.<you>.replit.dev
+JWT_SECRET=change_me_32chars
+ALLOW_TEST_LOGIN=true
+TEST_LOGIN_PASSWORD=letmein
+
+# Stripe (TEST first)
+STRIPE_SECRET_KEY=sk_test_********
+STRIPE_PLUS_PRICE_ID=price_********
+STRIPE_WEBHOOK_SECRET=whsec_********
+
+# OPTIONAL: pre-created Stripe Coupon for Kickstarter (100% off X months)
+# Create on Stripe (Developers → Coupons; duration=repeating, duration_in_months=X, percent_off=100)
+STRIPE_KS_COUPON_ID=coupon_********
+
+# OPTIONAL: default trial days if you want a universal trial
+STRIPE_TRIAL_DAYS=0
+
+
+Restart the repl after saving secrets.
+
+1) Server security (keep / confirm)
+
+server/src/app.ts (or your main Express file). If you already added these, keep them; otherwise add:
+
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import hpp from "hpp";
+import crypto from "crypto";
+
+const app = express();
+
+// CORS: only known origins
+const allowed = [process.env.APP_URL, "http://localhost:5173"].filter(Boolean) as string[];
+app.use(cors({ origin: allowed, credentials: true }));
+
+// Per-request nonce (if you truly need inline scripts)
+app.use((req, res, next) => {
+  (res as any).nonce = crypto.randomBytes(16).toString("base64");
+  next();
+});
+
+// Helmet + CSP (tighten for production)
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'", "data:", "blob:"],
+      "font-src": ["'self'", "https://fonts.gstatic.com"],
+      "style-src": ["'self'", "https://fonts.googleapis.com", "'unsafe-inline'"], // remove 'unsafe-inline' once refactored
+      "script-src": [
+        "'self'",
+        "https://js.stripe.com", // if using Elements/Portal
+        (req, res) => `'nonce-${(res as any).nonce}'`,
+      ],
+      "connect-src": ["'self'", "https://api.stripe.com"],
+      "frame-src": ["https://js.stripe.com"],
+      "frame-ancestors": ["'none'"],
+      "object-src": ["'none'"],
+      "base-uri": ["'self'"],
+      // "report-uri": "/csp/report" // optional
+    },
+  },
+  referrerPolicy: { policy: "no-referrer" },
+}));
+
+app.use(hpp());
+app.disable("x-powered-by");
+
+// Simple timeouts (slowloris)
+app.use((req, res, next) => {
+  req.setTimeout(10_000);
+  res.setTimeout(10_000);
+  next();
+});
+
+export default app;
+
+
+Mount your webhook before express.json() in your final index.ts (see section 3).
+
+2) Testing login (dev/staging only)
+
+A lightweight password-gated dev login that issues a JWT and auto-creates a user if missing.
+
+server/src/routes/auth-test.ts
+
+import { Router } from "express";
+import jwt from "jsonwebtoken";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+const r = Router();
+
+const allow = (process.env.ALLOW_TEST_LOGIN || "").toLowerCase() === "true";
+const shared = process.env.TEST_LOGIN_PASSWORD || "";
+const JWT_SECRET = process.env.JWT_SECRET!;
+
+r.post("/test-login", async (req, res) => {
+  if (!allow) return res.status(403).json({ error: "disabled" });
+  const pass = req.headers["x-test-login-password"] || req.body?.password;
+  if (!pass || pass !== shared) return res.status(401).json({ error: "bad_password" });
+
+  const email = (req.body?.email as string) || "tester@zebby.local";
+  let user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    user = await prisma.user.create({
+      data: { email, plan: "free", planStatus: "inactive" }
+    } as any);
+  }
+  const token = jwt.sign({ uid: user.id }, JWT_SECRET, { expiresIn: "7d" });
+  res.json({ ok: true, token, user: { id: user.id, email: user.email, plan: user.plan } });
+});
+
+export default r;
+
+
+server/src/middleware/auth.ts (attach req.user from JWT):
+
+import { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
+
+export function authOptional(req: Request, res: Response, next: NextFunction) {
+  const hdr = req.headers.authorization || "";
+  const token = hdr.startsWith("Bearer ") ? hdr.slice(7) : null;
+  if (token && process.env.JWT_SECRET) {
+    try {
+      const payload = jwt.verify(token, process.env.JWT_SECRET) as any;
+      (req as any).user = { id: payload.uid };
+    } catch {}
+  }
+  next();
+}
+
+
+Use authOptional on routes that need a user id for Stripe.
+
+client (dev): Add a tiny DEV login button to store the token:
+
+async function devLogin() {
+  const r = await fetch("/api/auth/test-login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-test-login-password": "letmein" // match TEST_LOGIN_PASSWORD
+    },
+    body: JSON.stringify({ email: "tester@zebby.local" })
+  });
+  const data = await r.json();
+  if (data.ok) localStorage.setItem("zebby_token", data.token);
+}
+
+
+Attach token on client requests:
+
+const token = localStorage.getItem("zebby_token");
+fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+
+3) Stripe billing — promo codes, coupons, and X months free
+
+server/src/routes/billing.ts
+
+import { Router } from "express";
+import Stripe from "stripe";
+import { PrismaClient } from "@prisma/client";
+import { z } from "zod";
+
+const prisma = new PrismaClient();
+const r = Router();
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" });
+const PRICE_ID = process.env.STRIPE_PLUS_PRICE_ID!;
+const DEFAULT_TRIAL_DAYS = parseInt(process.env.STRIPE_TRIAL_DAYS || "0", 10);
+const KS_COUPON_ID = process.env.STRIPE_KS_COUPON_ID || null; // optional
+
+const bodySchema = z.object({
+  userId: z.string().min(1),
+  promoCode: z.string().optional(),  // Stripe Promotion Code (user types "KICKSTARTER2025")
+  couponId: z.string().optional(),   // Stripe Coupon ID (server-configured)
+  trialMonths: z.number().int().min(0).max(12).optional() // converts to days
+});
+
+r.post("/create-checkout-session", async (req, res) => {
+  // auth (optional JWT)
+  const uid = (req as any).user?.id || req.body?.userId;
+  if (!uid) return res.status(401).json({ error: "auth_required" });
+
+  const parsed = bodySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "validation", detail: parsed.error.flatten() });
+
+  const { promoCode, couponId, trialMonths = 0 } = parsed.data;
+
+  // fetch user
+  const user = await prisma.user.findUnique({ where: { id: uid } });
+  if (!user) return res.status(404).json({ error: "user_not_found" });
+
+  // get or create customer
+  let customerId = user.stripeCustomerId || undefined;
+  if (!customerId) {
+    const cust = await stripe.customers.create({ email: user.email || undefined });
+    customerId = cust.id;
+    await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
+  }
+
+  // trial conversion
+  const trialDays = trialMonths > 0 ? trialMonths * 30 : DEFAULT_TRIAL_DAYS;
+
+  // discounts array (coupons)
+  const discounts: Stripe.Checkout.SessionCreateParams.Discount[] = [];
+  if (couponId) discounts.push({ coupon: couponId });
+  // Add default Kickstarter coupon if env is set and no explicit coupon given (optional behavior)
+  if (!couponId && KS_COUPON_ID) discounts.push({ coupon: KS_COUPON_ID });
+
+  const params: Stripe.Checkout.SessionCreateParams = {
+    mode: "subscription",
+    customer: customerId,
+    line_items: [{ price: PRICE_ID, quantity: 1 }],
+    allow_promotion_codes: true, // enables promo code field at checkout
+    success_url: `${process.env.APP_URL}/settings?purchase=success`,
+    cancel_url: `${process.env.APP_URL}/settings?purchase=cancel`,
+    subscription_data: {
+      trial_period_days: trialDays > 0 ? trialDays : undefined,
+      discounts: discounts.length ? discounts : undefined,
+    }
+  };
+
+  // If you want to pre-apply a specific Promotion Code by code (optional):
+  if (promoCode) {
+    // NOTE: Stripe does not allow passing a raw code into session; customer enters it at Checkout UI.
+    // Alternative: look up the Promotion Code and convert it to a Coupon (server-side),
+    // but Stripe's Checkout expects discounts as Coupon, or end-user typed promo code.
+    // We'll rely on allow_promotion_codes: true so the user can paste it.
+  }
+
+  // Optional test-mode stub if keys invalid (your earlier logic)
+  if (!process.env.STRIPE_SECRET_KEY?.startsWith("sk_")) {
+    return res.json({ ok: true, test_mode: true, url: null });
+  }
+
+  const session = await stripe.checkout.sessions.create(params);
+  return res.json({ ok: true, url: session.url });
+});
+
+r.post("/create-portal-session", async (req, res) => {
+  const uid = (req as any).user?.id || req.body?.userId;
+  if (!uid) return res.status(401).json({ error: "auth_required" });
+
+  const user = await prisma.user.findUnique({ where: { id: uid } });
+  if (!user?.stripeCustomerId) return res.status(400).json({ error: "no_customer" });
+
+  const portal = await stripe.billingPortal.sessions.create({
+    customer: user.stripeCustomerId,
+    return_url: `${process.env.APP_URL}/settings`
+  });
+  res.json({ ok: true, url: portal.url });
+});
+
+export default r;
+
+
+Webhook (unchanged, but ensure path and raw body are correct):
+
+server/src/routes/stripe-webhook.ts
+
+import { Router } from "express";
+import express from "express";
+import Stripe from "stripe";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+const r = Router();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" });
+
+r.post("/", express.raw({ type: "application/json" }), async (req, res) => {
+  const sig = req.headers["stripe-signature"] as string;
+  const whsec = process.env.STRIPE_WEBHOOK_SECRET!;
+  let event: Stripe.Event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, whsec);
+  } catch (err: any) {
+    console.error("Webhook verify failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  switch (event.type) {
+    case "checkout.session.completed": {
+      const s = event.data.object as Stripe.Checkout.Session;
+      const subId = s.subscription as string;
+      const sub = await stripe.subscriptions.retrieve(subId);
+      const customerId = sub.customer as string;
+      const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
+      if (user) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            plan: sub.status === "active" ? "plus" : "free",
+            planStatus: sub.status as any,
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+          },
+        });
+      }
+      break;
+    }
+    case "customer.subscription.updated":
+    case "customer.subscription.deleted": {
+      const sub = event.data.object as Stripe.Subscription;
+      const customerId = sub.customer as string;
+      const user = await prisma.user.findFirst({ where: { stripeCustomerId: customerId } });
+      if (user) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            plan: sub.status === "active" ? "plus" : "free",
+            planStatus: sub.status as any,
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+          },
+        });
+      }
+      break;
+    }
+    default: break;
+  }
+
+  res.json({ received: true });
+});
+
+export default r;
+
+
+server/src/index.ts (mount order: webhook → JSON → routes)
+
+import app from "./app";
+import express from "express";
+import { authOptional } from "./middleware/auth";
+
+import stripeWebhook from "./routes/stripe-webhook";
+import billing from "./routes/billing";
+import authTest from "./routes/auth-test";
+
+// 1) Webhook first (raw body in the route file)
+app.use("/stripe/webhook", stripeWebhook);
+
+// 2) JSON for the rest
+app.use(express.json());
+
+// 3) Optional auth
+app.use(authOptional);
+
+// 4) Routes
+app.use("/api/billing", billing);
+app.use("/api/auth", authTest);
+
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+const port = process.env.PORT || 3001;
+app.listen(port, () => console.log("Server on", port));
+
+4) Client — Upgrade UI snippets
+
+Start Checkout with promo inputs:
+
+async function goPlus({ promoCode, couponId, trialMonths }: { promoCode?: string; couponId?: string; trialMonths?: number } = {}) {
+  const token = localStorage.getItem("zebby_token") || "";
+  const r = await fetch("/api/billing/create-checkout-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ userId: "me", promoCode, couponId, trialMonths })
+  });
+  const data = await r.json();
+  if (data?.test_mode) {
+    // your existing graceful test behavior
+    toast("Test Mode Active: no external redirect.");
+    return;
+  }
+  if (data?.url) window.location.href = data.url;
+}
+
+
+Settings page controls:
+
+<div className="space-y-2">
+  <label className="block">
+    <div className="text-sm font-medium">Promotion code</div>
+    <input id="promo" className="w-full rounded border p-2" placeholder="e.g., KICKSTARTER2025" />
+  </label>
+  <label className="block">
+    <div className="text-sm font-medium">Trial months (0–12)</div>
+    <input id="trial" type="number" min={0} max={12} className="w-full rounded border p-2" defaultValue={0}/>
+  </label>
+  <button
+    className="rounded px-4 py-2 bg-blue-600 text-white"
+    onClick={() => {
+      const promo = (document.getElementById("promo") as HTMLInputElement).value || undefined;
+      const trial = parseInt((document.getElementById("trial") as HTMLInputElement).value || "0", 10);
+      goPlus({ promoCode: promo, trialMonths: isNaN(trial) ? 0 : trial });
+    }}
+  >
+    Go Plus
+  </button>
+  <button className="ml-2 rounded px-4 py-2 border" onClick={async ()=>{
+    const token = localStorage.getItem("zebby_token") || "";
+    const r = await fetch("/api/billing/create-portal-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ userId: "me" })
+    });
+    const { url } = await r.json();
+    if (url) window.location.href = url;
+  }}>
+    Manage billing
+  </button>
+</div>
+
+
+At Stripe Checkout, users can enter Promo Codes because allow_promotion_codes: true.
+For Kickstarter X months free, either pass a Coupon ID (couponId) or set trialMonths (free trial). The coupon approach charges $0 for X months (100% off repeating), whereas trial defers first charge.
+
+5) Sanity / Acceptance
+
+Checkout supports codes: see the “Add promotion code” link at Stripe Checkout.
+
+X months free:
+
+Coupon path: create STRIPE_KS_COUPON_ID in Stripe (100% off, duration repeating X months). Hitting “Go Plus” without a couponId still applies KS coupon by env (you can remove that behavior if you want manual only).
+
+Trial path: entering trialMonths=N sends trial_period_days=N*30.
+
+Portal works and shows discount on subscription.
+
+Testing login issues JWT and stores it client-side; backend sees req.user.id.
+
+All security headers stay present (check /api/health).
+
+6) Notes
+
+Don’t mix test/live Stripe modes. Use sk_test_… with Test coupon/price IDs.
+
+When promoting to prod, swap sk_live, price live, and create live coupons/promo codes.
+
+If you later remove inline styles/scripts, drop 'unsafe-inline' and rely on external files or nonces.
