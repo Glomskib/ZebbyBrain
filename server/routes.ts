@@ -50,32 +50,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Symptom logging routes
+  // Enhanced symptom logging routes
   app.post('/api/symptoms', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const validatedData = insertSymptomLogSchema.parse({
-        ...req.body,
-        userId,
-      });
+      const { symptomEntries, location, ...sessionData } = req.body;
 
-      // Create the symptom log
-      const symptomLog = await storage.createSymptomLog(validatedData);
+      if (!symptomEntries || symptomEntries.length === 0) {
+        return res.status(400).json({ message: "At least one symptom entry is required" });
+      }
+
+      // Get weather data if location is provided
+      let weatherData = null;
+      if (location && location !== "Unknown") {
+        const { getCurrentWeather, getWeatherByCity } = await import('./weatherService');
+        
+        if (location.includes(',')) {
+          // Location is lat,lon coordinates
+          const [lat, lon] = location.split(',').map(Number);
+          if (!isNaN(lat) && !isNaN(lon)) {
+            weatherData = await getCurrentWeather(lat, lon);
+          }
+        } else {
+          // Location is city name
+          weatherData = await getWeatherByCity(location);
+        }
+      }
+
+      // Create the main symptom log with contextual data
+      const symptomLogData = {
+        userId,
+        timestamp: new Date(sessionData.timestamp),
+        notes: sessionData.notes || null,
+        waterIntakeCurrentMl: sessionData.waterIntakeCurrentMl || null,
+        heartRateBpm: sessionData.heartRateBpm || null, 
+        sodiumIntakeCurrentMg: sessionData.sodiumIntakeCurrentMg || null,
+        weatherTemp: weatherData?.temperature || null,
+        weatherCondition: weatherData?.condition || null,
+        weatherLocation: weatherData?.location || null,
+        // Legacy fields for backward compatibility
+        symptoms: symptomEntries.map((entry: any) => entry.name),
+        intensity: Math.round(symptomEntries.reduce((sum: number, entry: any) => sum + entry.intensity, 0) / symptomEntries.length)
+      };
+
+      const symptomLog = await storage.createSymptomLog(symptomLogData);
+
+      // Create individual symptom entries
+      const createdEntries = [];
+      for (const entry of symptomEntries) {
+        const symptomEntry = await storage.createSymptomEntry({
+          symptomLogId: symptomLog.id,
+          symptomName: entry.name,
+          intensity: entry.intensity,
+          notes: entry.notes || null
+        });
+        createdEntries.push(symptomEntry);
+      }
 
       // Generate AI reflection asynchronously
+      const symptomSummary = symptomEntries.map((entry: any) => `${entry.name} (${entry.intensity}/10)`).join(", ");
       generateEmpathicReflection(
-        symptomLog.symptoms,
-        symptomLog.intensity,
-        symptomLog.notes || undefined
+        symptomEntries.map((entry: any) => entry.name),
+        Math.round(symptomEntries.reduce((sum: number, entry: any) => sum + entry.intensity, 0) / symptomEntries.length),
+        sessionData.notes || undefined
       ).then(async (aiResponse) => {
-        // Update the symptom log with AI reflection
         await storage.updateSymptomLogReflection(symptomLog.id, aiResponse.reflection);
         
-        // Store AI interaction
         await storage.createAIInteraction(
           userId,
           symptomLog.id,
-          `Symptoms: ${symptomLog.symptoms.join(", ")}, Intensity: ${symptomLog.intensity}`,
+          `Symptoms: ${symptomSummary}`,
           aiResponse.reflection,
           aiResponse.sentiment
         );
@@ -83,7 +127,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Failed to generate AI reflection:", error);
       });
 
-      res.json(symptomLog);
+      res.json({ 
+        ...symptomLog, 
+        symptomEntries: createdEntries,
+        weatherData 
+      });
     } catch (error) {
       console.error("Error creating symptom log:", error);
       if (error instanceof z.ZodError) {
@@ -97,8 +145,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const limit = parseInt(req.query.limit as string) || 50;
-      const symptoms = await storage.getUserSymptomLogs(userId, limit);
-      res.json(symptoms);
+      const withEntries = req.query.withEntries === 'true';
+      
+      if (withEntries) {
+        const symptoms = await storage.getUserSymptomLogsWithEntries(userId, limit);
+        res.json(symptoms);
+      } else {
+        const symptoms = await storage.getUserSymptomLogs(userId, limit);
+        res.json(symptoms);
+      }
     } catch (error) {
       console.error("Error fetching symptom logs:", error);
       res.status(500).json({ message: "Failed to fetch symptom logs" });
@@ -107,20 +162,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/symptoms/:id', isAuthenticated, async (req: any, res) => {
     try {
-      const symptomLog = await storage.getSymptomLog(req.params.id);
-      if (!symptomLog) {
-        return res.status(404).json({ message: "Symptom log not found" });
-      }
+      const withEntries = req.query.withEntries === 'true';
       
-      // Check if user owns this symptom log
-      if (symptomLog.userId !== req.user.claims.sub) {
-        return res.status(403).json({ message: "Unauthorized" });
+      if (withEntries) {
+        const symptomLog = await storage.getSymptomLogWithEntries(req.params.id);
+        if (!symptomLog) {
+          return res.status(404).json({ message: "Symptom log not found" });
+        }
+        
+        if (symptomLog.userId !== req.user.claims.sub) {
+          return res.status(403).json({ message: "Unauthorized" });
+        }
+        
+        res.json(symptomLog);
+      } else {
+        const symptomLog = await storage.getSymptomLog(req.params.id);
+        if (!symptomLog) {
+          return res.status(404).json({ message: "Symptom log not found" });
+        }
+        
+        if (symptomLog.userId !== req.user.claims.sub) {
+          return res.status(403).json({ message: "Unauthorized" });
+        }
+        
+        res.json(symptomLog);
       }
-      
-      res.json(symptomLog);
     } catch (error) {
       console.error("Error fetching symptom log:", error);
       res.status(500).json({ message: "Failed to fetch symptom log" });
+    }
+  });
+
+  // Daily intakes endpoint
+  app.get('/api/daily-intakes', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const date = req.query.date ? new Date(req.query.date) : new Date();
+      
+      const intakes = await storage.getUserDailyIntakes(userId, date);
+      res.json(intakes);
+    } catch (error) {
+      console.error("Error fetching daily intakes:", error);
+      res.status(500).json({ message: "Failed to fetch daily intakes" });
+    }
+  });
+
+  // Water intake logging
+  app.post('/api/water-intake', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { amountMl, timestamp, notes } = req.body;
+      
+      if (!amountMl || amountMl <= 0) {
+        return res.status(400).json({ message: "Valid amount in ml is required" });
+      }
+
+      const waterLog = await storage.createWaterIntakeLog({
+        userId,
+        amountMl,
+        timestamp: new Date(timestamp || Date.now()),
+        source: 'manual',
+        notes: notes || null
+      });
+
+      res.json(waterLog);
+    } catch (error) {
+      console.error("Error logging water intake:", error);
+      res.status(500).json({ message: "Failed to log water intake" });
+    }
+  });
+
+  // Sodium intake logging
+  app.post('/api/sodium-intake', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { amountMg, foodItem, timestamp, notes } = req.body;
+      
+      if (!amountMg || amountMg <= 0) {
+        return res.status(400).json({ message: "Valid amount in mg is required" });
+      }
+
+      const sodiumLog = await storage.createSodiumIntakeLog({
+        userId,
+        amountMg,
+        foodItem: foodItem || null,
+        timestamp: new Date(timestamp || Date.now()),
+        source: 'manual',
+        notes: notes || null
+      });
+
+      res.json(sodiumLog);
+    } catch (error) {
+      console.error("Error logging sodium intake:", error);
+      res.status(500).json({ message: "Failed to log sodium intake" });
     }
   });
 

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -9,7 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { X } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { X, Thermometer, Droplets, Heart, Utensils } from "lucide-react";
 
 interface SymptomLoggerProps {
   isOpen: boolean;
@@ -20,24 +21,33 @@ const COMMON_SYMPTOMS = [
   { icon: "🦴", name: "Joint Pain", testId: "joint-pain" },
   { icon: "😴", name: "Fatigue", testId: "fatigue" },
   { icon: "🧠", name: "Brain Fog", testId: "brain-fog" },
-  { icon: "💓", name: "Heart Rate", testId: "heart-rate" },
+  { icon: "💓", name: "Heart Palpitations", testId: "heart-palpitations" },
   { icon: "🥵", name: "Heat Intolerance", testId: "heat-intolerance" },
   { icon: "🤸", name: "Joint Instability", testId: "joint-instability" },
   { icon: "😵", name: "Dizziness", testId: "dizziness" },
   { icon: "🤕", name: "Headache", testId: "headache" },
 ];
 
+interface SymptomRating {
+  name: string;
+  intensity: number;
+  notes: string;
+}
+
 export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
+  const [symptomRatings, setSymptomRatings] = useState<SymptomRating[]>([]);
   const [customSymptom, setCustomSymptom] = useState("");
-  const [intensity, setIntensity] = useState(5);
-  const [notes, setNotes] = useState("");
+  const [sessionNotes, setSessionNotes] = useState("");
   const [timestamp, setTimestamp] = useState(
     new Date().toISOString().slice(0, 16) // Format for datetime-local
   );
+  const [waterIntakeToday, setWaterIntakeToday] = useState(0); // in ml
+  const [sodiumIntakeToday, setSodiumIntakeToday] = useState(0); // in mg
+  const [currentHeartRate, setCurrentHeartRate] = useState<number | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<string>("");
 
   const createSymptomLogMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -73,25 +83,65 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
     },
   });
 
+  // Fetch today's water and sodium intake
+  const { data: todayIntakes } = useQuery({
+    queryKey: ["/api/daily-intakes"],
+    enabled: isOpen,
+  });
+
+  useEffect(() => {
+    if (todayIntakes) {
+      setWaterIntakeToday((todayIntakes as any)?.waterMl || 0);
+      setSodiumIntakeToday((todayIntakes as any)?.sodiumMg || 0);
+    }
+  }, [todayIntakes]);
+
+  // Request geolocation for weather data
+  useEffect(() => {
+    if (isOpen && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setCurrentLocation(`${position.coords.latitude},${position.coords.longitude}`);
+        },
+        () => {
+          // Fallback to asking user for city if geolocation fails
+          setCurrentLocation("Unknown");
+        }
+      );
+    }
+  }, [isOpen]);
+
   const resetForm = () => {
-    setSelectedSymptoms([]);
+    setSymptomRatings([]);
     setCustomSymptom("");
-    setIntensity(5);
-    setNotes("");
+    setSessionNotes("");
     setTimestamp(new Date().toISOString().slice(0, 16));
+    setCurrentHeartRate(null);
   };
 
-  const toggleSymptom = (symptomName: string) => {
-    setSelectedSymptoms(prev => 
-      prev.includes(symptomName) 
-        ? prev.filter(s => s !== symptomName)
-        : [...prev, symptomName]
+  const addSymptom = (symptomName: string) => {
+    if (!symptomRatings.find(s => s.name === symptomName)) {
+      setSymptomRatings(prev => [...prev, { name: symptomName, intensity: 5, notes: "" }]);
+    }
+  };
+
+  const removeSymptom = (symptomName: string) => {
+    setSymptomRatings(prev => prev.filter(s => s.name !== symptomName));
+  };
+
+  const updateSymptomRating = (symptomName: string, field: 'intensity' | 'notes', value: number | string) => {
+    setSymptomRatings(prev => 
+      prev.map(symptom => 
+        symptom.name === symptomName 
+          ? { ...symptom, [field]: value }
+          : symptom
+      )
     );
   };
 
   const addCustomSymptom = () => {
-    if (customSymptom.trim() && !selectedSymptoms.includes(customSymptom.trim())) {
-      setSelectedSymptoms(prev => [...prev, customSymptom.trim()]);
+    if (customSymptom.trim() && !symptomRatings.find(s => s.name === customSymptom.trim())) {
+      setSymptomRatings(prev => [...prev, { name: customSymptom.trim(), intensity: 5, notes: "" }]);
       setCustomSymptom("");
     }
   };
@@ -99,7 +149,7 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (selectedSymptoms.length === 0) {
+    if (symptomRatings.length === 0) {
       toast({
         title: "Please select at least one symptom",
         variant: "destructive",
@@ -111,10 +161,13 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
     const isoTimestamp = new Date(timestamp).toISOString();
     
     createSymptomLogMutation.mutate({
-      symptoms: selectedSymptoms,
-      intensity,
-      notes: notes.trim() || null,
       timestamp: isoTimestamp,
+      notes: sessionNotes.trim() || null,
+      waterIntakeCurrentMl: waterIntakeToday,
+      sodiumIntakeCurrentMg: sodiumIntakeToday,
+      heartRateBpm: currentHeartRate,
+      location: currentLocation,
+      symptomEntries: symptomRatings,
     });
   };
 
@@ -149,22 +202,25 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
                 What symptoms are you experiencing?
               </Label>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-                {COMMON_SYMPTOMS.map(({ icon, name, testId }) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => toggleSymptom(name)}
-                    className={`p-3 text-center rounded-lg border transition-colors ${
-                      selectedSymptoms.includes(name)
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:border-primary hover:bg-primary/5"
-                    }`}
-                    data-testid={`symptom-${testId}`}
-                  >
-                    <div className="text-xl mb-1">{icon}</div>
-                    <div className="text-sm">{name}</div>
-                  </button>
-                ))}
+                {COMMON_SYMPTOMS.map(({ icon, name, testId }) => {
+                  const isSelected = symptomRatings.some(s => s.name === name);
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => isSelected ? removeSymptom(name) : addSymptom(name)}
+                      className={`p-3 text-center rounded-lg border transition-colors ${
+                        isSelected
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:border-primary hover:bg-primary/5"
+                      }`}
+                      data-testid={`symptom-${testId}`}
+                    >
+                      <div className="text-xl mb-1">{icon}</div>
+                      <div className="text-sm">{name}</div>
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Custom Symptom Input */}
@@ -188,66 +244,116 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
                 </Button>
               </div>
 
-              {/* Selected Symptoms Display */}
-              {selectedSymptoms.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {selectedSymptoms.map((symptom, index) => (
-                    <Badge
-                      key={symptom}
-                      variant="secondary"
-                      className="flex items-center gap-1"
-                      data-testid={`selected-symptom-${index}`}
-                    >
-                      {symptom}
-                      <button
-                        type="button"
-                        onClick={() => toggleSymptom(symptom)}
-                        className="ml-1 hover:text-destructive"
-                        data-testid={`remove-symptom-${index}`}
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </Badge>
+              {/* Selected Symptoms with Individual Ratings */}
+              {symptomRatings.length > 0 && (
+                <div className="space-y-4 mt-4">
+                  <Separator />
+                  <Label className="text-base font-medium text-foreground">Rate Each Symptom (1-10 scale)</Label>
+                  {symptomRatings.map((symptomRating, index) => (
+                    <Card key={symptomRating.name} className="p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-medium">{symptomRating.name}</h4>
+                        <button
+                          type="button"
+                          onClick={() => removeSymptom(symptomRating.name)}
+                          className="text-muted-foreground hover:text-destructive"
+                          data-testid={`remove-symptom-${index}`}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      
+                      {/* Individual Symptom Intensity */}
+                      <div className="mb-3">
+                        <div className="flex items-center gap-4 mb-2">
+                          <span className="text-sm text-muted-foreground">Mild</span>
+                          <input
+                            type="range"
+                            min="1"
+                            max="10"
+                            value={symptomRating.intensity}
+                            onChange={(e) => updateSymptomRating(symptomRating.name, 'intensity', parseInt(e.target.value))}
+                            className="flex-1 accent-primary"
+                            data-testid={`slider-intensity-${index}`}
+                          />
+                          <span className="text-sm text-muted-foreground">Severe</span>
+                          <span className="text-sm font-medium text-foreground w-8" data-testid={`text-intensity-${index}`}>
+                            {symptomRating.intensity}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* Individual Symptom Notes */}
+                      <Textarea
+                        rows={2}
+                        placeholder={`Specific notes about your ${symptomRating.name.toLowerCase()}...`}
+                        value={symptomRating.notes}
+                        onChange={(e) => updateSymptomRating(symptomRating.name, 'notes', e.target.value)}
+                        className="resize-none text-sm"
+                        data-testid={`textarea-symptom-notes-${index}`}
+                      />
+                    </Card>
                   ))}
                 </div>
               )}
             </div>
             
-            {/* Intensity Scale */}
-            <div>
-              <Label className="text-base font-medium text-foreground mb-3 block">
-                How intense is it? ({intensity}/10)
-              </Label>
-              <div className="flex items-center gap-4">
-                <span className="text-sm text-muted-foreground">Mild</span>
-                <input
-                  type="range"
-                  min="1"
-                  max="10"
-                  value={intensity}
-                  onChange={(e) => setIntensity(parseInt(e.target.value))}
-                  className="flex-1 accent-primary"
-                  data-testid="slider-intensity"
-                />
-                <span className="text-sm text-muted-foreground">Severe</span>
-                <span className="text-sm font-medium text-foreground w-8" data-testid="text-intensity-value">
-                  {intensity}
-                </span>
+            {/* Contextual Data Display */}
+            {symptomRatings.length > 0 && (
+              <div className="bg-muted/30 rounded-lg p-4">
+                <Label className="text-base font-medium text-foreground mb-3 block">
+                  Contextual Data Being Captured
+                </Label>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Thermometer className="w-4 h-4 text-orange-500" />
+                    <span>Weather: Detecting...</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Droplets className="w-4 h-4 text-blue-500" />
+                    <span>Water: {waterIntakeToday}ml today</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Heart className="w-4 h-4 text-red-500" />
+                    <span>Heart Rate: {currentHeartRate ? `${currentHeartRate} bpm` : 'Optional'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Utensils className="w-4 h-4 text-green-500" />
+                    <span>Sodium: {sodiumIntakeToday}mg today</span>
+                  </div>
+                </div>
+                
+                {/* Optional Heart Rate Input */}
+                <div className="mt-4">
+                  <Label className="text-sm text-muted-foreground mb-2 block">
+                    Current Heart Rate (optional)
+                  </Label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 72"
+                    min="30"
+                    max="220"
+                    value={currentHeartRate || ''}
+                    onChange={(e) => setCurrentHeartRate(e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+                    data-testid="input-heart-rate"
+                  />
+                </div>
               </div>
-            </div>
+            )}
             
-            {/* Notes */}
+            {/* Session Notes */}
             <div>
               <Label className="text-base font-medium text-foreground mb-3 block">
-                Tell me more about how you're feeling:
+                Overall session notes (optional):
               </Label>
               <Textarea
-                rows={4}
-                placeholder="I'm here to listen... What's going on with your body today?"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                placeholder="Any additional context about how you're feeling overall today..."
+                value={sessionNotes}
+                onChange={(e) => setSessionNotes(e.target.value)}
                 className="resize-none"
-                data-testid="textarea-notes"
+                data-testid="textarea-session-notes"
               />
             </div>
             
@@ -278,11 +384,11 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
               </Button>
               <Button 
                 type="submit"
-                disabled={createSymptomLogMutation.isPending || selectedSymptoms.length === 0}
+                disabled={createSymptomLogMutation.isPending || symptomRatings.length === 0}
                 className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground"
                 data-testid="button-submit"
               >
-                {createSymptomLogMutation.isPending ? "Sharing..." : "Share with Zebby"}
+                {createSymptomLogMutation.isPending ? "Logging..." : "Log Symptoms"}
               </Button>
             </div>
           </form>

@@ -1,6 +1,9 @@
 import {
   users,
   symptomLogs,
+  symptomEntries,
+  waterIntakeLogs,
+  sodiumIntakeLogs,
   products,
   productCategories,
   aiInteractions,
@@ -16,6 +19,12 @@ import {
   type UpsertUser,
   type SymptomLog,
   type InsertSymptomLog,
+  type SymptomEntry,
+  type InsertSymptomEntry,
+  type WaterIntakeLog,
+  type InsertWaterIntakeLog,
+  type SodiumIntakeLog,
+  type InsertSodiumIntakeLog,
   type Product,
   type ProductCategory,
   type InsertProduct,
@@ -44,11 +53,19 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   
-  // Symptom tracking operations
+  // Enhanced symptom tracking operations
   createSymptomLog(log: InsertSymptomLog): Promise<SymptomLog>;
+  createSymptomEntry(entry: InsertSymptomEntry): Promise<SymptomEntry>;
   getUserSymptomLogs(userId: string, limit?: number): Promise<SymptomLog[]>;
+  getUserSymptomLogsWithEntries(userId: string, limit?: number): Promise<(SymptomLog & { symptomEntries: SymptomEntry[] })[]>;
   getSymptomLog(id: string): Promise<SymptomLog | undefined>;
+  getSymptomLogWithEntries(id: string): Promise<(SymptomLog & { symptomEntries: SymptomEntry[] }) | undefined>;
   updateSymptomLogReflection(id: string, reflection: string): Promise<void>;
+  
+  // Water and sodium tracking
+  createWaterIntakeLog(log: InsertWaterIntakeLog): Promise<WaterIntakeLog>;
+  createSodiumIntakeLog(log: InsertSodiumIntakeLog): Promise<SodiumIntakeLog>;
+  getUserDailyIntakes(userId: string, date?: Date): Promise<{ waterMl: number; sodiumMg: number }>;
   
   // AI interaction operations
   createAIInteraction(userId: string, symptomLogId: string | null, prompt: string, response: string, sentiment?: string): Promise<AIInteraction>;
@@ -130,13 +147,21 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  // Symptom tracking operations
+  // Enhanced symptom tracking operations
   async createSymptomLog(log: InsertSymptomLog): Promise<SymptomLog> {
     const [symptomLog] = await db
       .insert(symptomLogs)
       .values(log)
       .returning();
     return symptomLog;
+  }
+
+  async createSymptomEntry(entry: InsertSymptomEntry): Promise<SymptomEntry> {
+    const [symptomEntry] = await db
+      .insert(symptomEntries)
+      .values(entry)
+      .returning();
+    return symptomEntry;
   }
 
   async getUserSymptomLogs(userId: string, limit = 50): Promise<SymptomLog[]> {
@@ -148,9 +173,106 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  async getUserSymptomLogsWithEntries(userId: string, limit = 50): Promise<(SymptomLog & { symptomEntries: SymptomEntry[] })[]> {
+    const logs = await db
+      .select()
+      .from(symptomLogs)
+      .where(eq(symptomLogs.userId, userId))
+      .orderBy(desc(symptomLogs.timestamp))
+      .limit(limit);
+
+    const logsWithEntries = await Promise.all(
+      logs.map(async (log) => {
+        const entries = await db
+          .select()
+          .from(symptomEntries)
+          .where(eq(symptomEntries.symptomLogId, log.id))
+          .orderBy(symptomEntries.symptomName);
+        
+        return {
+          ...log,
+          symptomEntries: entries,
+        };
+      })
+    );
+
+    return logsWithEntries;
+  }
+
   async getSymptomLog(id: string): Promise<SymptomLog | undefined> {
     const [log] = await db.select().from(symptomLogs).where(eq(symptomLogs.id, id));
     return log;
+  }
+
+  async getSymptomLogWithEntries(id: string): Promise<(SymptomLog & { symptomEntries: SymptomEntry[] }) | undefined> {
+    const [log] = await db.select().from(symptomLogs).where(eq(symptomLogs.id, id));
+    if (!log) return undefined;
+
+    const entries = await db
+      .select()
+      .from(symptomEntries)
+      .where(eq(symptomEntries.symptomLogId, id))
+      .orderBy(symptomEntries.symptomName);
+
+    return {
+      ...log,
+      symptomEntries: entries,
+    };
+  }
+
+  // Water and sodium tracking
+  async createWaterIntakeLog(log: InsertWaterIntakeLog): Promise<WaterIntakeLog> {
+    const [waterLog] = await db
+      .insert(waterIntakeLogs)
+      .values(log)
+      .returning();
+    return waterLog;
+  }
+
+  async createSodiumIntakeLog(log: InsertSodiumIntakeLog): Promise<SodiumIntakeLog> {
+    const [sodiumLog] = await db
+      .insert(sodiumIntakeLogs)
+      .values(log)
+      .returning();
+    return sodiumLog;
+  }
+
+  async getUserDailyIntakes(userId: string, date?: Date): Promise<{ waterMl: number; sodiumMg: number }> {
+    const targetDate = date || new Date();
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Get water intake for the day
+    const waterResults = await db
+      .select()
+      .from(waterIntakeLogs)
+      .where(
+        and(
+          eq(waterIntakeLogs.userId, userId),
+          gte(waterIntakeLogs.timestamp, startOfDay),
+          lte(waterIntakeLogs.timestamp, endOfDay)
+        )
+      );
+    
+    const waterMl = waterResults.reduce((total, log) => total + log.amountMl, 0);
+
+    // Get sodium intake for the day
+    const sodiumResults = await db
+      .select()
+      .from(sodiumIntakeLogs)
+      .where(
+        and(
+          eq(sodiumIntakeLogs.userId, userId),
+          gte(sodiumIntakeLogs.timestamp, startOfDay),
+          lte(sodiumIntakeLogs.timestamp, endOfDay)
+        )
+      );
+    
+    const sodiumMg = sodiumResults.reduce((total, log) => total + log.amountMg, 0);
+
+    return { waterMl, sodiumMg };
   }
 
   async updateSymptomLogReflection(id: string, reflection: string): Promise<void> {
