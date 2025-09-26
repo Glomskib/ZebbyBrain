@@ -90,17 +90,19 @@ export async function computeInsights(userId: string, rangeKey: RangeKey) {
       )
     );
 
-  // Get symptom entries for current period
-  const curSymptomEntries = await db
-    .select({
-      symptomLogId: symptomEntries.symptomLogId,
-      intensity: symptomEntries.intensity,
-      symptomName: symptomEntries.symptomName,
-    })
-    .from(symptomEntries)
-    .where(
-      sql`${symptomEntries.symptomLogId} IN (${sql.join(curSymptomLogs.map(log => sql`${log.id}`), sql`, `)})`
-    );
+  // Get symptom entries for current period (only if logs exist)
+  const curSymptomEntries = curSymptomLogs.length > 0
+    ? await db
+        .select({
+          symptomLogId: symptomEntries.symptomLogId,
+          intensity: symptomEntries.intensity,
+          symptomName: symptomEntries.symptomName,
+        })
+        .from(symptomEntries)
+        .where(
+          sql`${symptomEntries.symptomLogId} IN (${sql.join(curSymptomLogs.map(log => sql`${log.id}`), sql`, `)})`
+        )
+    : [];
 
   const prevSymptomLogIds = prevSymptomLogs.map(log => log.id);
   const prevSymptomEntries = prevSymptomLogIds.length > 0 
