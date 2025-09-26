@@ -1658,6 +1658,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${generateFilename(`zebby_${entity}`, "csv")}"`);
+      res.setHeader("Cache-Control", "no-store");
       res.send(csv);
     } catch (error) {
       console.error("Error exporting CSV:", error);
@@ -1983,6 +1984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pdfDoc = printer.createPdfKitDocument(docDef);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${generateFilename("zebby_report", "pdf")}"`);
+      res.setHeader("Cache-Control", "no-store");
       pdfDoc.pipe(res);
       pdfDoc.end();
     } catch (error) {

@@ -509,8 +509,8 @@ export class DatabaseStorage implements IStorage {
         createdAt: productReviews.createdAt,
         updatedAt: productReviews.updatedAt,
         user: {
-          firstName: users.firstName,
-          lastName: users.lastName,
+          firstName: users.firstName || '',
+          lastName: users.lastName || '',
         },
       })
       .from(productReviews)

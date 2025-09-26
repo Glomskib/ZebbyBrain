@@ -1,0 +1,111 @@
+1) SECURITY.md (copy–paste)
+# Zebby’s World — Security Overview
+
+## Scope
+Covers application security for billing, exports, and health-data features across server (`/server`) and web client (`/client`).
+
+## Data Handling
+- PHI/PII redaction in logs (notes, email, profile); production logs are structured, minimal.
+- Exports are user-initiated and sent as direct responses (no third-party storage). `Cache-Control: no-store`.
+- Payment data is handled by Stripe; the app never stores card numbers.
+
+## Authentication & Authorization
+- JWT-based sessions; `requireAuth` gate on all billing and sensitive routes.
+- **No userId in request bodies** for privileged operations—server derives from JWT (`req.user.id`) only.
+- Frontend guards: “Sign in to upgrade” + plan badge for Plus.
+
+## Billing Security
+- Stripe keys validated on boot; health endpoint exposes mode (test/live) & configured state.
+- Create Checkout:
+  - Rate limit: 5/min per IP
+  - Idempotency key: per user + minute
+  - Trial months: capped to 3
+  - Coupon allowlist (env: `ALLOWED_COUPON_IDS`)
+  - `allow_promotion_codes: true` (user enters promo at Checkout)
+- Webhooks:
+  - `express.raw()` only on `/stripe/webhook` (mounted before `express.json`)
+  - Events: `checkout.session.completed`, `customer.subscription.updated|deleted`
+  - Maps `stripeCustomerId` → user; updates `plan`, `planStatus`, `currentPeriodEnd`
+
+## HTTP Security
+- Helmet with strict CSP (prod), X-Frame-Options: DENY, Referrer-Policy: no-referrer, X-Content-Type-Options: nosniff
+- HPP protection, timeouts (10s), CORS allowlist, `x-powered-by` disabled
+- Optional Permissions-Policy: camera/microphone/geolocation/etc. = ()
+
+## Logging & Audit
+- Structured logs (no PII). Events recorded:
+  - `billing:create_checkout_session` (userId, coupon flag, trial months)
+  - `billing:subscription_updated` (userId, status, period end)
+- Keep logs per retention policy; access restricted.
+
+## Secrets & Configuration
+- All secrets in Replit **Secrets**: `JWT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PLUS_PRICE_ID`, etc.
+- Fail-fast on missing secrets.
+- Key rotation: quarterly (runbook below).
+
+## CI/CD Safeguards
+- Unit tests assert 401 on unauth billing calls; positive path tests for authorized requests.
+- Header tests ensure CSP/headers present.
+- Dependency scanning & audit (fail on high severity).
+
+## Incident Response (summary)
+- Detect (alerts on webhook failure spikes, 5xx bursts)
+- Contain (temporarily disable Checkout endpoint via feature flag)
+- Eradicate (patch, rotate keys)
+- Recover (re-enable, post-mortem entry in `docs/incidents/`)
+
+## Contact / Disclosure
+See `SECURITY.txt` or `/.well-known/security.txt` for coordinated disclosure instructions.
+
+2) RUNBOOK.md (copy–paste)
+# Zebby — Billing & Security Runbook
+
+## Deploy Checklist (Test → Live)
+1) Flip Stripe secrets to **live**:
+   - `STRIPE_SECRET_KEY=sk_live_...`
+   - `STRIPE_PLUS_PRICE_ID=price_live_...`
+   - `STRIPE_WEBHOOK_SECRET=whsec_live_...` (new live endpoint)
+2) Health check:
+   - GET `/api/meta/status` → `stripe.configured=true`, `mode=live`.
+3) CSP for prod:
+   - Keep `script-src 'self' https://js.stripe.com` only if using Elements/Portal.
+   - Self-host fonts or allow `fonts.gstatic.com` & `fonts.googleapis.com`.
+4) Smoke tests:
+   - Unauth call to `/api/billing/create-checkout-session` → **401**
+   - Auth call → **200** + redirect URL (live)
+   - Webhook test event → **200**, user plan updates
+5) Rollout notes:
+   - Announce to #ops; monitor Stripe Dashboard & server logs for 30 min.
+
+## Routine Ops
+- **Key Rotation (Quarterly):**
+  1. Create new Stripe secret key; update Replit Secrets.
+  2. Restart app; verify `/api/meta/status`.
+  3. Remove old key in Stripe.
+- **Coupon/Promo Management:**
+  - Create coupons in Stripe (duration `repeating`, `percent_off`).
+  - Add allowed IDs to `ALLOWED_COUPON_IDS` env.
+- **Trial Policy:**
+  - Update `STRIPE_TRIAL_DAYS` (or use `trialMonths` param in UI).
+  - Max enforced server-side (3 months).
+
+## On-Call: Common Issues
+- **Webhook 400 (signature):** Ensure route uses `express.raw()` and endpoint URL matches `/stripe/webhook`. Confirm `whsec_...`.
+- **“No such price”:** Mixed test/live IDs. Align `sk_*` with `price_*` mode.
+- **Double subscriptions:** Check idempotency key code path; rate limiter set to 5/min.
+- **CSP blocking Stripe:** Ensure `script-src https://js.stripe.com`, `connect-src https://api.stripe.com`, `frame-src https://js.stripe.com`.
+
+## Security Verification Tasks (Monthly)
+- Run auth tests & header tests in CI.
+- `npm audit --prod` (fail on high).
+- Review logs for `billing:*` entries with missing `userId` (should never happen).
+- Verify rate limits present on billing checkout route.
+
+## Data & Compliance
+- Logs exclude PII/PHI (redaction config).
+- Exports set `Cache-Control: no-store`.
+- Respond to deletion/export requests via Settings → Data.
+
+## Contacts
+- Primary: Engineering on-call
+- Secondary: Security lead
