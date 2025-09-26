@@ -9,6 +9,9 @@ import {
   sleepLogs,
   dataImportSources,
   importConflicts,
+  cartItems,
+  orders,
+  orderItems,
   type User,
   type UpsertUser,
   type SymptomLog,
@@ -26,6 +29,12 @@ import {
   type DataImportSource,
   type InsertDataImportSource,
   type ImportConflict,
+  type CartItem,
+  type InsertCartItem,
+  type Order,
+  type InsertOrder,
+  type OrderItem,
+  type InsertOrderItem,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, inArray, gte, lte } from "drizzle-orm";
@@ -60,6 +69,20 @@ export interface IStorage {
   // User favorites
   toggleUserFavorite(userId: string, productId: string): Promise<boolean>;
   getUserFavorites(userId: string): Promise<UserFavorite[]>;
+  
+  // Cart operations
+  createCartItem(item: InsertCartItem): Promise<CartItem>;
+  getCartItems(userId: string): Promise<(CartItem & { product: Product })[]>;
+  updateCartItem(id: string, userId: string, quantity: number): Promise<void>;
+  deleteCartItem(id: string, userId: string): Promise<void>;
+  clearCart(userId: string): Promise<void>;
+  
+  // Order operations
+  createOrder(order: InsertOrder): Promise<Order>;
+  createOrderItem(orderItem: InsertOrderItem): Promise<OrderItem>;
+  getOrders(userId: string): Promise<Order[]>;
+  getOrder(id: string, userId: string): Promise<(Order & { orderItems: (OrderItem & { product: Product })[] }) | undefined>;
+  updateOrderStatus(id: string, status: string): Promise<void>;
   
   // Vitals operations
   createVitalsLog(log: InsertVitalsLog): Promise<VitalsLog>;
@@ -283,6 +306,113 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(userFavorites)
       .where(eq(userFavorites.userId, userId));
+  }
+
+  // Cart operations
+  async createCartItem(item: InsertCartItem): Promise<CartItem> {
+    const [newCartItem] = await db
+      .insert(cartItems)
+      .values(item)
+      .returning();
+    return newCartItem;
+  }
+
+  async getCartItems(userId: string): Promise<(CartItem & { product: Product })[]> {
+    return await db
+      .select({
+        id: cartItems.id,
+        userId: cartItems.userId,
+        productId: cartItems.productId,
+        quantity: cartItems.quantity,
+        createdAt: cartItems.createdAt,
+        product: products,
+      })
+      .from(cartItems)
+      .innerJoin(products, eq(cartItems.productId, products.id))
+      .where(eq(cartItems.userId, userId))
+      .orderBy(desc(cartItems.createdAt));
+  }
+
+  async updateCartItem(id: string, userId: string, quantity: number): Promise<void> {
+    await db
+      .update(cartItems)
+      .set({ quantity })
+      .where(and(eq(cartItems.id, id), eq(cartItems.userId, userId)));
+  }
+
+  async deleteCartItem(id: string, userId: string): Promise<void> {
+    await db
+      .delete(cartItems)
+      .where(and(eq(cartItems.id, id), eq(cartItems.userId, userId)));
+  }
+
+  async clearCart(userId: string): Promise<void> {
+    await db
+      .delete(cartItems)
+      .where(eq(cartItems.userId, userId));
+  }
+
+  // Order operations
+  async createOrder(order: InsertOrder): Promise<Order> {
+    const [newOrder] = await db
+      .insert(orders)
+      .values(order)
+      .returning();
+    return newOrder;
+  }
+
+  async createOrderItem(orderItem: InsertOrderItem): Promise<OrderItem> {
+    const [newOrderItem] = await db
+      .insert(orderItems)
+      .values(orderItem)
+      .returning();
+    return newOrderItem;
+  }
+
+  async getOrders(userId: string): Promise<Order[]> {
+    return await db
+      .select()
+      .from(orders)
+      .where(eq(orders.userId, userId))
+      .orderBy(desc(orders.orderDate));
+  }
+
+  async getOrder(id: string, userId: string): Promise<(Order & { orderItems: (OrderItem & { product: Product })[] }) | undefined> {
+    const [order] = await db
+      .select()
+      .from(orders)
+      .where(and(eq(orders.id, id), eq(orders.userId, userId)));
+
+    if (!order) return undefined;
+
+    const items = await db
+      .select({
+        id: orderItems.id,
+        orderId: orderItems.orderId,
+        productId: orderItems.productId,
+        quantity: orderItems.quantity,
+        unitPrice: orderItems.unitPrice,
+        totalPrice: orderItems.totalPrice,
+        createdAt: orderItems.createdAt,
+        product: products,
+      })
+      .from(orderItems)
+      .innerJoin(products, eq(orderItems.productId, products.id))
+      .where(eq(orderItems.orderId, id));
+
+    return { ...order, orderItems: items };
+  }
+
+  async updateOrderStatus(id: string, status: string): Promise<void> {
+    const updateData: any = { status };
+    if (status === 'completed') {
+      updateData.completedAt = new Date();
+    }
+
+    await db
+      .update(orders)
+      .set(updateData)
+      .where(eq(orders.id, id));
   }
 
   // Vitals operations

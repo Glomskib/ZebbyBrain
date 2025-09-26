@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import Navigation from "@/components/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Heart } from "lucide-react";
+import { Heart, ShoppingCart } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export default function Marketplace() {
   const { toast } = useToast();
@@ -89,6 +90,58 @@ export default function Marketplace() {
     queryKey: ["/api/favorites"],
     enabled: isAuthenticated,
     retry: false,
+  });
+
+  // Add to cart mutation
+  const addToCartMutation = useMutation({
+    mutationFn: async (productId: string) => {
+      const response = await apiRequest("POST", "/api/cart", { productId, quantity: 1 });
+      if (!response.ok) {
+        throw new Error('Failed to add item to cart');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cart'] });
+      toast({
+        title: "Added to Cart",
+        description: "Item successfully added to your cart!",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Add to Cart Failed",
+        description: error.message || "Failed to add item to cart",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Toggle favorites mutation
+  const toggleFavoriteMutation = useMutation({
+    mutationFn: async (productId: string) => {
+      const response = await apiRequest("POST", `/api/favorites/${productId}`);
+      if (!response.ok) {
+        throw new Error('Failed to toggle favorite');
+      }
+      return response.json();
+    },
+    onSuccess: (data, productId) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/favorites'] });
+      toast({
+        title: data.isFavorited ? "Added to Favorites" : "Removed from Favorites",
+        description: data.isFavorited 
+          ? "Product added to your favorites!" 
+          : "Product removed from favorites",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Favorites Update Failed",
+        description: error.message || "Failed to update favorites",
+        variant: "destructive",
+      });
+    },
   });
 
   if (isLoading) {
@@ -205,6 +258,8 @@ export default function Marketplace() {
                               ? 'text-accent hover:text-accent/80' 
                               : 'text-muted-foreground hover:text-foreground'
                           }`}
+                          onClick={() => toggleFavoriteMutation.mutate(product.id)}
+                          disabled={toggleFavoriteMutation.isPending}
                           data-testid={`button-favorite-${index}`}
                         >
                           <Heart className={`w-4 h-4 ${favoriteProductIds.has(product.id) ? 'fill-current' : ''}`} />
@@ -212,9 +267,21 @@ export default function Marketplace() {
                       )}
                       <Button 
                         className="bg-primary hover:bg-primary/90 text-primary-foreground text-sm"
+                        onClick={() => addToCartMutation.mutate(product.id)}
+                        disabled={addToCartMutation.isPending}
                         data-testid={`button-add-cart-${index}`}
                       >
-                        Add to Cart
+                        {addToCartMutation.isPending ? (
+                          <>
+                            <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
+                            Adding...
+                          </>
+                        ) : (
+                          <>
+                            <ShoppingCart className="w-4 h-4 mr-1" />
+                            Add to Cart
+                          </>
+                        )}
                       </Button>
                     </div>
                   </div>

@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator 
 } from "@/components/ui/dropdown-menu";
 import { Bell, Menu } from "lucide-react";
+import { ShoppingCart } from "@/components/ShoppingCart";
 
 export default function Navigation() {
   const [location] = useLocation();
@@ -72,6 +73,9 @@ export default function Navigation() {
           
           {/* Right side actions */}
           <div className="flex items-center gap-3">
+            {/* Shopping Cart */}
+            <ShoppingCart />
+            
             {/* Notifications */}
             <Button 
               variant="ghost" 

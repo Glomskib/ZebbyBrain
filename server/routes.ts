@@ -508,6 +508,239 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Shopping cart routes
+  app.post('/api/cart', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { productId, quantity = 1 } = req.body;
+      
+      if (!productId) {
+        return res.status(400).json({ message: "Product ID is required" });
+      }
+
+      // Check if item already exists in cart
+      const existingItems = await storage.getCartItems(userId);
+      const existingItem = existingItems.find(item => item.productId === productId);
+      
+      if (existingItem) {
+        // Update quantity if item exists
+        await storage.updateCartItem(existingItem.id, userId, existingItem.quantity + quantity);
+      } else {
+        // Create new cart item
+        await storage.createCartItem({ userId, productId, quantity });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error adding to cart:", error);
+      res.status(500).json({ message: "Failed to add item to cart" });
+    }
+  });
+
+  app.get('/api/cart', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const cartItems = await storage.getCartItems(userId);
+      res.json(cartItems);
+    } catch (error) {
+      console.error("Error fetching cart:", error);
+      res.status(500).json({ message: "Failed to fetch cart" });
+    }
+  });
+
+  app.put('/api/cart/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { quantity } = req.body;
+      const cartItemId = req.params.id;
+      
+      if (typeof quantity !== 'number' || quantity < 1) {
+        return res.status(400).json({ message: "Quantity must be a positive number" });
+      }
+
+      await storage.updateCartItem(cartItemId, userId, quantity);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating cart item:", error);
+      res.status(500).json({ message: "Failed to update cart item" });
+    }
+  });
+
+  app.delete('/api/cart/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const cartItemId = req.params.id;
+      
+      await storage.deleteCartItem(cartItemId, userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing cart item:", error);
+      res.status(500).json({ message: "Failed to remove cart item" });
+    }
+  });
+
+  app.delete('/api/cart', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      await storage.clearCart(userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error clearing cart:", error);
+      res.status(500).json({ message: "Failed to clear cart" });
+    }
+  });
+
+  // Product checkout with Stripe
+  app.post('/api/checkout/products', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      
+      if (!user[0]) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Get user's cart items
+      const cartItems = await storage.getCartItems(userId);
+      if (cartItems.length === 0) {
+        return res.status(400).json({ error: "Cart is empty" });
+      }
+
+      // Check if we're in test mode (no valid Stripe configuration)
+      if (!stripe) {
+        console.log("Test mode: Simulating product checkout session creation");
+        return res.json({ 
+          url: "https://checkout.stripe.com/test-product-session-url",
+          test_mode: true,
+          message: "Test mode: Real Stripe integration requires valid API keys" 
+        });
+      }
+
+      console.log("Creating Stripe checkout session for products for user:", userId);
+
+      let customerId = user[0].stripeCustomerId;
+      
+      // Create Stripe customer if doesn't exist
+      if (!customerId) {
+        const customer = await stripe.customers.create({ 
+          email: user[0].email || undefined,
+          metadata: { userId: userId }
+        });
+        customerId = customer.id;
+        
+        // Update user with Stripe customer ID
+        await db.update(users)
+          .set({ stripeCustomerId: customerId })
+          .where(eq(users.id, userId));
+      }
+
+      // Calculate total and prepare line items
+      let totalAmount = 0;
+      const lineItems = cartItems.map(item => {
+        const price = parseFloat(item.product.price);
+        totalAmount += price * item.quantity;
+        
+        return {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: item.product.name,
+              description: item.product.description || undefined,
+              images: item.product.imageUrl ? [item.product.imageUrl] : undefined,
+            },
+            unit_amount: Math.round(price * 100), // Convert to cents
+          },
+          quantity: item.quantity,
+        };
+      });
+
+      // Create pending order
+      const pendingOrder = await storage.createOrder({
+        userId,
+        status: 'pending',
+        totalAmount: totalAmount.toString(),
+        currency: 'usd',
+      });
+
+      // Add order items
+      for (const item of cartItems) {
+        const unitPrice = parseFloat(item.product.price);
+        await storage.createOrderItem({
+          orderId: pendingOrder.id,
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: unitPrice.toString(),
+          totalPrice: (unitPrice * item.quantity).toString(),
+        });
+      }
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        customer: customerId,
+        line_items: lineItems,
+        success_url: `${req.protocol}://${req.get('host')}/marketplace?purchase=success&order=${pendingOrder.id}`,
+        cancel_url: `${req.protocol}://${req.get('host')}/marketplace?purchase=cancel`,
+        metadata: { 
+          userId: userId,
+          orderId: pendingOrder.id,
+          type: 'product_purchase'
+        }
+      });
+
+      // Update order with Stripe session ID
+      await storage.updateOrderStatus(pendingOrder.id, 'pending');
+      await db.update(orders)
+        .set({ stripeSessionId: session.id })
+        .where(eq(orders.id, pendingOrder.id));
+
+      res.json({ url: session.url, orderId: pendingOrder.id });
+    } catch (error) {
+      console.error("Error creating product checkout session:", error);
+      
+      // Handle Stripe authentication errors gracefully
+      if ((error as any).type === 'StripeAuthenticationError' || 
+          (error as Error).message.includes('Invalid API Key')) {
+        console.log("Stripe authentication failed, returning test mode response");
+        return res.json({ 
+          url: "https://checkout.stripe.com/test-product-session-url",
+          test_mode: true,
+          message: "Test mode: Stripe authentication failed" 
+        });
+      }
+      
+      res.status(500).json({ error: "Failed to create checkout session" });
+    }
+  });
+
+  // Order routes
+  app.get('/api/orders', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const orders = await storage.getOrders(userId);
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching orders:", error);
+      res.status(500).json({ message: "Failed to fetch orders" });
+    }
+  });
+
+  app.get('/api/orders/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const orderId = req.params.id;
+      
+      const order = await storage.getOrder(orderId, userId);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      res.json(order);
+    } catch (error) {
+      console.error("Error fetching order:", error);
+      res.status(500).json({ message: "Failed to fetch order" });
+    }
+  });
+
   // Initialize default data route (for development)
   app.post('/api/init-data', async (req, res) => {
     try {
@@ -844,9 +1077,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           case 'checkout.session.completed': {
             const session = event.data.object as Stripe.Checkout.Session;
             const customerId = session.customer as string;
-            const subscriptionId = session.subscription as string;
+            const metadata = session.metadata;
             
-            if (subscriptionId) {
+            // Handle subscription purchases
+            if (session.subscription) {
+              const subscriptionId = session.subscription as string;
               const subscription = await stripe.subscriptions.retrieve(subscriptionId);
               
               // Find user by Stripe customer ID
@@ -864,6 +1099,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   .where(eq(users.id, user[0].id));
               }
             }
+            
+            // Handle product purchases
+            else if (metadata?.type === 'product_purchase' && metadata?.orderId) {
+              const orderId = metadata.orderId;
+              const userId = metadata.userId;
+              
+              console.log(`Processing product purchase for order ${orderId}, user ${userId}`);
+              
+              // Update order status to completed
+              await storage.updateOrderStatus(orderId, 'completed');
+              
+              // Update order with payment intent ID
+              if (session.payment_intent) {
+                await db.update(orders)
+                  .set({ stripePaymentIntentId: session.payment_intent as string })
+                  .where(eq(orders.id, orderId));
+              }
+              
+              // Clear user's cart after successful purchase
+              if (userId) {
+                await storage.clearCart(userId);
+                console.log(`Cleared cart for user ${userId} after successful purchase`);
+              }
+            }
+            
             break;
           }
           

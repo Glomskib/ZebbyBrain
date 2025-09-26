@@ -162,6 +162,42 @@ export const importConflicts = pgTable("import_conflicts", {
   resolvedAt: timestamp("resolved_at"),
 });
 
+// Shopping cart for marketplace
+export const cartItems = pgTable("cart_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  productId: varchar("product_id").notNull().references(() => products.id),
+  quantity: integer("quantity").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Orders for completed purchases
+export const orders = pgTable("orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  stripeSessionId: varchar("stripe_session_id").unique(),
+  stripePaymentIntentId: varchar("stripe_payment_intent_id"),
+  status: varchar("status").notNull().default("pending"), // "pending", "completed", "failed", "refunded"
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
+  currency: varchar("currency").notNull().default("usd"),
+  shippingAddress: jsonb("shipping_address"), // Store as JSON for flexibility
+  billingAddress: jsonb("billing_address"),
+  orderDate: timestamp("order_date").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Individual items within an order
+export const orderItems = pgTable("order_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").notNull().references(() => orders.id),
+  productId: varchar("product_id").notNull().references(() => products.id),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   symptomLogs: many(symptomLogs),
@@ -171,6 +207,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   sleepLogs: many(sleepLogs),
   dataImportSources: many(dataImportSources),
   importConflicts: many(importConflicts),
+  cartItems: many(cartItems),
+  orders: many(orders),
 }));
 
 export const symptomLogsRelations = relations(symptomLogs, ({ one, many }) => ({
@@ -243,6 +281,36 @@ export const importConflictsRelations = relations(importConflicts, ({ one }) => 
   }),
 }));
 
+export const cartItemsRelations = relations(cartItems, ({ one }) => ({
+  user: one(users, {
+    fields: [cartItems.userId],
+    references: [users.id],
+  }),
+  product: one(products, {
+    fields: [cartItems.productId],
+    references: [products.id],
+  }),
+}));
+
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  user: one(users, {
+    fields: [orders.userId],
+    references: [users.id],
+  }),
+  orderItems: many(orderItems),
+}));
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderItems.orderId],
+    references: [orders.id],
+  }),
+  product: one(products, {
+    fields: [orderItems.productId],
+    references: [products.id],
+  }),
+}));
+
 // Schema types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -304,3 +372,26 @@ export type InsertDataImportSource = z.infer<typeof insertDataImportSourceSchema
 export type DataImportSource = typeof dataImportSources.$inferSelect;
 
 export type ImportConflict = typeof importConflicts.$inferSelect;
+
+// Cart and Order types
+export const insertCartItemSchema = createInsertSchema(cartItems).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertCartItem = z.infer<typeof insertCartItemSchema>;
+export type CartItem = typeof cartItems.$inferSelect;
+
+export const insertOrderSchema = createInsertSchema(orders).omit({
+  id: true,
+  createdAt: true,
+  orderDate: true,
+});
+export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type Order = typeof orders.$inferSelect;
+
+export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
+export type OrderItem = typeof orderItems.$inferSelect;
