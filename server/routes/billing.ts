@@ -4,6 +4,8 @@ import { db } from "../db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import crypto from "crypto";
+import rateLimit from "express-rate-limit";
 
 const r = Router();
 
@@ -31,6 +33,15 @@ const ALLOWED_COUPONS = new Set(
   (process.env.ALLOWED_COUPON_IDS || "").split(",").filter(Boolean)
 );
 
+// Rate limiting for checkout session creation
+const checkoutRateLimit = rateLimit({
+  windowMs: 60_000, // 1 minute window
+  max: 5, // 5 requests per minute per IP
+  message: { error: "Too many checkout attempts, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const bodySchema = z.object({
   userId: z.string().min(1).optional(),
   promoCode: z.string().optional(),
@@ -38,7 +49,7 @@ const bodySchema = z.object({
   trialMonths: z.number().int().min(0).max(12).optional()
 });
 
-r.post("/create-checkout-session", async (req, res) => {
+r.post("/create-checkout-session", checkoutRateLimit, async (req, res) => {
   // Get user ID from either session auth (OIDC) or JWT auth ONLY - no body fallback for security
   const uid = (req as any).user?.claims?.sub || // Session-based OIDC auth
                 (req as any).user?.id;         // JWT-based auth
@@ -101,6 +112,12 @@ r.post("/create-checkout-session", async (req, res) => {
       discounts.push({ coupon: KS_COUPON_ID });
     }
 
+    // Generate idempotency key to prevent duplicate subscriptions
+    const idemKey = crypto
+      .createHash("sha256")
+      .update(`${uid}:${new Date().toISOString().slice(0,16)}`)
+      .digest("hex");
+
     const params: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
       customer: customerId,
@@ -114,7 +131,9 @@ r.post("/create-checkout-session", async (req, res) => {
       }
     };
 
-    const session = await stripe.checkout.sessions.create(params);
+    const session = await stripe.checkout.sessions.create(params, {
+      idempotencyKey: idemKey
+    });
     return res.json({ ok: true, url: session.url });
 
   } catch (error) {
