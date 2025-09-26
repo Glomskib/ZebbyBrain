@@ -5,37 +5,84 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key" 
 });
 
-export async function generateEmpathicReflection(
-  symptoms: string[], 
-  intensity: number, 
-  notes?: string
+export async function generateAnalyticalReflection(
+  symptomEntries: Array<{ name: string; intensity: number; notes?: string }>,
+  contextualData: {
+    heartRate?: number;
+    waterIntake?: number;
+    sodiumIntake?: number;
+    weatherTemp?: number;
+    weatherCondition?: string;
+    timestamp: Date;
+    sessionNotes?: string;
+  }
 ): Promise<{
   reflection: string;
   sentiment: string;
   stamps: string[];
 }> {
-  const symptomsList = symptoms.join(", ");
-  const intensityDescription = getIntensityDescription(intensity);
+  // Analyze symptom data
+  const highestSymptom = symptomEntries.reduce((prev, curr) => 
+    prev.intensity > curr.intensity ? prev : curr
+  );
+  const lowestSymptom = symptomEntries.reduce((prev, curr) => 
+    prev.intensity < curr.intensity ? prev : curr
+  );
+  const averageIntensity = Math.round(
+    symptomEntries.reduce((sum, entry) => sum + entry.intensity, 0) / symptomEntries.length
+  );
   
-  const prompt = `You are Zebby, a compassionate AI companion for people with EDS (Ehlers-Danlos Syndrome) and other rare conditions. Your role is to provide empathetic, validating responses to symptom logs.
+  // Format time context
+  const timeOfDay = getTimeOfDay(contextualData.timestamp);
+  const dayOfWeek = contextualData.timestamp.toLocaleDateString('en-US', { weekday: 'long' });
+  
+  // Build contextual observations
+  const contextualObservations = [];
+  if (contextualData.heartRate) {
+    const hrStatus = contextualData.heartRate > 100 ? 'elevated' : contextualData.heartRate < 60 ? 'low' : 'normal';
+    contextualObservations.push(`Heart rate: ${contextualData.heartRate} bpm (${hrStatus})`);
+  }
+  if (contextualData.waterIntake !== undefined) {
+    const hydrationStatus = contextualData.waterIntake < 1000 ? 'low' : contextualData.waterIntake > 2500 ? 'high' : 'moderate';
+    contextualObservations.push(`Water intake: ${contextualData.waterIntake}ml (${hydrationStatus})`);
+  }
+  if (contextualData.sodiumIntake !== undefined) {
+    const sodiumStatus = contextualData.sodiumIntake > 2300 ? 'high' : contextualData.sodiumIntake < 1500 ? 'low' : 'moderate';
+    contextualObservations.push(`Sodium intake: ${contextualData.sodiumIntake}mg (${sodiumStatus})`);
+  }
+  if (contextualData.weatherTemp) {
+    const tempStatus = contextualData.weatherTemp < 60 ? 'cold' : contextualData.weatherTemp > 80 ? 'warm' : 'mild';
+    contextualObservations.push(`Weather: ${contextualData.weatherTemp}°F (${tempStatus})${contextualData.weatherCondition ? `, ${contextualData.weatherCondition.toLowerCase()}` : ''}`);
+  }
+  
+  const prompt = `You are Zebby, an analytical health companion for EDS patients. Provide data-driven insights and actionable recommendations based on symptom patterns and contextual data.
 
-User reported symptoms: ${symptomsList}
-Intensity level: ${intensity}/10 (${intensityDescription})
-Additional notes: ${notes || "None provided"}
+**SYMPTOM ANALYSIS:**
+${symptomEntries.map(entry => `• ${entry.name}: ${entry.intensity}/10${entry.notes ? ` (${entry.notes})` : ''}`).join('\n')}
 
-Generate an empathetic reflection that:
-1. Validates their experience without dismissing it
-2. Shows understanding of EDS/rare condition challenges
-3. Offers gentle support and encouragement
-4. Avoids medical advice or diagnosis
-5. Uses warm, caring language that makes them feel understood
+**CONTEXTUAL DATA:**
+• Time: ${timeOfDay} on ${dayOfWeek}
+${contextualObservations.map(obs => `• ${obs}`).join('\n')}
+${contextualData.sessionNotes ? `• Session notes: ${contextualData.sessionNotes}` : ''}
+
+**KEY PATTERNS:**
+• Highest symptom: ${highestSymptom.name} (${highestSymptom.intensity}/10)
+• Lowest symptom: ${lowestSymptom.name} (${lowestSymptom.intensity}/10)
+• Average intensity: ${averageIntensity}/10
+
+Provide a focused analysis that:
+1. **Identifies specific patterns** in the symptom data and contextual factors
+2. **Makes concrete observations** about potential correlations (hydration, weather, heart rate, timing)
+3. **Offers actionable recommendations** for lifestyle factors that may help
+4. **Avoids medical advice** but provides practical insights
+5. **Uses specific data points** rather than vague statements
 
 Respond in JSON format with:
-- reflection: A 2-3 sentence empathetic response
-- sentiment: One word describing the tone (validating, supportive, understanding, encouraging)
-- stamps: Array of 2-3 encouraging words/phrases for visual stamps
+- reflection: 3-4 sentences of analytical insights with specific observations and actionable recommendations
+- sentiment: analytical tone ("analytical", "observational", "insightful", "data-driven")
+- stamps: Array of 2-3 data-focused tags (e.g., ["Pattern Identified", "Hydration Focus", "Timing Noted"])
 
-Keep the reflection conversational and personal, as if speaking to a friend who needs understanding.`;
+Focus on concrete, actionable insights based on the actual data provided.`;
 
   try {
     const response = await openai.chat.completions.create({
@@ -43,7 +90,7 @@ Keep the reflection conversational and personal, as if speaking to a friend who 
       messages: [
         {
           role: "system",
-          content: "You are Zebby, an empathetic AI companion for people with EDS and rare conditions. Always respond with validating, supportive messages that make users feel understood."
+          content: "You are Zebby, an analytical health companion specializing in EDS and rare condition symptom analysis. Provide concrete, data-driven insights and actionable recommendations based on symptom patterns and contextual factors."
         },
         {
           role: "user",
@@ -56,22 +103,47 @@ Keep the reflection conversational and personal, as if speaking to a friend who 
     const result = JSON.parse(response.choices[0].message.content || "{}");
 
     return {
-      reflection: result.reflection || "I hear you, and what you're experiencing is valid. Your body is working hard, and it's okay to acknowledge that this is challenging.",
-      sentiment: result.sentiment || "validating",
-      stamps: result.stamps || ["Validated", "Understood", "Supported"]
+      reflection: result.reflection || `Your ${highestSymptom.name} was most prominent at ${highestSymptom.intensity}/10. ${contextualObservations.length > 0 ? 'Based on your contextual data: ' + contextualObservations[0] + '.' : ''} Consider tracking this pattern over time to identify potential triggers.`,
+      sentiment: result.sentiment || "analytical",
+      stamps: result.stamps || ["Pattern Noted", "Data Tracked", "Insights Ready"]
     };
   } catch (error) {
     console.error("Failed to generate AI reflection:", error);
     
-    // Fallback empathetic response
+    // Analytical fallback using actual data
+    const contextInsights = [];
+    if (contextualData.heartRate && contextualData.heartRate > 100) {
+      contextInsights.push(`elevated heart rate (${contextualData.heartRate} bpm)`);
+    }
+    if (contextualData.waterIntake && contextualData.waterIntake < 1000) {
+      contextInsights.push(`low hydration (${contextualData.waterIntake}ml)`);
+    }
+    if (contextualData.sodiumIntake && contextualData.sodiumIntake > 2300) {
+      contextInsights.push(`high sodium intake (${contextualData.sodiumIntake}mg)`);
+    }
+    
+    const contextText = contextInsights.length > 0 
+      ? ` Notable factors: ${contextInsights.join(', ')}.` 
+      : '';
+    
     return {
-      reflection: "Thank you for sharing this with me. What you're experiencing sounds really challenging, and I want you to know that your feelings about this are completely valid.",
-      sentiment: "supportive",
-      stamps: ["Heard", "Valid", "Supported"]
+      reflection: `${highestSymptom.name} was your most intense symptom at ${highestSymptom.intensity}/10, with ${lowestSymptom.name} at ${lowestSymptom.intensity}/10.${contextText} ${timeOfDay} symptoms on ${contextualData.timestamp.toLocaleDateString('en-US', { weekday: 'long' })} may indicate specific triggers - continue tracking to identify patterns.`,
+      sentiment: "analytical",
+      stamps: ["Pattern Identified", contextInsights.length > 0 ? "Context Noted" : "Data Tracking", "Analysis Ready"]
     };
   }
 }
 
+function getTimeOfDay(timestamp: Date): string {
+  const hour = timestamp.getHours();
+  if (hour < 6) return 'early morning';
+  if (hour < 12) return 'morning';
+  if (hour < 17) return 'afternoon';
+  if (hour < 21) return 'evening';
+  return 'night';
+}
+
+// Legacy function for backward compatibility
 function getIntensityDescription(intensity: number): string {
   if (intensity <= 2) return "mild";
   if (intensity <= 4) return "mild to moderate";
@@ -79,6 +151,9 @@ function getIntensityDescription(intensity: number): string {
   if (intensity <= 8) return "moderate to severe";
   return "severe";
 }
+
+// Keep old function name for backward compatibility but mark as deprecated
+export const generateEmpathicReflection = generateAnalyticalReflection;
 
 export async function generatePersonalizedInsight(
   recentSymptoms: Array<{ symptoms: string[], intensity: number, timestamp: Date }>

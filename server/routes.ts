@@ -85,7 +85,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         waterIntakeCurrentMl: sessionData.waterIntakeCurrentMl || null,
         heartRateBpm: sessionData.heartRateBpm || null, 
         sodiumIntakeCurrentMg: sessionData.sodiumIntakeCurrentMg || null,
-        weatherTemp: weatherData?.temperature || null,
+        weatherTemp: weatherData?.temperature ? weatherData.temperature.toString() : null,
         weatherCondition: weatherData?.condition || null,
         weatherLocation: weatherData?.location || null,
         // Legacy fields for backward compatibility
@@ -96,23 +96,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const symptomLog = await storage.createSymptomLog(symptomLogData);
 
       // Create individual symptom entries
+      console.log('Creating symptom entries with data:', JSON.stringify(symptomEntries, null, 2));
       const createdEntries = [];
       for (const entry of symptomEntries) {
+        console.log(`Creating symptom entry: ${entry.name} with intensity ${entry.intensity}`);
         const symptomEntry = await storage.createSymptomEntry({
           symptomLogId: symptomLog.id,
           symptomName: entry.name,
           intensity: entry.intensity,
           notes: entry.notes || null
         });
+        console.log('Created symptom entry:', JSON.stringify(symptomEntry, null, 2));
         createdEntries.push(symptomEntry);
       }
 
-      // Generate AI reflection asynchronously
+      // Generate analytical AI reflection asynchronously
       const symptomSummary = symptomEntries.map((entry: any) => `${entry.name} (${entry.intensity}/10)`).join(", ");
-      generateEmpathicReflection(
-        symptomEntries.map((entry: any) => entry.name),
-        Math.round(symptomEntries.reduce((sum: number, entry: any) => sum + entry.intensity, 0) / symptomEntries.length),
-        sessionData.notes || undefined
+      
+      // Import the new analytical function
+      const { generateAnalyticalReflection } = await import('./openai');
+      
+      generateAnalyticalReflection(
+        symptomEntries.map((entry: any) => ({
+          name: entry.name,
+          intensity: entry.intensity,
+          notes: entry.notes
+        })),
+        {
+          heartRate: sessionData.heartRateBpm,
+          waterIntake: sessionData.waterIntakeCurrentMl,
+          sodiumIntake: sessionData.sodiumIntakeCurrentMg,
+          weatherTemp: weatherData?.temperature,
+          weatherCondition: weatherData?.condition,
+          timestamp: new Date(sessionData.timestamp),
+          sessionNotes: sessionData.notes
+        }
       ).then(async (aiResponse) => {
         await storage.updateSymptomLogReflection(symptomLog.id, aiResponse.reflection);
         
@@ -173,6 +191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (symptomLog.userId !== req.user.claims.sub) {
           return res.status(403).json({ message: "Unauthorized" });
         }
+        
         
         res.json(symptomLog);
       } else {

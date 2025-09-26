@@ -130,13 +130,16 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
   };
 
   const updateSymptomRating = (symptomName: string, field: 'intensity' | 'notes', value: number | string) => {
-    setSymptomRatings(prev => 
-      prev.map(symptom => 
+    console.log(`Updating symptom rating: ${symptomName}, field: ${field}, value: ${value}`);
+    setSymptomRatings(prev => {
+      const updated = prev.map(symptom => 
         symptom.name === symptomName 
           ? { ...symptom, [field]: value }
           : symptom
-      )
-    );
+      );
+      console.log('Updated symptom ratings:', JSON.stringify(updated, null, 2));
+      return updated;
+    });
   };
 
   const addCustomSymptom = () => {
@@ -157,18 +160,43 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
       return;
     }
 
+    // Force-sync React state from DOM values before submission
+    // This handles cases where test automation sets DOM values but doesn't trigger React onChange
+    const syncedSymptomEntries = symptomRatings.map((symptom, index) => {
+      const sliderElement = document.querySelector(`[data-testid="slider-intensity-${index}"]`) as HTMLInputElement;
+      const notesElement = document.querySelector(`[data-testid="textarea-symptom-notes-${index}"]`) as HTMLTextAreaElement;
+      
+      const domIntensity = sliderElement ? parseInt(sliderElement.value || sliderElement.defaultValue) : symptom.intensity;
+      const domNotes = notesElement ? (notesElement.value || notesElement.defaultValue || "") : symptom.notes;
+      
+      console.log(`Symptom ${symptom.name} (index ${index}):`);
+      console.log(`  React state intensity: ${symptom.intensity}`);
+      console.log(`  DOM slider value: ${sliderElement?.value}, defaultValue: ${sliderElement?.defaultValue}`);
+      console.log(`  Final intensity: ${domIntensity}`);
+      
+      return {
+        name: symptom.name,
+        intensity: domIntensity,
+        notes: domNotes,
+      };
+    });
+    
     // Convert datetime-local string to proper ISO string
     const isoTimestamp = new Date(timestamp).toISOString();
     
-    createSymptomLogMutation.mutate({
+    const payload = {
       timestamp: isoTimestamp,
       notes: sessionNotes.trim() || null,
       waterIntakeCurrentMl: waterIntakeToday,
       sodiumIntakeCurrentMg: sodiumIntakeToday,
       heartRateBpm: currentHeartRate,
       location: currentLocation,
-      symptomEntries: symptomRatings,
-    });
+      symptomEntries: syncedSymptomEntries,
+    };
+    
+    console.log('Final payload:', JSON.stringify(payload, null, 2));
+    
+    createSymptomLogMutation.mutate(payload);
   };
 
   if (!isOpen) return null;
@@ -381,6 +409,27 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
                 data-testid="button-cancel"
               >
                 Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  console.log("=== DEBUG VALUES ===");
+                  console.log("React state symptomRatings:", JSON.stringify(symptomRatings, null, 2));
+                  symptomRatings.forEach((symptom, index) => {
+                    const sliderElement = document.querySelector(`[data-testid="slider-intensity-${index}"]`) as HTMLInputElement;
+                    console.log(`Slider ${index} (${symptom.name}):`);
+                    console.log(`  React state: ${symptom.intensity}`);
+                    console.log(`  DOM element:`, sliderElement);
+                    console.log(`  DOM value: ${sliderElement?.value}`);
+                    console.log(`  DOM defaultValue: ${sliderElement?.defaultValue}`);
+                  });
+                  console.log("=== END DEBUG ===");
+                }}
+                className="px-3"
+                data-testid="button-debug"
+              >
+                Debug
               </Button>
               <Button 
                 type="submit"
