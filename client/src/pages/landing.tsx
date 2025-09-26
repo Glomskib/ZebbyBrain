@@ -1,6 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import ZebbyAvatar from "@/components/zebby-avatar";
+import { BarChart3, ShoppingBag, Heart } from "lucide-react";
 
 export default function Landing() {
   const handleLogin = () => {
@@ -92,7 +93,7 @@ export default function Landing() {
               <Card className="text-center">
                 <CardContent className="p-8">
                   <div className="w-16 h-16 bg-accent/10 rounded-xl flex items-center justify-center mx-auto mb-4">
-                    <span className="text-3xl">📊</span>
+                    <BarChart3 className="w-8 h-8 text-accent" />
                   </div>
                   <h3 className="text-xl font-semibold mb-3">Smart Tracking</h3>
                   <p className="text-muted-foreground">
@@ -105,7 +106,7 @@ export default function Landing() {
               <Card className="text-center">
                 <CardContent className="p-8">
                   <div className="w-16 h-16 bg-secondary/10 rounded-xl flex items-center justify-center mx-auto mb-4">
-                    <span className="text-3xl">🛍️</span>
+                    <ShoppingBag className="w-8 h-8 text-secondary" />
                   </div>
                   <h3 className="text-xl font-semibold mb-3">EDS Marketplace</h3>
                   <p className="text-muted-foreground">
@@ -148,7 +149,7 @@ export default function Landing() {
             <span className="font-semibold text-foreground">Zebby's World</span>
           </div>
           <p className="text-muted-foreground text-sm">
-            Made with ❤️ for the EDS community. You are understood here.
+            Made with <Heart className="inline w-4 h-4 text-red-500 mx-1" /> for the EDS community. You are understood here.
           </p>
         </div>
       </footer>

@@ -12,6 +12,7 @@ import InsightCards from "@/components/insight-cards";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { BarChart3, Heart, Lightbulb, Star } from "lucide-react";
 
 export default function Dashboard() {
   const { toast } = useToast();
@@ -116,7 +117,7 @@ export default function Dashboard() {
             <div className="relative z-10 flex items-center justify-between">
               <div>
                 <h2 className="text-3xl font-bold mb-2" data-testid="text-welcome">
-                  Good {getTimeOfDay()}, {firstName}! 🌟
+                  Good {getTimeOfDay()}, {firstName}! <Star className="inline w-6 h-6 text-yellow-400 ml-1" />
                 </h2>
                 <p className="text-white/90 text-lg mb-4">
                   How are you feeling today? I'm here to listen and understand.
@@ -143,7 +144,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-foreground">Symptom Insights</h3>
                 <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                  <span className="text-xl">📊</span>
+                  <BarChart3 className="w-5 h-5 text-primary" />
                 </div>
               </div>
               <div className="space-y-2">
@@ -166,7 +167,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-foreground">Zebby's Reflections</h3>
                 <div className="w-10 h-10 bg-accent/10 rounded-lg flex items-center justify-center">
-                  <span className="text-xl">❤️</span>
+                  <Heart className="w-5 h-5 text-accent" />
                 </div>
               </div>
               <div className="space-y-2">
@@ -186,7 +187,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-foreground">Personal Insight</h3>
                 <div className="w-10 h-10 bg-secondary/10 rounded-lg flex items-center justify-center">
-                  <span className="text-xl">💡</span>
+                  <Lightbulb className="w-5 h-5 text-secondary" />
                 </div>
               </div>
               <div className="space-y-2">
@@ -301,7 +302,9 @@ export default function Dashboard() {
                 <SymptomChart symptoms={recentLogs} />
               ) : (
                 <div className="text-center py-8">
-                  <div className="text-6xl mb-4">📊</div>
+                  <div className="mb-4">
+                    <BarChart3 className="w-16 h-16 text-primary mx-auto" />
+                  </div>
                   <p className="text-muted-foreground">
                     No symptom data yet. Start tracking to see your patterns!
                   </p>
