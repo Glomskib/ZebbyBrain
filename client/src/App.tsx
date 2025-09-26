@@ -28,8 +28,8 @@ function Router() {
       <Route path="/marketplace" component={Marketplace} />
       <Route path="/product/:id" component={({ params }: { params: { id: string } }) => <ProductDetail productId={params.id} />} />
       
-      {/* Onboarding route - accessible to authenticated users who need onboarding */}
-      {isAuthenticated && needsOnboarding && (
+      {/* Onboarding route - accessible to authenticated users */}
+      {isAuthenticated && (
         <Route path="/onboarding" component={Onboarding} />
       )}
       

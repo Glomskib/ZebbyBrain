@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import ZebbyAvatar from "@/components/zebby-avatar";
 import { Heart, Users, TrendingUp, ArrowLeft, ArrowRight, CheckCircle } from "lucide-react";
 import { useLocation } from "wouter";
+import { useProfile } from "@/hooks/useProfile";
 
 const STEPS = [
   { id: "welcome", title: "Welcome to Zebby's World" },
@@ -52,6 +53,7 @@ const DAILY_GOALS_OPTIONS = [
 export default function Onboarding() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { profile, isLoading } = useProfile();
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState({
     edsType: "",
@@ -60,6 +62,13 @@ export default function Onboarding() {
     experienceLevel: "",
     dailyGoals: [] as string[],
   });
+
+  // Redirect if user has already completed onboarding
+  useEffect(() => {
+    if (!isLoading && profile && profile.onboardingCompleted) {
+      setLocation("/");
+    }
+  }, [profile, isLoading, setLocation]);
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -75,7 +84,18 @@ export default function Onboarding() {
         title: "Welcome to Zebby's World!",
         description: "Your profile has been set up successfully.",
       });
-      setLocation("/");
+      
+      // Use a short delay to ensure cache invalidation completes
+      setTimeout(() => {
+        // Force redirect to dashboard using window.location as backup
+        setLocation("/");
+        // Fallback to ensure redirect happens
+        setTimeout(() => {
+          if (window.location.pathname === "/onboarding") {
+            window.location.href = "/";
+          }
+        }, 100);
+      }, 100);
     },
     onError: (error) => {
       console.error("Failed to complete onboarding:", error);
