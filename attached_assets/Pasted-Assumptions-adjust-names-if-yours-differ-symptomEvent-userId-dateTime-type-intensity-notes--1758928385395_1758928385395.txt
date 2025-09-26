@@ -1,0 +1,415 @@
+Assumptions (adjust names if yours differ)
+
+symptomEvent(userId, dateTime, type, intensity, notes?)
+
+vitalsReading(userId, dateTime, posture, hrBpm, bpSystolic?, bpDiastolic?)
+
+sleepLog(userId, date, hours, quality?)
+
+Prisma in use; Express server; JWT sets req.user.id
+
+You already have security headers, auth, rate limits
+
+1) Prisma: lightweight cache table (optional but recommended)
+
+prisma/schema.prisma
+
+model InsightsCache {
+  id        String   @id @default(cuid())
+  userId    String   @index
+  rangeKey  String   // "7d" | "30d" | "90d"
+  payload   Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([userId, rangeKey])
+}
+
+
+Run: npx prisma generate && npx prisma migrate dev -n insights_cache
+
+2) Server: analytics helpers
+
+server/src/lib/insights.ts
+
+import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+
+export type RangeKey = "7d"|"30d"|"90d";
+const RANGE_DAYS: Record<RangeKey, number> = { "7d":7, "30d":30, "90d":90 };
+
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+function shiftDays(d: Date, n: number) {
+  const x = new Date(d); x.setDate(x.getDate()+n); return x;
+}
+
+function pearson(x: number[], y: number[]) {
+  const n = Math.min(x.length, y.length);
+  if (n < 3) return { r: 0, strength: "none" as const };
+  const xs = x.slice(0,n), ys = y.slice(0,n);
+  const mx = xs.reduce((a,b)=>a+b,0)/n;
+  const my = ys.reduce((a,b)=>a+b,0)/n;
+  let num=0, dx=0, dy=0;
+  for (let i=0;i<n;i++){ const vx = xs[i]-mx, vy = ys[i]-my; num += vx*vy; dx += vx*vx; dy += vy*vy; }
+  const denom = Math.sqrt(dx*dy) || 1;
+  const r = num/denom;
+  const a = Math.abs(r);
+  const strength = a >= 0.6 ? "strong" : a >= 0.35 ? "moderate" : a >= 0.2 ? "weak" : "none";
+  return { r, strength };
+}
+
+/**
+ * Returns safe, plain-language summary insights for a user/range.
+ * No diagnoses; “may be associated” style.
+ */
+export async function computeInsights(userId: string, rangeKey: RangeKey) {
+  const days = RANGE_DAYS[rangeKey];
+  const today = startOfDay(new Date());
+  const from = shiftDays(today, -days);
+  const prevFrom = shiftDays(from, -days); // previous equal period
+
+  // --- Symptoms: averages & flares ---
+  const [curSymptoms, prevSymptoms] = await Promise.all([
+    prisma.symptomEvent.findMany({ where: { userId, dateTime: { gte: from, lt: today } }, select: { dateTime:true, intensity:true, type:true } }),
+    prisma.symptomEvent.findMany({ where: { userId, dateTime: { gte: prevFrom, lt: from } }, select: { intensity:true } }),
+  ]);
+
+  const curIntens = curSymptoms.map(s => Number(s.intensity ?? 0)).filter(n => !Number.isNaN(n));
+  const prevIntens = prevSymptoms.map(s => Number(s.intensity ?? 0)).filter(n => !Number.isNaN(n));
+  const avg = (arr:number[]) => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
+  const curAvg = Math.round(avg(curIntens)*10)/10;
+  const prevAvg = Math.round(avg(prevIntens)*10)/10;
+  const delta = Math.round((curAvg - prevAvg)*10)/10; // positive = higher now
+  // Flare = intensity >= 7 (tweak if you like)
+  const flareCount = curIntens.filter(n => n >= 7).length;
+
+  // --- Vitals: POTS-aware HR Δ (standing - supine) ---
+  const vitals = await prisma.vitalsReading.findMany({
+    where: { userId, dateTime: { gte: from, lt: today }, hrBpm: { not: null } },
+    select: { dateTime:true, posture:true, hrBpm:true }
+  });
+  // group by day
+  const map: Record<string, { supine:number[]; standing:number[]; }> = {};
+  vitals.forEach(v => {
+    const k = startOfDay(v.dateTime).toISOString().slice(0,10);
+    map[k] ||= { supine:[], standing:[] };
+    const p = (v.posture||"").toLowerCase();
+    if (p.includes("stand")) map[k].standing.push(v.hrBpm!);
+    else if (p.includes("supine") || p.includes("lying")) map[k].supine.push(v.hrBpm!);
+  });
+  const dailyDelta: number[] = [];
+  Object.values(map).forEach(({supine,standing})=>{
+    if (supine.length && standing.length) {
+      const ms = avg(standing), ls = avg(supine);
+      dailyDelta.push(ms - ls);
+    }
+  });
+  const meanHrDelta = dailyDelta.length ? Math.round(avg(dailyDelta)) : 0;
+
+  // --- Sleep ↔ next-day pain correlation ---
+  const sleeps = await prisma.sleepLog.findMany({
+    where: { userId, date: { gte: prevFrom, lt: today } }, // include extra period for alignment
+    select: { date:true, hours:true }
+  });
+
+  // build arrays aligned by date: sleep hours (day D) vs mean pain (day D+1)
+  const byDayPain: Record<string, number[]> = {};
+  curSymptoms.forEach(s => {
+    const d = startOfDay(s.dateTime).toISOString().slice(0,10);
+    (byDayPain[d] ||= []).push(Number(s.intensity ?? 0));
+  });
+  const meanPainByDay: Record<string, number> = {};
+  Object.keys(byDayPain).forEach(d => {
+    meanPainByDay[d] = avg(byDayPain[d]);
+  });
+
+  const xs:number[] = []; const ys:number[] = [];
+  sleeps.forEach(sl => {
+    const d = startOfDay(sl.date).toISOString().slice(0,10);
+    const next = shiftDays(new Date(d), 1).toISOString().slice(0,10);
+    const pain = meanPainByDay[next];
+    if (sl.hours != null && !Number.isNaN(sl.hours) && pain != null && !Number.isNaN(pain)) {
+      xs.push(Number(sl.hours)); ys.push(pain);
+    }
+  });
+  const corr = pearson(xs, ys); // r negative => more sleep, less next-day pain
+
+  // --- Build cards (plain language) ---
+  const trend =
+    Math.abs(delta) < 0.2 ? "flat"
+    : delta > 0 ? "up" : "down";
+
+  const cards = [];
+
+  // Pain trend card
+  cards.push({
+    id: "pain-trend",
+    title: "Symptom trend",
+    kind: "trend",
+    period: rangeKey,
+    metric: { avg: curAvg, delta, unit: "/10" },
+    summary:
+      trend === "flat" ? `Average intensity held steady at ${curAvg}/10.` :
+      trend === "down" ? `Average intensity decreased by ${Math.abs(delta)} to ${curAvg}/10.` :
+      `Average intensity increased by ${delta} to ${curAvg}/10.`,
+    nudge:
+      trend === "down" ? "Nice progress—consider keeping whatever helped this period." :
+      trend === "flat" ? "If you’d like to experiment, try one tiny change and observe for a week." :
+      "Consider a gentle check-in: hydration, a posture break, or a brief rest.",
+    disclaimer: "For awareness only — not medical advice."
+  });
+
+  // Flare frequency card
+  cards.push({
+    id: "flare-frequency",
+    title: "Flares this period",
+    kind: "count",
+    period: rangeKey,
+    metric: { value: flareCount, unit: "days ≥7/10" },
+    summary: flareCount === 0
+      ? "No high-intensity days recorded this period."
+      : `You logged ${flareCount} high-intensity day${flareCount>1?"s":""} (≥7/10).`,
+    nudge: "Jot a quick note on potential triggers (sleep, stress, posture) when a flare occurs.",
+    disclaimer: "For awareness only — not medical advice."
+  });
+
+  // HR delta card
+  cards.push({
+    id: "hr-delta",
+    title: "HR change standing → supine",
+    kind: "vitals",
+    period: rangeKey,
+    metric: { value: meanHrDelta, unit: "bpm" },
+    summary: dailyDelta.length
+      ? `Average difference between standing and supine HR was ${meanHrDelta} bpm.`
+      : "Not enough paired posture readings to estimate HR change.",
+    nudge: "If helpful, capture a supine and standing HR once a day to spot patterns.",
+    disclaimer: "For awareness only — not medical advice."
+  });
+
+  // Sleep correlation card
+  const direction =
+    corr.strength === "none" ? "no clear" :
+    corr.r < 0 ? "a potential" : "a potential";
+  const assoc =
+    corr.strength === "none" ? "association" :
+    corr.r < 0 ? "association where more sleep aligned with lower next-day pain" :
+                 "association where more sleep aligned with higher next-day pain";
+
+  cards.push({
+    id: "sleep-corr",
+    title: "Sleep ↔ next-day pain",
+    kind: "correlation",
+    period: rangeKey,
+    metric: { r: Math.round(corr.r*100)/100, strength: corr.strength },
+    summary: `Found ${direction} ${assoc} (${Math.round(corr.r*100)/100}, ${corr.strength}).`,
+    nudge: "Treat this as exploratory; try steady bed/wake times for a week and observe.",
+    disclaimer: "Correlation is not causation; informational only."
+  });
+
+  return { period: rangeKey, cards };
+}
+
+3) Server: insights route with caching, auth, rate limit
+
+server/src/routes/insights.ts
+
+import { Router } from "express";
+import rateLimit from "express-rate-limit";
+import { PrismaClient } from "@prisma/client";
+import { computeInsights, RangeKey } from "../lib/insights";
+
+const prisma = new PrismaClient();
+const r = Router();
+
+r.use(rateLimit({ windowMs: 60_000, max: 12 })); // gentle throttle
+
+function parseRange(q?: string): RangeKey {
+  if (q === "7d" || q === "30d" || q === "90d") return q;
+  return "30d";
+}
+
+/**
+ * GET /api/insights/snapshot?range=7d|30d|90d
+ * Requires req.user.id (auth already applied globally).
+ */
+r.get("/snapshot", async (req, res) => {
+  const userId = (req as any).user?.id;
+  if (!userId) return res.status(401).json({ error: "auth_required" });
+  const range = parseRange(req.query.range as string);
+
+  // cache for 5 minutes per user+range
+  const cacheKey = { userId, rangeKey: range };
+  const now = new Date();
+  const cache = await prisma.insightsCache.findUnique({ where: { userId_rangeKey: cacheKey } })
+    .catch(() => null);
+
+  if (cache) {
+    const ageMs = now.getTime() - new Date(cache.updatedAt).getTime();
+    if (ageMs < 5 * 60 * 1000) return res.json(cache.payload);
+  }
+
+  const payload = await computeInsights(userId, range);
+  // upsert cache
+  await prisma.insightsCache.upsert({
+    where: { userId_rangeKey: cacheKey },
+    update: { payload },
+    create: { userId, rangeKey: range, payload }
+  });
+
+  // No PII; friendly headers
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(payload);
+});
+
+export default r;
+
+
+server/src/index.ts (wire it)
+
+import express from "express";
+import app from "./app";
+import { authOptional } from "./middleware/auth";
+import { requireAuth } from "./middleware/requireAuth";
+import insights from "./routes/insights";
+
+// webhook first (raw) … then JSON:
+app.use(express.json());
+
+// Attach auth (you already have it)
+app.use(authOptional);
+
+// Protect insights (requires login)
+app.use("/api/insights", requireAuth, insights);
+
+export default app;
+
+4) Client: Insight cards UI (Zebby vibe)
+
+client/src/components/InsightCards.tsx
+
+import { useEffect, useState } from "react";
+
+type RangeKey = "7d"|"30d"|"90d";
+type Snapshot = {
+  period: RangeKey;
+  cards: Array<{
+    id: string;
+    title: string;
+    kind: "trend"|"count"|"vitals"|"correlation";
+    period: RangeKey;
+    metric: any;
+    summary: string;
+    nudge: string;
+    disclaimer: string;
+  }>;
+};
+
+export default function InsightCards() {
+  const [range, setRange] = useState<RangeKey>("30d");
+  const [data, setData] = useState<Snapshot|null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(()=>{ (async ()=>{
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("zebby_token") || "";
+      const r = await fetch(`/api/insights/snapshot?range=${range}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      const j = await r.json();
+      setData(j);
+    } finally { setLoading(false); }
+  })(); }, [range]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="font-display text-xl">Insights</div>
+        <div className="flex gap-2">
+          {(["7d","30d","90d"] as RangeKey[]).map(k => (
+            <button
+              key={k}
+              onClick={()=>setRange(k)}
+              className={`px-3 py-1 rounded-pill border ${range===k ? "bg-blue-600 text-white border-blue-600" : ""}`}
+            >
+              {k}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && <div className="tile">Loading…</div>}
+      {data && (
+        <div className="grid md:grid-cols-2 gap-4">
+          {data.cards.map(c => (
+            <div key={c.id} className="tile">
+              <div className="font-semibold mb-1">{c.title}</div>
+              <div className="text-sm opacity-80 mb-2">{c.summary}</div>
+
+              {/* metric pill */}
+              <div className="inline-flex items-center gap-2 badge badge-info mb-2">
+                {c.kind === "trend" && <span>Avg {c.metric.avg}{c.metric.unit} ({c.metric.delta>=0?"+":""}{c.metric.delta})</span>}
+                {c.kind === "count" && <span>{c.metric.value} {c.metric.unit}</span>}
+                {c.kind === "vitals" && <span>{c.metric.value} {c.metric.unit}</span>}
+                {c.kind === "correlation" && <span>r={c.metric.r} • {c.metric.strength}</span>}
+              </div>
+
+              <div className="text-sm">{c.nudge}</div>
+              <div className="text-xs opacity-60 mt-2">{c.disclaimer}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+Add it to your Home or Today’s Stripes page:
+
+// client/src/pages/Home.tsx (snippet)
+import InsightCards from "@/components/InsightCards";
+export default function Home() {
+  return (
+    <div className="max-w-5xl mx-auto px-4 pb-12">
+      {/* ... your hero / tiles ... */}
+      <div className="mt-8">
+        <InsightCards />
+      </div>
+    </div>
+  );
+}
+
+5) Tone & safety (copy)
+
+Always informational, never prescriptive.
+
+Microcopy examples:
+
+“may be associated”, “could be aligning with…”
+
+“for awareness only — not medical advice”
+
+“consider a gentle check-in: hydration, posture, brief rest”
+
+6) Acceptance checklist
+
+ /api/insights/snapshot?range=7d|30d|90d returns within ~300ms on typical data
+
+ No PII; headers include Cache-Control: no-store
+
+ Cards render with Zebby styling; dark text on light background
+
+ HR Δ appears when there are paired supine/standing readings; otherwise a graceful message
+
+ Correlation card shows none/weak/moderate/strong with r rounded to 2 decimals
+
+ Copy avoids diagnoses, sticks to supportive language
+
+7) Performance notes
+
+The cache upserts per user+range and expires every 5 minutes; safe to adjust.
+
+Add DB indexes if needed: (userId, dateTime) on symptomEvent and vitalsReading, (userId, date) on sleepLog.

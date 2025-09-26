@@ -53,13 +53,7 @@ app.use(helmet({
   frameguard: { action: "deny" }, // Explicitly set X-Frame-Options to DENY
   referrerPolicy: { policy: "no-referrer" },
   crossOriginEmbedderPolicy: false, // for in-browser rendering
-  noSniff: true, // X-Content-Type-Options: nosniff
-  permissionsPolicy: {
-    camera: [],
-    microphone: [],
-    geolocation: [],
-    "interest-cohort": []
-  }
+  noSniff: true // X-Content-Type-Options: nosniff
 }));
 
 // CSP Report-Only for monitoring violations without blocking
