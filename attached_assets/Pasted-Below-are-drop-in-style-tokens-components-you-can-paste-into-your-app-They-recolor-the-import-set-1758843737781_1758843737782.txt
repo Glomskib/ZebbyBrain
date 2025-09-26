@@ -1,0 +1,347 @@
+Below are drop-in style tokens + components you can paste into your app. They recolor the import settings, source toggles, and the manual review queue to match the Zebby theme and layout.
+
+1) Tailwind theme tokens (colors + radii + shadows)
+
+tailwind.config.js
+
+export default {
+  darkMode: 'class',
+  content: ['./index.html','./src/**/*.{ts,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        zebby: {
+          sky: '#CDEBFF',
+          skyDeep: '#9AD3FF',
+          grass: '#6BCB77',
+          ocean: '#2E7DFF',
+          night: '#0D1B2A',
+          slate: '#132C4A',
+          cream: '#FFF3E6',
+          pebble: '#F7F7F9',
+          ink: '#101418',
+          blush: '#FF7DA1',
+          amber: '#FFC76B'
+        }
+      },
+      borderRadius: { xl2: '1.25rem', pill: '9999px' },
+      boxShadow: { soft: '0 8px 24px rgba(0,0,0,.08)' },
+      fontFamily: {
+        display: ['Baloo 2','Inter','system-ui','sans-serif'],
+        ui: ['Inter','system-ui','sans-serif']
+      }
+    }
+  },
+  plugins: []
+}
+
+
+src/index.css
+
+@tailwind base; @tailwind components; @tailwind utilities;
+
+/* App frame + backdrop */
+:root { color-scheme: light dark; }
+body { @apply bg-zebby-pebble dark:bg-zebby-night text-zebby-ink dark:text-white font-ui; }
+.skyback {
+  background: linear-gradient(180deg, theme(colors.zebby.skyDeep) 0%, theme(colors.zebby.sky) 65%, theme(colors.zebby.grass) 65%);
+}
+
+/* Primitives */
+.card { @apply bg-white dark:bg-zebby-slate border border-zebby-sky/40 dark:border-white/10 rounded-2xl shadow-soft; }
+.tile { @apply card p-4; }
+.btn { @apply inline-flex items-center justify-center font-semibold rounded-pill px-5 py-3 shadow-soft transition active:translate-y-[1px]; }
+.btn-primary { @apply bg-zebby-ocean text-white hover:brightness-105; }
+.btn-ghost { @apply bg-white/80 dark:bg-white/10 border border-white/30; }
+.badge { @apply inline-flex items-center gap-2 rounded-pill px-3 py-1 text-xs font-semibold; }
+.badge-info { @apply bg-zebby-sky text-zebby-slate; }
+.badge-warn { @apply bg-zebby-amber/30 text-zebby-slate; }
+.badge-ok { @apply bg-zebby-grass/25 text-zebby-slate; }
+
+/* Lists & tables */
+.row { @apply grid grid-cols-12 items-center gap-3 p-3 rounded-xl border border-zebby-sky/40 dark:border-white/10 bg-white/70 dark:bg-white/5; }
+.row + .row { @apply mt-2; }
+
+/* Switch */
+.switch {
+  @apply relative inline-flex h-6 w-11 items-center rounded-full transition;
+  background: linear-gradient(90deg, theme(colors.zebby.skyDeep), theme(colors.zebby.ocean));
+}
+.switch-off { @apply bg-zebby-sky; }
+.knob { @apply absolute left-1 h-4 w-4 rounded-full bg-white transition; }
+.knob-on { @apply translate-x-6; }
+
+/* Section header */
+.section-h { @apply flex items-center justify-between mb-3; }
+.section-t { @apply font-display text-2xl; }
+
+/* Page header bar */
+.appbar { @apply sticky top-0 z-20 backdrop-blur bg-white/80 dark:bg-zebby-night/70 border-b border-zebby-sky/40 dark:border-white/10; }
+.appbar-inner { @apply max-w-6xl mx-auto h-16 px-4 flex items-center justify-between; }
+
+2) Import Settings page (Zebby-styled)
+
+src/pages/ImportSettings.tsx
+
+import { useState } from 'react';
+
+type SourceState = {
+  googleFit: boolean;
+  appleHealth: boolean;
+  lastSync?: string;
+  status?: 'idle'|'syncing'|'ok'|'warn';
+}
+
+export default function ImportSettings(){
+  const [s, setS] = useState<SourceState>({
+    googleFit: true, appleHealth: false, lastSync: '2025-09-24 21:10', status: 'ok'
+  });
+  const [loading, setLoading] = useState(false);
+
+  async function syncNow(){
+    setLoading(true);
+    try {
+      // call your /api/import/sync endpoint
+      await fetch('/api/import/sync', { method: 'POST' });
+      setS(prev => ({ ...prev, lastSync: new Date().toISOString().slice(0,16).replace('T',' '), status: 'ok' }));
+    } catch {
+      setS(prev => ({ ...prev, status: 'warn' }));
+    } finally { setLoading(false); }
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 pb-12">
+      <div className="appbar"><div className="appbar-inner">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-full grid place-items-center bg-zebby-amber text-zebby-slate">🦓</div>
+          <div className="font-display text-xl">Zebby — Health Data Import</div>
+        </div>
+        <button onClick={syncNow} className="btn btn-primary disabled:opacity-60" disabled={loading}>
+          {loading ? 'Syncing…' : 'Sync now'}
+        </button>
+      </div></div>
+
+      {/* Backdrop banner */}
+      <div className="mt-6 rounded-2xl skyback p-1">
+        <div className="tile bg-white/80 dark:bg-white/10">
+          <div className="section-h">
+            <div className="section-t">Sources</div>
+            <div className="flex gap-2">
+              <span className={`badge ${s.status==='ok'?'badge-ok':s.status==='warn'?'badge-warn':'badge-info'}`}>
+                {s.status==='ok' && 'Up to date'}
+                {s.status==='warn' && 'Needs attention'}
+                {!s.status && 'Idle'}
+              </span>
+              {s.lastSync && <span className="badge badge-info">Last sync: {s.lastSync}</span>}
+            </div>
+          </div>
+
+          {/* Sources grid */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <SourceCard
+              icon="🟢" title="Google Fit"
+              enabled={s.googleFit}
+              onToggle={(v)=>setS(p=>({...p, googleFit:v}))}
+              description="Import heart rate, steps & sleep. Toggle on to include in Zebby."
+            />
+            <SourceCard
+              icon="🟣" title="Apple Health"
+              enabled={s.appleHealth}
+              onToggle={(v)=>setS(p=>({...p, appleHealth:v}))}
+              description="Import HR, sleep, and activity summaries (via your device export)."
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Privacy & scope */}
+      <div className="mt-6 grid md:grid-cols-3 gap-4">
+        <div className="tile">
+          <div className="section-t text-lg">Privacy-first</div>
+          <p className="opacity-80 text-sm">You control sources. Imports run locally on your account; Zebby doesn’t share data.</p>
+        </div>
+        <div className="tile">
+          <div className="section-t text-lg">Conflict rules</div>
+          <p className="opacity-80 text-sm">We avoid duplicates, and newer records win unless you approve otherwise.</p>
+        </div>
+        <div className="tile">
+          <div className="section-t text-lg">Manual review</div>
+          <p className="opacity-80 text-sm">Potential conflicts go to a queue for your approval (see below).</p>
+        </div>
+      </div>
+
+      <ReviewQueuePreview />
+    </div>
+  );
+}
+
+function SourceCard({
+  icon, title, description, enabled, onToggle
+}: { icon:string; title:string; description:string; enabled:boolean; onToggle:(v:boolean)=>void }){
+  return (
+    <div className="tile">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-2xl grid place-items-center bg-white/80 dark:bg-white/10 text-2xl">{icon}</div>
+          <div>
+            <div className="font-display text-xl">{title}</div>
+            <div className="text-sm opacity-80">{description}</div>
+          </div>
+        </div>
+        <button
+          onClick={()=>onToggle(!enabled)}
+          className={`switch ${enabled ? '' : 'switch-off'}`}
+          aria-pressed={enabled}
+        >
+          <span className={`knob ${enabled ? 'knob-on' : ''}`} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReviewQueuePreview(){
+  const pending = 3;
+  return (
+    <div className="mt-8">
+      <div className="section-h">
+        <div className="section-t">Review queue</div>
+        <a href="/import/review" className="btn btn-ghost">Open queue</a>
+      </div>
+      <div className="tile">
+        <div className="row">
+          <div className="col-span-2"><span className="badge badge-warn">Conflict</span></div>
+          <div className="col-span-5">
+            <div className="font-semibold">HR (standing) 104 bpm</div>
+            <div className="text-xs opacity-70">Google Fit 10:42 vs Existing 10:43</div>
+          </div>
+          <div className="col-span-5 flex justify-end gap-2">
+            <button className="btn btn-ghost">Keep existing</button>
+            <button className="btn btn-primary">Replace with Google Fit</button>
+          </div>
+        </div>
+        <div className="row">
+          <div className="col-span-2"><span className="badge badge-info">Duplicate?</span></div>
+          <div className="col-span-5">
+            <div className="font-semibold">Sleep 7h 12m</div>
+            <div className="text-xs opacity-70">Apple Health vs Existing (same time window)</div>
+          </div>
+          <div className="col-span-5 flex justify-end gap-2">
+            <button className="btn btn-ghost">Merge</button>
+            <button className="btn btn-primary">Keep one</button>
+          </div>
+        </div>
+        <div className="mt-3 text-sm opacity-70">{pending} items pending review</div>
+      </div>
+    </div>
+  );
+}
+
+3) Review Queue page (Zebby layout + colors)
+
+src/pages/ImportReviewQueue.tsx
+
+import { useState, useEffect } from 'react';
+
+type Conflict = {
+  id: string;
+  type: 'duplicate'|'conflict';
+  metric: string; // "HR", "Sleep", etc.
+  incoming: { source:'Google Fit'|'Apple Health'; value:string; time:string };
+  existing?: { value:string; time:string };
+};
+
+export default function ImportReviewQueue(){
+  const [items, setItems] = useState<Conflict[]>([]);
+
+  useEffect(()=>{
+    // fetch('/api/import/conflicts').then(r=>r.json()).then(setItems);
+    setItems([
+      { id:'1', type:'conflict', metric:'HR (standing)', incoming:{source:'Google Fit', value:'104 bpm', time:'10:42'}, existing:{value:'100 bpm', time:'10:43'} },
+      { id:'2', type:'duplicate', metric:'Sleep', incoming:{source:'Apple Health', value:'7h 12m', time:'2025-09-24'}, existing:{value:'7h 10m', time:'2025-09-24'} },
+    ]);
+  },[]);
+
+  async function resolve(id:string, action:'keep_existing'|'replace'|'merge'|'drop'){
+    // POST /api/import/conflicts/:id/resolve { action }
+    setItems(prev => prev.filter(x=>x.id!==id));
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 pb-14">
+      <div className="appbar"><div className="appbar-inner">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-full grid place-items-center bg-zebby-amber text-zebby-slate">🦓</div>
+          <div className="font-display text-xl">Zebby — Review queue</div>
+        </div>
+      </div></div>
+
+      <div className="mt-6 rounded-2xl skyback p-1">
+        <div className="tile bg-white/85 dark:bg-white/10">
+          {items.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-5xl mb-3">🎉</div>
+              <div className="font-semibold">No pending items</div>
+              <div className="opacity-70 text-sm">You’re all caught up.</div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {items.map(it => (
+                <div key={it.id} className="row">
+                  <div className="col-span-2">
+                    <span className={`badge ${it.type==='conflict' ? 'badge-warn' : 'badge-info'}`}>
+                      {it.type==='conflict' ? 'Conflict' : 'Duplicate?'}
+                    </span>
+                  </div>
+                  <div className="col-span-6">
+                    <div className="font-semibold">{it.metric}</div>
+                    <div className="text-xs opacity-70">
+                      Incoming ({it.incoming.source}) {it.incoming.value} @ {it.incoming.time}
+                      {it.existing && <> • Existing {it.existing.value} @ {it.existing.time}</>}
+                    </div>
+                  </div>
+                  <div className="col-span-4 flex justify-end gap-2">
+                    {it.type==='conflict' ? (
+                      <>
+                        <button onClick={()=>resolve(it.id,'keep_existing')} className="btn btn-ghost">Keep existing</button>
+                        <button onClick={()=>resolve(it.id,'replace')} className="btn btn-primary">Replace</button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={()=>resolve(it.id,'merge')} className="btn btn-ghost">Merge</button>
+                        <button onClick={()=>resolve(it.id,'drop')} className="btn btn-primary">Keep one</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="text-sm opacity-70">Total: {items.length} items</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+4) Where to plug these in
+
+Add routes:
+
+/import/settings → ImportSettings
+
+/import/review → ImportReviewQueue
+
+Use the skyback wrapper and tile/card/badge/btn classes anywhere you want the Zebby vibe.
+
+Replace any old gray buttons with .btn + .btn-primary, and wrap critical info in .badge-*.
+
+5) Microcopy (Zebby voice)
+
+Source toggles: “Include in Zebby”
+
+Sync button: “Sync now”
+
+Privacy: “You control sources. Zebby never sells data. Turn off any time.”
+
+Conflict CTA: “Keep existing” / “Replace with Google Fit” / “Merge”

@@ -9,8 +9,26 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        xl2: '1.25rem',
+        pill: '9999px',
+      },
+      boxShadow: {
+        soft: '0 8px 24px rgba(0,0,0,.08)'
       },
       colors: {
+        zebby: {
+          sky: '#CDEBFF',
+          skyDeep: '#9AD3FF',
+          grass: '#6BCB77',
+          ocean: '#2E7DFF',
+          night: '#0D1B2A',
+          slate: '#132C4A',
+          cream: '#FFF3E6',
+          pebble: '#F7F7F9',
+          ink: '#101418',
+          blush: '#FF7DA1',
+          amber: '#FFC76B'
+        },
         background: "var(--background)",
         foreground: "var(--foreground)",
         card: {
@@ -66,6 +84,8 @@ export default {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
+        display: ['Baloo 2','Inter','system-ui','sans-serif'],
+        ui: ['Inter','system-ui','sans-serif']
       },
       keyframes: {
         "accordion-down": {

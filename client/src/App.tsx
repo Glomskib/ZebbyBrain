@@ -9,6 +9,8 @@ import Dashboard from "@/pages/dashboard";
 import SymptomTracker from "@/pages/symptom-tracker";
 import Marketplace from "@/pages/marketplace";
 import Settings from "@/pages/settings";
+import ImportSettings from "@/pages/ImportSettings";
+import ImportReviewQueue from "@/pages/ImportReviewQueue";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -24,6 +26,8 @@ function Router() {
           <Route path="/tracker" component={SymptomTracker} />
           <Route path="/marketplace" component={Marketplace} />
           <Route path="/settings" component={Settings} />
+          <Route path="/import" component={ImportSettings} />
+          <Route path="/import/review" component={ImportReviewQueue} />
         </>
       )}
       <Route component={NotFound} />

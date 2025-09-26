@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -100,5 +101,75 @@
   }
   50% { 
     transform: translateY(-10px); 
+  }
+}
+
+@layer components {
+  /* Zebby Import System Styles */
+  .skyback {
+    background: linear-gradient(180deg, #9AD3FF 0%, #CDEBFF 65%, #6BCB77 65%);
+  }
+
+  .zebby-card { 
+    @apply bg-white dark:bg-zebby-slate border border-zebby-sky/40 dark:border-white/10 rounded-2xl shadow-soft; 
+  }
+  .tile { 
+    @apply zebby-card p-4; 
+  }
+  .btn { 
+    @apply inline-flex items-center justify-center font-semibold rounded-pill px-5 py-3 shadow-soft transition active:translate-y-[1px]; 
+  }
+  .btn-primary { 
+    @apply bg-zebby-ocean text-white hover:brightness-105; 
+  }
+  .btn-ghost { 
+    @apply bg-white/80 dark:bg-white/10 border border-white/30; 
+  }
+  .badge { 
+    @apply inline-flex items-center gap-2 rounded-pill px-3 py-1 text-xs font-semibold; 
+  }
+  .badge-info { 
+    @apply bg-zebby-sky text-zebby-slate; 
+  }
+  .badge-warn { 
+    @apply bg-zebby-amber/30 text-zebby-slate; 
+  }
+  .badge-ok { 
+    @apply bg-zebby-grass/25 text-zebby-slate; 
+  }
+
+  .row { 
+    @apply grid grid-cols-12 items-center gap-3 p-3 rounded-xl border border-zebby-sky/40 dark:border-white/10 bg-white/70 dark:bg-white/5; 
+  }
+  .row + .row { 
+    @apply mt-2; 
+  }
+
+  .switch {
+    @apply relative inline-flex h-6 w-11 items-center rounded-full transition;
+    background: linear-gradient(90deg, #9AD3FF, #2E7DFF);
+  }
+  .switch-off { 
+    @apply bg-zebby-sky; 
+  }
+  .knob { 
+    @apply absolute left-1 h-4 w-4 rounded-full bg-white transition; 
+  }
+  .knob-on { 
+    @apply translate-x-6; 
+  }
+
+  .section-h { 
+    @apply flex items-center justify-between mb-3; 
+  }
+  .section-t { 
+    @apply font-display text-2xl; 
+  }
+
+  .appbar { 
+    @apply sticky top-0 z-20 backdrop-blur bg-white/80 dark:bg-zebby-night/70 border-b border-zebby-sky/40 dark:border-white/10; 
+  }
+  .appbar-inner { 
+    @apply max-w-6xl mx-auto h-16 px-4 flex items-center justify-between; 
   }
 }
