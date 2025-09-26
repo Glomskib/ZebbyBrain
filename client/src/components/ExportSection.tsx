@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Download, FileText, FileSpreadsheet, Calendar, Users, Brain } from "lucide-react";
+import { Download, FileText, FileSpreadsheet, Calendar, Users, Brain, Heart, Moon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export function ExportSection() {
@@ -23,7 +23,9 @@ export function ExportSection() {
   const csvEntities = [
     { id: "symptoms", label: "Symptom Logs", icon: Calendar, description: "Your symptom tracking data" },
     { id: "ai-interactions", label: "AI Conversations", icon: Brain, description: "Your interactions with Zebby" },
-    { id: "profile", label: "Profile Data", icon: Users, description: "Your account information" }
+    { id: "profile", label: "Profile Data", icon: Users, description: "Your account information" },
+    { id: "vitals", label: "Vitals Data", icon: Heart, description: "Heart rate, blood pressure, weight data" },
+    { id: "sleep", label: "Sleep Data", icon: Moon, description: "Sleep tracking and quality data" }
   ] as const;
 
   const pdfSectionOptions = [

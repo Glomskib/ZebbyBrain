@@ -1198,7 +1198,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // CSV Export endpoints
-  const entitySchema = z.enum(["symptoms", "ai-interactions", "profile"]);
+  const entitySchema = z.enum(["symptoms", "ai-interactions", "profile", "vitals", "sleep"]);
 
   app.get('/api/export/csv/:entity', isAuthenticated, async (req: any, res) => {
     try {
@@ -1240,6 +1240,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const user = await storage.getUser(userId);
           rows = user ? [user] : [];
           break;
+          
+        case "vitals":
+          rows = await storage.exportUserVitalsLogs(userId, fromDate, toDate);
+          break;
+          
+        case "sleep":
+          rows = await storage.exportUserSleepLogs(userId, fromDate, toDate);
+          break;
       }
 
       // Normalize data for CSV export
@@ -1265,7 +1273,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const defaultFields: Record<string, string[]> = {
           "symptoms": ["id", "userId", "symptoms", "intensity", "notes", "timestamp", "aiReflection", "aiProcessed", "createdAt"],
           "ai-interactions": ["id", "userId", "symptomLogId", "prompt", "response", "sentiment", "createdAt"],
-          "profile": ["id", "email", "firstName", "lastName", "plan", "planStatus", "createdAt"]
+          "profile": ["id", "email", "firstName", "lastName", "plan", "planStatus", "createdAt"],
+          "vitals": ["id", "userId", "type", "value", "systolic", "diastolic", "unit", "source", "timestamp", "notes", "createdAt"],
+          "sleep": ["id", "userId", "bedtime", "wakeTime", "totalMinutes", "deepMinutes", "remMinutes", "lightMinutes", "awakeMinutes", "quality", "source", "notes", "createdAt"]
         };
         parserOptions.fields = defaultFields[entity] || [];
       }
