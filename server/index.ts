@@ -9,6 +9,14 @@ import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
 
+// Validate required secrets on boot (fail-fast security)
+if (!process.env.SESSION_SECRET) {
+  throw new Error("SESSION_SECRET must be set for secure session management");
+}
+if (!process.env.STRIPE_WEBHOOK_SECRET && process.env.NODE_ENV === "production") {
+  throw new Error("STRIPE_WEBHOOK_SECRET must be set for webhook signature verification in production");
+}
+
 // HTTP Security Headers and Protection
 // Strict CORS: only your known origins
 const allowed = [process.env.APP_URL, "http://localhost:5173", "http://localhost:5000"].filter(Boolean) as string[];
