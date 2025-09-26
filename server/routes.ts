@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateEmpathicReflection, generatePersonalizedInsight } from "./openai";
+import { generateInsightCards, TIMEFRAMES } from "./analytics";
 import { 
   insertSymptomLogSchema, 
   insertVitalsLogSchema,
@@ -400,6 +401,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error generating insight:", error);
       res.status(500).json({ message: "Failed to generate insight" });
+    }
+  });
+
+  // Analytics endpoint for Insight Cards
+  app.get('/api/analytics/insights', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const timeframeDays = parseInt(req.query.timeframe as string) || 30;
+      
+      // Find matching timeframe or default to 30 days
+      const timeframe = TIMEFRAMES.find(tf => tf.days === timeframeDays) || TIMEFRAMES[1];
+      
+      const insightCards = await generateInsightCards(userId, timeframe);
+      
+      res.json({
+        cards: insightCards,
+        timeframe: timeframe.label,
+        availableTimeframes: TIMEFRAMES
+      });
+    } catch (error) {
+      console.error("Error generating analytics insights:", error);
+      res.status(500).json({ message: "Failed to generate analytics insights" });
     }
   });
 

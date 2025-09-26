@@ -172,4 +172,41 @@
   .appbar-inner { 
     @apply max-w-6xl mx-auto h-16 px-4 flex items-center justify-between; 
   }
+
+  /* Insight Cards */
+  .insight-card {
+    @apply relative overflow-hidden bg-card border shadow-sm;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: linear-gradient(135deg, hsl(var(--card)), hsl(var(--muted)));
+  }
+
+  .insight-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary), var(--secondary));
+    border-radius: inherit;
+  }
+
+  .insight-card:hover {
+    @apply shadow-lg border-primary;
+    transform: translateY(-2px);
+  }
+
+  .insight-card:hover::before {
+    height: 4px;
+    background: linear-gradient(90deg, var(--primary), var(--accent));
+  }
+
+  @keyframes floating {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-6px); }
+  }
+
+  .floating-animation {
+    animation: floating 3s ease-in-out infinite;
+  }
 }
