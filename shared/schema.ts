@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   index,
+  uniqueIndex,
   jsonb,
   pgTable,
   timestamp,
@@ -295,6 +296,18 @@ export const reviewHelpfulness = pgTable("review_helpfulness", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Insights cache for performance optimization
+export const insightsCache = pgTable("insights_cache", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  rangeKey: varchar("range_key").notNull(), // "7d", "30d", "90d"
+  payload: jsonb("payload").notNull(), // Cached insights data
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userRangeIdx: uniqueIndex("insights_cache_user_range_idx").on(table.userId, table.rangeKey),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   symptomLogs: many(symptomLogs),
@@ -308,6 +321,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   orders: many(orders),
   waterIntakeLogs: many(waterIntakeLogs),
   sodiumIntakeLogs: many(sodiumIntakeLogs),
+  insightsCache: many(insightsCache),
 }));
 
 export const symptomLogsRelations = relations(symptomLogs, ({ one, many }) => ({
@@ -429,6 +443,13 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
   product: one(products, {
     fields: [orderItems.productId],
     references: [products.id],
+  }),
+}));
+
+export const insightsCacheRelations = relations(insightsCache, ({ one }) => ({
+  user: one(users, {
+    fields: [insightsCache.userId],
+    references: [users.id],
   }),
 }));
 
@@ -566,3 +587,12 @@ export const insertReviewHelpfulnessSchema = createInsertSchema(reviewHelpfulnes
 });
 export type InsertReviewHelpfulness = z.infer<typeof insertReviewHelpfulnessSchema>;
 export type ReviewHelpfulness = typeof reviewHelpfulness.$inferSelect;
+
+// Insights cache types
+export const insertInsightsCacheSchema = createInsertSchema(insightsCache).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertInsightsCache = z.infer<typeof insertInsightsCacheSchema>;
+export type InsightsCache = typeof insightsCache.$inferSelect;
