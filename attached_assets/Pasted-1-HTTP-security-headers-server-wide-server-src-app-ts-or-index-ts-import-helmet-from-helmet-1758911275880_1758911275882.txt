@@ -1,0 +1,199 @@
+1) HTTP security headers (server-wide)
+// server/src/app.ts (or index.ts)
+import helmet from "helmet";
+import cors from "cors";
+import express from "express";
+
+const app = express();
+
+// Strict CORS: only your known origins
+const allowed = [process.env.APP_URL, "http://localhost:5173"].filter(Boolean) as string[];
+app.use(cors({ origin: allowed, credentials: true }));
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'", "data:", "blob:"],
+      "script-src": ["'self'"],
+      "style-src": ["'self'", "'unsafe-inline'"], // if using inline Tailwind injection
+      "connect-src": ["'self'", "https://api.stripe.com"],
+      "frame-ancestors": ["'none'"],
+    },
+  },
+  referrerPolicy: { policy: "no-referrer" },
+  crossOriginEmbedderPolicy: false, // if you use pdf rendering in-browser
+}));
+
+
+Why: shuts down a big class of drive-by attacks and enforces strict origins.
+
+2) HPP + slowloris + timeouts
+import hpp from "hpp";
+
+app.use(hpp());                        // parameter pollution
+app.disable("x-powered-by");           // reduce fingerprinting
+app.use((req, res, next) => {          // absolute timeout
+  req.setTimeout(10_000);              // 10s
+  res.setTimeout(10_000);
+  next();
+});
+
+3) Logging: structured + redaction (prod)
+
+You already redact sensitive fields—great. Make it structured and sample noisy routes:
+
+import pino from "pino";
+
+export const logger = pino({
+  level: process.env.LOG_LEVEL ?? "info",
+  redact: {
+    paths: [
+      "req.headers.authorization",
+      "body.password",
+      "body.notes",
+      "user.email",
+      "user.profile",
+    ],
+    remove: true,
+  },
+  transport: process.env.NODE_ENV === "development"
+    ? { target: "pino-pretty", options: { colorize: true } }
+    : undefined,
+});
+
+
+Use logger.info({ route: "/api/symptoms", userId }, "create") instead of console.log.
+
+4) Request schema guards (centralize)
+
+You’ve added Zod per-route. Add a tiny helper to eliminate repeats:
+
+// server/src/lib/validate.ts
+import { ZodSchema } from "zod";
+export const validate =
+  (schema: ZodSchema) =>
+  (req, res, next) => {
+    const parsed = schema.safeParse({ body: req.body, query: req.query, params: req.params });
+    if (!parsed.success) return res.status(400).json({ error: "validation", detail: parsed.error.flatten() });
+    Object.assign(req, parsed.data); // optional: typed attach
+    next();
+  };
+
+
+Use app.post("/api/water-intake", validate(schema), handler).
+
+5) Front-end XSS defenses
+
+Never render user strings as HTML. If you must (e.g., notes preview), sanitize with DOMPurify on the client.
+
+Add a tiny utility:
+
+// client/src/lib/text.ts
+export const safeText = (s: string) => s.replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]!));
+
+
+Use {safeText(note)} in JSX.
+
+6) Auth/session hardening
+
+If you use cookies:
+
+res.cookie("session", token, {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  path: "/",
+  maxAge: 1000 * 60 * 60 * 24 * 7, // 7d
+});
+
+
+If you use JWT in headers, add:
+
+short access token TTL (e.g., 15m) + refresh token rotation
+
+revoke on logout/webhook errors
+
+7) Multi-tenant row-level safety (critical for shared DBs)
+
+Every read/write must restrict by userId:
+
+await prisma.symptomEvent.findMany({
+  where: { userId: req.user.id, ...filters },
+});
+
+
+Add an integration test that tries to read another user’s row and expects 404.
+
+8) Secrets & config discipline
+
+Fail fast on missing secrets (you already did for OpenAI). Apply it across the board:
+
+const requireEnv = (k: string) => {
+  const v = process.env[k];
+  if (!v) throw new Error(`Missing env: ${k}`);
+  return v;
+};
+export const STRIPE_KEY = requireEnv("STRIPE_SECRET_KEY");
+
+
+Rotate keys quarterly; keep a runbook (“how to rotate without downtime”).
+
+9) Exports: signed, authenticated, non-cache
+
+You’re streaming safely—great. Add headers to stop intermediary caching:
+
+res.setHeader("Cache-Control", "no-store");
+res.setHeader("Pragma", "no-cache");
+
+
+If you ever provide pre-signed URLs, set 1–5 min expiry, single use.
+
+10) Dependency/CI guardrails
+
+npm audit --production on CI; fail on high severity.
+
+Add Snyk/GitHub Dependabot.
+
+Add a Zap baseline (OWASP ZAP) in CI against your dev URL (read-only routes).
+
+11) AI safety wrapper (prompt hygiene)
+
+Clamp inputs and timeouts to avoid prompt injection/accidental PHI echo:
+
+const clamp = (s: string, max = 1000) => s.slice(0, max);
+
+const system = `You are Zebby, a warm, validating EDS companion.
+Do not store or repeat private identifiers. Never give medical advice.
+Acknowledge, reflect, and offer one gentle optional step.`;
+
+const userNote = clamp(req.body.note ?? "", 1200);
+
+const ctrl = new AbortController();
+const t = setTimeout(() => ctrl.abort(), 8000);
+
+const resp = await fetch(OPENAI_URL, { signal: ctrl.signal, ... });
+// clearTimeout(t) after await
+
+12) Incident & data lifecycle (copy you can paste in README/Settings)
+
+Security & privacy
+
+We minimize data by default and never sell data.
+
+You can export or delete your data anytime (Settings → Data).
+
+Payment is handled by Stripe; Zebby never sees card numbers.
+
+If we detect suspicious activity, we may temporarily limit access and notify you.
+
+Add data retention toggles (e.g., auto-purge logs older than N months, off by default) for extra trust.
+
+Quick “Green/Yellow/Red” audit of what’s left
+
+Green (done): API key discipline, redaction, Zod validation, rate limits, body caps.
+
+Yellow (do now): Helmet+CSP, HPP, strict CORS, no-cache exports, structured logs.
+
+Red (next sprint): Session/JWT rotation tests, multi-tenant test, CI security scans, key rotation runbook, incident plan.
