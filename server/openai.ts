@@ -1,9 +1,13 @@
 import OpenAI from "openai";
 
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key" 
-});
+const apiKey = process.env.OPENAI_API_KEY;
+if (!apiKey) {
+  throw new Error("OPENAI_API_KEY is required");
+}
+
+const openai = new OpenAI({ apiKey });
+
+export const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-5"; // default ok, but env-override
 
 export async function generateAnalyticalReflection(
   symptomEntries: Array<{ name: string; intensity: number; notes?: string }>,
@@ -86,7 +90,7 @@ Focus on concrete, actionable insights based on the actual data provided.`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: OPENAI_MODEL,
       messages: [
         {
           role: "system",
@@ -174,7 +178,7 @@ Provide a brief, encouraging insight in 1-2 sentences that might help them feel 
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: OPENAI_MODEL,
       messages: [
         {
           role: "system",

@@ -6,7 +6,10 @@ import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateEmpathicReflection, generatePersonalizedInsight } from "./openai";
 import { generateInsightCards, TIMEFRAMES } from "./analytics";
 import { 
-  insertSymptomLogSchema, 
+  insertSymptomLogSchema,
+  insertSymptomEntrySchema,
+  insertWaterIntakeLogSchema,
+  insertSodiumIntakeLogSchema,
   insertVitalsLogSchema,
   insertSleepLogSchema,
   insertProductReviewSchema,
@@ -83,16 +86,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/user/profile', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { onboardingCompleted, edsType, diagnosisYear, primarySymptoms, experienceLevel, dailyGoals } = req.body;
       
-      const updatedUser = await storage.updateUserProfile(userId, {
-        onboardingCompleted,
-        edsType,
-        diagnosisYear,
-        primarySymptoms,
-        experienceLevel,
-        dailyGoals,
+      // Define schema for profile updates
+      const profileUpdateSchema = z.object({
+        onboardingCompleted: z.boolean().optional(),
+        edsType: z.string().nullable().optional(),
+        diagnosisYear: z.number().int().min(1900).max(new Date().getFullYear()).nullable().optional(),
+        primarySymptoms: z.array(z.string()).nullable().optional(),
+        experienceLevel: z.string().nullable().optional(),
+        dailyGoals: z.array(z.string()).nullable().optional(),
       });
+      
+      // Validate request body
+      const parsed = profileUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid profile data", errors: parsed.error.errors });
+      }
+      
+      const updatedUser = await storage.updateUserProfile(userId, parsed.data);
       
       res.json({
         id: updatedUser.id,
@@ -116,10 +127,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/symptoms', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
+      
+      // Validate request body structure
       const { symptomEntries, location, ...sessionData } = req.body;
-
-      if (!symptomEntries || symptomEntries.length === 0) {
+      
+      // Validate symptom entries array exists and is not empty
+      if (!symptomEntries || !Array.isArray(symptomEntries) || symptomEntries.length === 0) {
         return res.status(400).json({ message: "At least one symptom entry is required" });
+      }
+      
+      // Validate session data using insertSymptomLogSchema
+      const sessionSchema = insertSymptomLogSchema.omit({ userId: true });
+      const sessionValidation = sessionSchema.safeParse(sessionData);
+      if (!sessionValidation.success) {
+        return res.status(400).json({ message: "Invalid session data", errors: sessionValidation.error.errors });
+      }
+      
+      // Validate each symptom entry
+      const entrySchema = insertSymptomEntrySchema.omit({ symptomLogId: true });
+      for (const entry of symptomEntries) {
+        const entryValidation = entrySchema.safeParse(entry);
+        if (!entryValidation.success) {
+          return res.status(400).json({ message: "Invalid symptom entry data", errors: entryValidation.error.errors });
+        }
       }
 
       // Get weather data if location is provided
@@ -292,19 +322,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/water-intake', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { amountMl, timestamp, notes } = req.body;
       
-      if (!amountMl || amountMl <= 0) {
-        return res.status(400).json({ message: "Valid amount in ml is required" });
+      // Validate request body with Zod
+      const parsed = insertWaterIntakeLogSchema.safeParse({
+        ...req.body,
+        userId,
+        source: 'manual'
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid water intake data", errors: parsed.error.errors });
       }
 
-      const waterLog = await storage.createWaterIntakeLog({
-        userId,
-        amountMl,
-        timestamp: new Date(timestamp || Date.now()),
-        source: 'manual',
-        notes: notes || null
-      });
+      const waterLog = await storage.createWaterIntakeLog(parsed.data);
 
       res.json(waterLog);
     } catch (error) {
@@ -317,20 +346,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/sodium-intake', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { amountMg, foodItem, timestamp, notes } = req.body;
       
-      if (!amountMg || amountMg <= 0) {
-        return res.status(400).json({ message: "Valid amount in mg is required" });
+      // Validate request body with Zod
+      const parsed = insertSodiumIntakeLogSchema.safeParse({
+        ...req.body,
+        userId,
+        source: 'manual'
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid sodium intake data", errors: parsed.error.errors });
       }
 
-      const sodiumLog = await storage.createSodiumIntakeLog({
-        userId,
-        amountMg,
-        foodItem: foodItem || null,
-        timestamp: new Date(timestamp || Date.now()),
-        source: 'manual',
-        notes: notes || null
-      });
+      const sodiumLog = await storage.createSodiumIntakeLog(parsed.data);
 
       res.json(sodiumLog);
     } catch (error) {

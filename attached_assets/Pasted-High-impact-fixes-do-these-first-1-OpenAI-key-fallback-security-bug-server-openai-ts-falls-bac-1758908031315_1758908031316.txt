@@ -1,0 +1,303 @@
+High-impact fixes (do these first)
+1) OpenAI key fallback = security bug
+
+server/openai.ts falls back to "default_key" and to a nonstandard var. That can silently call the API with a junk key in prod and can leak intent. Make the key mandatory, fail fast, and keep the model configurable.
+
+Patch
+
+// server/openai.ts
+import OpenAI from "openai";
+
+const apiKey = process.env.OPENAI_API_KEY;
+if (!apiKey) {
+  throw new Error("OPENAI_API_KEY is required");
+}
+
+const openai = new OpenAI({ apiKey });
+
+export const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-5"; // default ok, but env-override
+
+
+Also add an .env.example (see section 6).
+
+2) Response logger captures full JSON bodies
+
+In server/index.ts, you monkey-patch res.json to record API responses. Great for debugging, but it risks logging PII/PHI (health data, profile, etc.). Redact & opt-out by default in production.
+
+Patch
+
+// server/index.ts (inside the middleware where you replace res.json)
+const SENSITIVE_KEYS = ["notes", "email", "phone", "token", "accessToken", "profile", "address"];
+function redact(obj: any): any {
+  if (!obj || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(redact);
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) =>
+      SENSITIVE_KEYS.includes(k) ? [k, "[redacted]"] : [k, redact(v as any)]
+    )
+  );
+}
+
+const originalResJson = res.json;
+res.json = function (bodyJson: any, ...args: any[]) {
+  capturedJsonResponse = process.env.NODE_ENV === "production" ? redact(bodyJson) : bodyJson;
+  // @ts-ignore
+  return originalResJson.call(this, bodyJson, ...args);
+};
+
+
+And behind the scenes, ensure your log() sink never prints raw request bodies either.
+
+3) Input validation on routes
+
+server/routes.ts is large and accepts complex payloads (symptom logs, onboarding, product reviews). You already have Zod schemas in shared/schema.ts—make them gatekeepers on every POST/PUT.
+
+Pattern
+
+import { insertSymptomLogSchema } from "../shared/schema";
+
+app.post("/api/symptoms", isAuthenticated, async (req, res) => {
+  const parsed = insertSymptomLogSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Invalid payload", issues: parsed.error.issues });
+  const { symptomEntries, location, ...sessionData } = parsed.data;
+  // proceed with storage…
+});
+
+
+Do this for onboarding, reviews, vitals, sleep, etc. You’ll stop 90% of bad data at the door.
+
+4) Route file is ~88–90KB → split into feature routers
+
+Maintainability will suffer. Create modular routers:
+
+server/routes/
+  auth.ts
+  onboarding.ts
+  symptoms.ts
+  vitals.ts
+  sleep.ts
+  marketplace.ts
+  reviews.ts
+  imports.ts
+  users.ts
+
+
+Then in server/index.ts:
+
+import { router as symptomRouter } from "./routes/symptoms";
+app.use("/api", symptomRouter);
+
+
+This will also help you attach specific middlewares (rate limits / body limits) per feature.
+
+5) Rate limiting & body-size limits for health data
+
+Add a lightweight limiter for sensitive endpoints and explicit JSON limits to prevent abuse.
+
+// server/index.ts
+import rateLimit from "express-rate-limit";
+
+app.use(express.json({ limit: "512kb" })); // tune per endpoint
+
+const authdLimiter = rateLimit({ windowMs: 60_000, max: 60 }); // 60/min per user
+app.use("/api", isAuthenticated, authdLimiter);
+
+6) Missing .env.example & README setup
+
+I didn’t see a README or .env.example in the root archive; you do have replit.md (great). Add a tiny .env.example and link it from the README.
+
+.env.example
+
+# Server
+PORT=5000
+NODE_ENV=development
+OPENAI_API_KEY=sk-***
+
+# Database (Neon)
+DATABASE_URL=postgres://user:pass@host/db
+
+# Auth (Replit)
+REPLIT_OIDC_CLIENT_ID=***
+REPLIT_OIDC_CLIENT_SECRET=***
+REPLIT_OIDC_ISSUER=***
+
+# Feature toggles
+OPENAI_MODEL=gpt-5
+
+
+README (quick start)
+
+Install, dev, build, start
+
+Migrations: drizzle-kit push
+
+Env var table
+
+Data model diagram (link to shared/schema.ts)
+
+7) Production start & build sanity
+
+Your scripts:
+
+"dev": "NODE_ENV=development tsx server/index.ts",
+"build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+"start": "NODE_ENV=production node dist/index.js"
+
+
+Looks good, but two notes:
+
+You’re bundling to ESM (type: "module"). Ensure output is index.js and that Node can import ESM on Replit autoscale (it can). ✅
+
+Add a prestart check to fail if dist/index.js missing.
+
+"prestart": "node -e \"require('fs').accessSync('dist/index.js')\"",
+"check": "tsc --noEmit"
+
+8) Analytics & PII
+
+server/analytics.ts appears to aggregate user health signals. Confirm it never logs raw values or user IDs to any external vendor. If you must log, hash userId with a stable salt:
+
+import crypto from "crypto";
+const SALT = process.env.ANALYTICS_SALT ?? "change_me";
+const anonId = (id: string) => crypto.createHmac("sha256", SALT).update(id).digest("hex");
+
+Medium-impact improvements
+9) Weather dependency hardening
+
+server/weatherService.ts augments entries with weather. Add:
+
+Timeout & retry with jitter
+
+Cache (per city/day) to cut API calls
+
+Null-safe: never block symptom logging if weather fails
+
+10) Auth edges
+
+server/replitAuth.ts middleware: make sure it:
+
+Rejects if req.user missing claims
+
+Stores only sub (stable id) server-side
+
+Sets SameSite=Lax, HttpOnly for cookies
+
+Clears session on 401/403 consistently
+
+11) Storage layer
+
+server/storage.ts is a nice facade. Add:
+
+Narrow return types (omit internals)
+
+Transaction helpers (e.g., symptom log + entries atomic)
+
+Index hints for common queries (date DESC on logs, (userId, createdAt))
+
+12) Client routing & guards
+
+You already gate onboarding vs dashboard in client/src/App.tsx via useAuth() + useProfile(). Add:
+
+Suspenseful fallback for both auth/profile (skeletons)
+
+403/401 → redirect to landing with a toast
+
+Error boundaries around data-heavy pages (marketplace, imports)
+
+13) A11y & UX
+
+Ensure all clickables have focus rings (focus-visible: Tailwind)
+
+Add aria-labels to icon buttons in Sidebar
+
+Loading/empty states for every list (symptoms, products, import queue)
+
+Keyboard support for symptom intensity controls
+
+14) Testing
+
+Introduce:
+
+Vitest for units (server/openai.spec.ts, routes/*.spec.ts)
+
+Zod-powered fixtures for request bodies
+
+Basic e2e smoke with Playwright: onboarding flow, adding a symptom, viewing dashboard
+
+Scripts
+
+"test": "vitest run",
+"test:ui": "vitest",
+"e2e": "playwright test"
+
+Low-effort quality wins
+
+ESLint/Prettier: Add eslint-config-universe or typescript-eslint + a lint script; run in CI.
+
+CI (Replit or GitHub): lint → typecheck → test → build.
+
+Source splitting: The client is Vite + React; use route-level code-splitting for /marketplace, /imports routes with lazy().
+
+Suggested file additions (copy/paste)
+
+eslint.config.js
+
+import ts from "@typescript-eslint/eslint-plugin";
+import parser from "@typescript-eslint/parser";
+
+export default [
+  {
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: { parser },
+    plugins: { "@typescript-eslint": ts },
+    rules: {
+      "@typescript-eslint/consistent-type-imports": "warn",
+      "@typescript-eslint/no-misused-promises": "error",
+      "no-console": ["warn", { allow: ["error"] }],
+    },
+  },
+];
+
+
+client/src/routes.lazy.tsx
+
+import { lazy } from "react";
+export const Marketplace = lazy(() => import("./pages/marketplace"));
+export const ImportSettings = lazy(() => import("./pages/ImportSettings"));
+export const ImportReviewQueue = lazy(() => import("./pages/ImportReviewQueue"));
+
+
+client/src/App.tsx (excerpt)
+
+import { Suspense } from "react";
+import { Marketplace, ImportSettings, ImportReviewQueue } from "./routes.lazy";
+
+<Suspense fallback={<div className="p-6 text-sm">Loading…</div>}>
+  <Route path="/marketplace" component={Marketplace} />
+  <Route path="/imports/settings" component={ImportSettings} />
+  <Route path="/imports/review" component={ImportReviewQueue} />
+</Suspense>
+
+Nice to have (but very useful)
+
+Observability: Add a simple error boundary and a server error reporter (e.g., PostHog/Logtail) with a privacy toggle.
+
+Feature flags: .env booleans like FEATURE_MARKETPLACE=true to ship safely.
+
+Data retention: cron to purge old raw logs or anonymize them.
+
+What I looked at (spot-checks)
+
+server/index.ts: custom logging wrapper, prod vs dev, port handling ✅ but needs redaction.
+
+server/routes.ts: very large controller surface → split, add Zod on all paths.
+
+server/openai.ts: fallback key + hardcoded model note → fix (#1).
+
+server/storage.ts: solid facade, add transactions & indices.
+
+server/analytics.ts: ensure anonymization.
+
+client/src/App.tsx: good auth+profile gating, add Suspense & error boundaries.
+
+.replit: autoscale config & port 5000 mapping look correct; add prestart check.

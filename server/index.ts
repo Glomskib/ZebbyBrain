@@ -1,9 +1,10 @@
 import express, { type Request, Response, NextFunction } from "express";
+import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "512kb" })); // Prevent large payload abuse
 app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {
@@ -11,9 +12,21 @@ app.use((req, res, next) => {
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
+  // PII/PHI redaction for health data protection
+  const SENSITIVE_KEYS = ["notes", "email", "phone", "token", "accessToken", "profile", "address"];
+  function redact(obj: any): any {
+    if (!obj || typeof obj !== "object") return obj;
+    if (Array.isArray(obj)) return obj.map(redact);
+    return Object.fromEntries(
+      Object.entries(obj).map(([k, v]) =>
+        SENSITIVE_KEYS.includes(k) ? [k, "[redacted]"] : [k, redact(v as any)]
+      )
+    );
+  }
+
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
+    capturedJsonResponse = process.env.NODE_ENV === "production" ? redact(bodyJson) : bodyJson;
     return originalResJson.apply(res, [bodyJson, ...args]);
   };
 
@@ -37,6 +50,18 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Add rate limiting for API endpoints BEFORE route registration
+  const authdLimiter = rateLimit({ 
+    windowMs: 60_000, // 1 minute window
+    max: 60, // 60 requests per minute per user
+    message: { message: "Too many requests, please try again later" },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  
+  // Apply rate limiting to API routes BEFORE they're registered
+  app.use("/api", authdLimiter);
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
