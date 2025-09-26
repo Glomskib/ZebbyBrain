@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Crown, Check, X, Loader2, Download } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { Crown, Check, X, Loader2, Download, LogIn } from "lucide-react";
 import { ExportSection } from "@/components/ExportSection";
 
 interface BillingStatus {
@@ -17,17 +18,19 @@ interface BillingStatus {
 export default function Settings() {
   const { toast } = useToast();
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
-  // Fetch billing status
-  const { data: billingStatus, isLoading } = useQuery<BillingStatus>({
+  // Fetch billing status only if authenticated
+  const { data: billingStatus, isLoading: billingLoading } = useQuery<BillingStatus>({
     queryKey: ['/api/billing/status'],
     retry: false,
+    enabled: isAuthenticated, // Only fetch billing status if authenticated
   });
 
   // Create checkout session mutation
   const upgradeToPlusMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/create-checkout-session");
+      const response = await apiRequest("POST", "/api/billing/create-checkout-session");
       const data = await response.json();
       
       // Check if we're in test mode first
@@ -76,7 +79,7 @@ export default function Settings() {
     ? new Date(billingStatus.currentPeriodEnd).toLocaleDateString()
     : null;
 
-  if (isLoading) {
+  if (authLoading || billingLoading) {
     return (
       <div className="max-w-4xl mx-auto p-6">
         <div className="flex items-center justify-center py-12">
@@ -122,7 +125,7 @@ export default function Settings() {
               </div>
               {isPlusUser && periodEndDate && (
                 <p className="text-sm text-muted-foreground">
-                  Renews on {periodEndDate}
+                  Plus • renews on {periodEndDate}
                 </p>
               )}
             </div>
@@ -216,6 +219,16 @@ export default function Settings() {
                 <Button disabled className="w-full" data-testid="current-plan-button">
                   <Crown className="h-4 w-4 mr-2" />
                   Current Plan
+                </Button>
+              ) : !isAuthenticated ? (
+                <Button 
+                  disabled 
+                  variant="outline"
+                  className="w-full"
+                  data-testid="sign-in-to-upgrade-button"
+                >
+                  <LogIn className="h-4 w-4 mr-2" />
+                  Sign in to upgrade
                 </Button>
               ) : (
                 <Button 

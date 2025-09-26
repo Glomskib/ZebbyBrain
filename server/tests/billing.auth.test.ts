@@ -35,6 +35,14 @@ describe("Billing auth", () => {
     expect(res.body.error).toBe("auth_required");
   });
 
+  test("rejects billing status endpoint without authentication", async () => {
+    const res = await request(app)
+      .get("/api/billing/status");
+    
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("auth_required");
+  });
+
   test("rejects all billing endpoints without authentication", async () => {
     // Test all billing endpoints to ensure comprehensive protection
     const endpoints = [

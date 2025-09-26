@@ -209,4 +209,33 @@ r.post("/create-portal-session", async (req, res) => {
   }
 });
 
+// Get user billing status
+r.get("/status", async (req, res) => {
+  // Get user ID from either session auth (OIDC) or JWT auth ONLY - no body fallback for security
+  const uid = (req as any).user?.claims?.sub || // Session-based OIDC auth
+                (req as any).user?.id;         // JWT-based auth
+  if (!uid) return res.status(401).json({ error: "auth_required" });
+
+  try {
+    const [user] = await db.select({
+      plan: users.plan,
+      planStatus: users.planStatus,
+      currentPeriodEnd: users.currentPeriodEnd
+    }).from(users).where(eq(users.id, uid));
+    
+    if (!user) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    res.json({
+      plan: user.plan || "free",
+      planStatus: user.planStatus || "inactive", 
+      currentPeriodEnd: user.currentPeriodEnd?.toISOString() || null
+    });
+  } catch (error) {
+    console.error("Error fetching billing status:", error);
+    res.status(500).json({ error: "Failed to fetch billing status" });
+  }
+});
+
 export default r;
