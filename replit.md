@@ -4,6 +4,15 @@
 
 Zebby's World is a comprehensive health tracking application specifically designed for people with Ehlers-Danlos Syndrome (EDS) and other rare conditions. The platform combines symptom tracking, AI-powered empathetic responses, community features, and a curated product marketplace. Built as a full-stack web application, Zebby aims to provide validation and understanding for users who often feel dismissed by traditional healthcare systems.
 
+## Recent Changes
+
+### September 2025 - EDS-Focused Onboarding System
+- **Complete 6-step onboarding flow** for new EDS/rare condition patients
+- **Extended user schema** with EDS-specific profile fields (type, diagnosis year, symptoms, goals)
+- **Smart routing system** ensuring onboarding completion before dashboard access
+- **Enhanced product reviews** with EDS symptom-specific rating scales
+- **Robust authentication** with proper database conflict handling and foreign key preservation
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -29,21 +38,24 @@ Preferred communication style: Simple, everyday language.
 - **Schema Management**: Drizzle migrations with shared schema definitions
 
 ### Key Data Models
-- **Users**: Profile information and authentication data
+- **Users**: Enhanced profile with EDS-specific fields (EDS type, diagnosis year, primary symptoms, experience level, daily goals) and onboarding completion tracking
 - **Symptom Logs**: Timestamped symptom entries with AI-generated reflections
 - **AI Interactions**: Conversation history and empathetic responses
 - **Products**: Marketplace items with categories and user favorites
+- **Product Reviews**: EDS-specialized review system with symptom-specific ratings
 
 ### Authentication and Authorization
-- **OIDC Integration**: Replit-based authentication for secure user login
+- **OIDC Integration**: Replit-based authentication for secure user login with robust user upsert handling
 - **Session Management**: Server-side sessions with PostgreSQL storage
-- **Route Protection**: Middleware-based authentication checks on protected endpoints
+- **Route Protection**: Middleware-based authentication checks on protected endpoints plus smart onboarding flow routing
+- **Onboarding Guards**: Automatic routing ensuring new users complete onboarding while preventing completed users from re-accessing setup flow
 
 ### Core Features
+- **EDS-Focused Onboarding**: Comprehensive 6-step onboarding flow for new users with EDS education, profile personalization, symptom selection, and goal setting
 - **Symptom Tracking**: Multi-symptom logging with intensity scales and notes
 - **AI Companion**: Zebby the AI companion provides empathetic responses to symptom logs
 - **Data Visualization**: Charts showing symptom patterns and trends
-- **Marketplace Integration**: Curated products for EDS/rare condition management
+- **Marketplace Integration**: Curated products for EDS/rare condition management with specialized review system
 - **User Dashboard**: Centralized view of recent activity and AI insights
 
 ## External Dependencies
