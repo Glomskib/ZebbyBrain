@@ -8,6 +8,7 @@ import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import SymptomTracker from "@/pages/symptom-tracker";
 import Marketplace from "@/pages/marketplace";
+import ProductDetail from "@/pages/product-detail";
 import Settings from "@/pages/settings";
 import ImportSettings from "@/pages/ImportSettings";
 import ImportReviewQueue from "@/pages/ImportReviewQueue";
@@ -25,6 +26,7 @@ function Router() {
           <Route path="/" component={Dashboard} />
           <Route path="/tracker" component={SymptomTracker} />
           <Route path="/marketplace" component={Marketplace} />
+          <Route path="/product/:id" component={({ params }: { params: { id: string } }) => <ProductDetail productId={params.id} />} />
           <Route path="/settings" component={Settings} />
           <Route path="/import" component={ImportSettings} />
           <Route path="/import/review" component={ImportReviewQueue} />

@@ -9,9 +9,11 @@ import {
   insertSymptomLogSchema, 
   insertVitalsLogSchema,
   insertSleepLogSchema,
+  insertProductReviewSchema,
   products, 
   productCategories, 
-  users, 
+  users,
+  orders,
   type SymptomLog, 
   type AIInteraction,
   type VitalsLog,
@@ -658,6 +660,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching favorites:", error);
       res.status(500).json({ message: "Failed to fetch favorites" });
+    }
+  });
+
+  // Product review routes
+  app.post('/api/reviews', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const reviewData = insertProductReviewSchema.omit({ id: true, createdAt: true, updatedAt: true }).parse(req.body);
+      
+      // Ensure the review belongs to the authenticated user
+      const review = await storage.createProductReview({
+        ...reviewData,
+        userId,
+        isApproved: false, // Reviews need approval by default
+        helpfulCount: 0
+      });
+      
+      res.status(201).json(review);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid review data", errors: error.errors });
+      }
+      console.error("Error creating review:", error);
+      res.status(500).json({ message: "Failed to create review" });
+    }
+  });
+
+  app.get('/api/reviews/:productId', async (req, res) => {
+    try {
+      const productId = req.params.productId;
+      const reviews = await storage.getProductReviews(productId);
+      res.json(reviews);
+    } catch (error) {
+      console.error("Error fetching reviews:", error);
+      res.status(500).json({ message: "Failed to fetch reviews" });
+    }
+  });
+
+  app.get('/api/reviews/user/:userId', isAuthenticated, async (req: any, res) => {
+    try {
+      const requesterId = req.user.claims.sub;
+      const targetUserId = req.params.userId;
+      
+      // Users can only view their own reviews
+      if (requesterId !== targetUserId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const reviews = await storage.getUserReviews(targetUserId);
+      res.json(reviews);
+    } catch (error) {
+      console.error("Error fetching user reviews:", error);
+      res.status(500).json({ message: "Failed to fetch user reviews" });
+    }
+  });
+
+  app.post('/api/reviews/:reviewId/helpful', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const reviewId = req.params.reviewId;
+      const { isHelpful } = req.body;
+      
+      if (typeof isHelpful !== 'boolean') {
+        return res.status(400).json({ message: "isHelpful must be a boolean" });
+      }
+      
+      await storage.markReviewHelpful(userId, reviewId, isHelpful);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking review helpful:", error);
+      res.status(500).json({ message: "Failed to update review helpfulness" });
+    }
+  });
+
+  app.put('/api/reviews/:reviewId/approve', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Check if user has admin/moderator permissions
+      // For now, implement a simple admin check based on email domain or specific user
+      // In production, this should be a proper role-based system
+      const isAdmin = user?.email?.endsWith('@zebbysworld.com') || 
+                     user?.email === 'admin@example.com' ||
+                     process.env.NODE_ENV === 'development'; // Allow in development
+      
+      if (!isAdmin) {
+        return res.status(403).json({ message: "Access denied. Admin privileges required for review moderation." });
+      }
+      
+      const { isApproved, moderatorNotes } = req.body;
+      const reviewId = req.params.reviewId;
+      
+      if (typeof isApproved !== 'boolean') {
+        return res.status(400).json({ message: "isApproved must be a boolean" });
+      }
+      
+      await storage.updateReviewApproval(reviewId, isApproved, moderatorNotes);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating review approval:", error);
+      res.status(500).json({ message: "Failed to update review approval" });
     }
   });
 

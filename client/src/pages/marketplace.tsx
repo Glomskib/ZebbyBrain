@@ -6,7 +6,8 @@ import Navigation from "@/components/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Heart, ShoppingCart } from "lucide-react";
+import { Heart, ShoppingCart, Eye } from "lucide-react";
+import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export default function Marketplace() {
@@ -236,6 +237,19 @@ export default function Marketplace() {
                   <p className="text-muted-foreground text-sm mb-4" data-testid={`product-description-${index}`}>
                     {product.description}
                   </p>
+                  
+                  {/* View Details Button */}
+                  <Link href={`/product/${product.id}`} className="block mb-3">
+                    <Button 
+                      variant="outline" 
+                      className="w-full" 
+                      size="sm"
+                      data-testid={`button-view-details-${index}`}
+                    >
+                      <Eye className="w-4 h-4 mr-2" />
+                      View Details & Reviews
+                    </Button>
+                  </Link>
                   
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
