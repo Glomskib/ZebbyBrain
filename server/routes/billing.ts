@@ -25,6 +25,12 @@ if (isValidStripeConfig()) {
 const DEFAULT_TRIAL_DAYS = parseInt(process.env.STRIPE_TRIAL_DAYS || "0", 10);
 const KS_COUPON_ID = process.env.STRIPE_KS_COUPON_ID || null;
 
+// Abuse prevention controls
+const MAX_TRIAL_MONTHS = 3;
+const ALLOWED_COUPONS = new Set(
+  (process.env.ALLOWED_COUPON_IDS || "").split(",").filter(Boolean)
+);
+
 const bodySchema = z.object({
   userId: z.string().min(1).optional(),
   promoCode: z.string().optional(),
@@ -44,6 +50,16 @@ r.post("/create-checkout-session", async (req, res) => {
   }
 
   const { promoCode, couponId, trialMonths = 0 } = parsed.data;
+
+  // Abuse prevention: validate trial months
+  if (trialMonths && (trialMonths < 0 || trialMonths > MAX_TRIAL_MONTHS)) {
+    return res.status(400).json({ error: "invalid_trial" });
+  }
+
+  // Abuse prevention: validate coupon allowlist
+  if (couponId && ALLOWED_COUPONS.size > 0 && !ALLOWED_COUPONS.has(couponId)) {
+    return res.status(400).json({ error: "coupon_not_allowed" });
+  }
 
   try {
     // Fetch user
