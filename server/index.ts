@@ -1,9 +1,54 @@
 import express, { type Request, Response, NextFunction } from "express";
 import rateLimit from "express-rate-limit";
+import helmet from "helmet";
+import hpp from "hpp";
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
+
+// HTTP Security Headers and Protection
+// Strict CORS: only your known origins
+const allowed = [process.env.APP_URL, "http://localhost:5173", "http://localhost:5000"].filter(Boolean) as string[];
+app.use(cors({ 
+  origin: allowed, 
+  credentials: true 
+}));
+
+// Helmet for comprehensive security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'", "data:", "blob:"],
+      "script-src": process.env.NODE_ENV === "development" 
+        ? ["'self'", "'unsafe-inline'", "'unsafe-eval'"] // Allow inline scripts in development for Vite
+        : ["'self'"],
+      "style-src": ["'self'", "'unsafe-inline'"], // for Tailwind inline styles
+      "connect-src": ["'self'", "https://api.stripe.com", "https://api.openai.com"],
+      "frame-ancestors": ["'none'"],
+    },
+  },
+  frameguard: { action: "deny" }, // Explicitly set X-Frame-Options to DENY
+  referrerPolicy: { policy: "no-referrer" },
+  crossOriginEmbedderPolicy: false, // for in-browser rendering
+}));
+
+// HTTP Parameter Pollution protection
+app.use(hpp());
+
+// Reduce fingerprinting
+app.disable("x-powered-by");
+
+// Request timeouts to prevent slowloris attacks
+app.use((req, res, next) => {
+  req.setTimeout(10_000); // 10 seconds
+  res.setTimeout(10_000);
+  next();
+});
+
 app.use(express.json({ limit: "512kb" })); // Prevent large payload abuse
 app.use(express.urlencoded({ extended: false }));
 
