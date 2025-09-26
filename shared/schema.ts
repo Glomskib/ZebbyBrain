@@ -42,16 +42,57 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Symptom logs table
+// Symptom logs table - now represents a symptom logging session
 export const symptomLogs = pgTable("symptom_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
-  symptoms: text("symptoms").array().notNull(), // Array of symptom tags
-  intensity: integer("intensity").notNull(), // 1-10 scale
-  notes: text("notes"),
   timestamp: timestamp("timestamp").notNull(),
+  notes: text("notes"), // Overall session notes
+  // Contextual data captured at time of logging
+  weatherTemp: decimal("weather_temp", { precision: 5, scale: 2 }), // Temperature in Celsius
+  weatherCondition: varchar("weather_condition"), // "sunny", "rainy", "cloudy", etc.
+  weatherLocation: varchar("weather_location"), // City/location for weather data
+  waterIntakeCurrentMl: integer("water_intake_current_ml"), // Current day water intake in ml
+  heartRateBpm: integer("heart_rate_bpm"), // Heart rate at time of logging
+  sodiumIntakeCurrentMg: integer("sodium_intake_current_mg"), // Current day sodium intake in mg
   aiReflection: text("ai_reflection"),
   aiProcessed: boolean("ai_processed").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  // Legacy fields for backward compatibility - will be populated from symptomEntries
+  symptoms: text("symptoms").array(), // Deprecated: use symptomEntries instead
+  intensity: integer("intensity"), // Deprecated: use individual symptomEntries intensities
+});
+
+// Individual symptom entries within a logging session
+export const symptomEntries = pgTable("symptom_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  symptomLogId: varchar("symptom_log_id").notNull().references(() => symptomLogs.id, { onDelete: 'cascade' }),
+  symptomName: varchar("symptom_name").notNull(), // "Joint Pain", "Fatigue", etc.
+  intensity: integer("intensity").notNull(), // 1-10 scale for this specific symptom
+  notes: text("notes"), // Specific notes for this symptom
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Water intake tracking
+export const waterIntakeLogs = pgTable("water_intake_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  amountMl: integer("amount_ml").notNull(), // Amount in milliliters
+  timestamp: timestamp("timestamp").notNull(),
+  source: varchar("source").default("manual"), // "manual", "app_reminder", "integration"
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Sodium intake tracking
+export const sodiumIntakeLogs = pgTable("sodium_intake_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  amountMg: integer("amount_mg").notNull(), // Amount in milligrams
+  foodItem: varchar("food_item"), // What food/drink contained the sodium
+  timestamp: timestamp("timestamp").notNull(),
+  source: varchar("source").default("manual"), // "manual", "food_log", "integration"
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -209,6 +250,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   importConflicts: many(importConflicts),
   cartItems: many(cartItems),
   orders: many(orders),
+  waterIntakeLogs: many(waterIntakeLogs),
+  sodiumIntakeLogs: many(sodiumIntakeLogs),
 }));
 
 export const symptomLogsRelations = relations(symptomLogs, ({ one, many }) => ({
@@ -217,6 +260,28 @@ export const symptomLogsRelations = relations(symptomLogs, ({ one, many }) => ({
     references: [users.id],
   }),
   aiInteractions: many(aiInteractions),
+  symptomEntries: many(symptomEntries),
+}));
+
+export const symptomEntriesRelations = relations(symptomEntries, ({ one }) => ({
+  symptomLog: one(symptomLogs, {
+    fields: [symptomEntries.symptomLogId],
+    references: [symptomLogs.id],
+  }),
+}));
+
+export const waterIntakeLogsRelations = relations(waterIntakeLogs, ({ one }) => ({
+  user: one(users, {
+    fields: [waterIntakeLogs.userId],
+    references: [users.id],
+  }),
+}));
+
+export const sodiumIntakeLogsRelations = relations(sodiumIntakeLogs, ({ one }) => ({
+  user: one(users, {
+    fields: [sodiumIntakeLogs.userId],
+    references: [users.id],
+  }),
 }));
 
 export const productCategoriesRelations = relations(productCategories, ({ many }) => ({
@@ -315,16 +380,46 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 
+// Enhanced symptom logging schemas
 export const insertSymptomLogSchema = createInsertSchema(symptomLogs).omit({
   id: true,
   createdAt: true,
   aiReflection: true,
   aiProcessed: true,
+  symptoms: true, // Legacy field
+  intensity: true, // Legacy field
 }).extend({
   timestamp: z.string().datetime().transform((str) => new Date(str))
 });
 export type InsertSymptomLog = z.infer<typeof insertSymptomLogSchema>;
 export type SymptomLog = typeof symptomLogs.$inferSelect;
+
+export const insertSymptomEntrySchema = createInsertSchema(symptomEntries).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertSymptomEntry = z.infer<typeof insertSymptomEntrySchema>;
+export type SymptomEntry = typeof symptomEntries.$inferSelect;
+
+// Water intake schemas
+export const insertWaterIntakeLogSchema = createInsertSchema(waterIntakeLogs).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  timestamp: z.string().datetime().transform((str) => new Date(str))
+});
+export type InsertWaterIntakeLog = z.infer<typeof insertWaterIntakeLogSchema>;
+export type WaterIntakeLog = typeof waterIntakeLogs.$inferSelect;
+
+// Sodium intake schemas
+export const insertSodiumIntakeLogSchema = createInsertSchema(sodiumIntakeLogs).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  timestamp: z.string().datetime().transform((str) => new Date(str))
+});
+export type InsertSodiumIntakeLog = z.infer<typeof insertSodiumIntakeLogSchema>;
+export type SodiumIntakeLog = typeof sodiumIntakeLogs.$inferSelect;
 
 export const insertProductSchema = createInsertSchema(products).omit({
   id: true,
