@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const user = (req as any).user;
-  if (!user?.id) {
+  if (!user?.claims?.sub) {
     return res.status(401).json({ error: "auth_required" });
   }
   next();

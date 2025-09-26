@@ -154,22 +154,52 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(userData)
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          // Only update mutable fields, preserve ID to maintain FK relationships
-          email: userData.email,
-          firstName: userData.firstName,
-          lastName: userData.lastName,
-          profileImageUrl: userData.profileImageUrl,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    return user;
+    try {
+      // First try to find an existing user with this email
+      const [existingUser] = await db.select().from(users).where(eq(users.email, userData.email!));
+      
+      if (existingUser) {
+        // If user exists with this email, update their info but NEVER change the ID
+        // to preserve foreign key references in other tables
+        const [user] = await db
+          .update(users)
+          .set({
+            firstName: userData.firstName,
+            lastName: userData.lastName,
+            profileImageUrl: userData.profileImageUrl,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.email, userData.email!))
+          .returning();
+        return user;
+      } else {
+        // No existing user with this email, safe to insert
+        const [user] = await db
+          .insert(users)
+          .values(userData)
+          .returning();
+        return user;
+      }
+    } catch (error) {
+      // Fallback to original upsert logic if the above fails
+      console.error("Error in enhanced upsertUser, falling back to simple upsert:", error);
+      const [user] = await db
+        .insert(users)
+        .values(userData)
+        .onConflictDoUpdate({
+          target: users.id,
+          set: {
+            // Only update mutable fields, preserve ID to maintain FK relationships
+            email: userData.email,
+            firstName: userData.firstName,
+            lastName: userData.lastName,
+            profileImageUrl: userData.profileImageUrl,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+      return user;
+    }
   }
 
   async updateUserProfile(userId: string, profileData: {
