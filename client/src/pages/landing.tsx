@@ -8,7 +8,7 @@ export default function Landing() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 to-secondary/5">
+    <div className="min-h-screen sky-background">
       {/* Header */}
       <header className="bg-card border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -79,7 +79,7 @@ export default function Landing() {
               <Card className="text-center">
                 <CardContent className="p-8">
                   <div className="w-16 h-16 bg-primary/10 rounded-xl flex items-center justify-center mx-auto mb-4">
-                    <span className="text-3xl">🦓</span>
+                    <ZebbyAvatar size="small" />
                   </div>
                   <h3 className="text-xl font-semibold mb-3">AI Companion</h3>
                   <p className="text-muted-foreground">

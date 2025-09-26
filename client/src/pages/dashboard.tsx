@@ -83,11 +83,9 @@ export default function Dashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center sky-background">
         <div className="text-center">
-          <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4 floating-animation">
-            <span className="text-3xl">🦓</span>
-          </div>
+          <ZebbyAvatar size="medium" className="mx-auto mb-4" />
           <p className="text-muted-foreground">Loading your dashboard...</p>
         </div>
       </div>
@@ -107,7 +105,7 @@ export default function Dashboard() {
   const totalReflections = (aiInteractions as any)?.length || 0;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen sky-background">
       <Navigation />
       
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -208,7 +206,7 @@ export default function Dashboard() {
           <Card>
             <CardContent className="p-6">
               <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-                <span className="text-xl">🦓</span>
+                <ZebbyAvatar size="small" />
                 Recent Zebby Reflections
               </h3>
               

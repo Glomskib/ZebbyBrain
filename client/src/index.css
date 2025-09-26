@@ -6,27 +6,27 @@
 @tailwind utilities;
 
 :root {
-  --background: hsl(180, 20%, 99%);
+  --background: hsl(203, 100%, 90%); /* Sky blue background */
   --foreground: hsl(215, 20%, 20%);
-  --card: hsl(180, 20%, 98%);
+  --card: hsl(0, 0%, 100%); /* Pure white cards */
   --card-foreground: hsl(215, 20%, 20%);
-  --popover: hsl(180, 20%, 98%);
+  --popover: hsl(0, 0%, 100%);
   --popover-foreground: hsl(215, 20%, 20%);
-  --primary: hsl(174, 44%, 56%);
+  --primary: hsl(220, 100%, 55%); /* Vibrant blue */
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(120, 25%, 65%);
-  --secondary-foreground: hsl(215, 20%, 20%);
-  --muted: hsl(174, 20%, 95%);
+  --secondary: hsl(120, 60%, 50%); /* Vibrant green */
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --muted: hsl(203, 50%, 95%);
   --muted-foreground: hsl(215, 15%, 45%);
-  --accent: hsl(351, 83%, 76%);
+  --accent: hsl(350, 89%, 60%); /* Bright pink/coral */
   --accent-foreground: hsl(0, 0%, 100%);
   --destructive: hsl(0, 70%, 60%);
   --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(174, 20%, 90%);
-  --input: hsl(174, 20%, 96%);
-  --ring: hsl(174, 44%, 56%);
-  --radius: 12px;
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --border: hsl(203, 50%, 85%);
+  --input: hsl(0, 0%, 100%);
+  --ring: hsl(220, 100%, 55%);
+  --radius: 16px; /* More rounded corners */
+  --font-sans: 'Baloo 2', 'Inter', system-ui, sans-serif; /* Friendlier font */
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
 }
@@ -208,5 +208,55 @@
 
   .floating-animation {
     animation: floating 3s ease-in-out infinite;
+  }
+
+  /* Sky background with clouds */
+  .sky-background {
+    background: linear-gradient(to bottom, hsl(203, 100%, 90%) 0%, hsl(203, 80%, 80%) 100%);
+    position: relative;
+  }
+  
+  .sky-background::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: 
+      radial-gradient(ellipse 100px 40px at 20% 30%, rgba(255, 255, 255, 0.8) 0%, transparent 70%),
+      radial-gradient(ellipse 80px 30px at 70% 20%, rgba(255, 255, 255, 0.6) 0%, transparent 70%),
+      radial-gradient(ellipse 120px 50px at 50% 40%, rgba(255, 255, 255, 0.4) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  /* Landscape elements */
+  .landscape-bottom {
+    background: linear-gradient(to top, hsl(120, 60%, 40%) 0%, hsl(120, 60%, 50%) 50%, transparent 100%);
+    position: relative;
+  }
+  
+  .landscape-bottom::before {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 100px;
+    background: hsl(120, 60%, 45%);
+    border-radius: 50% 50% 0 0 / 100px 100px 0 0;
+  }
+
+  /* Friendly button styles */
+  .btn-friendly {
+    border-radius: var(--radius);
+    font-weight: 600;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+  
+  .btn-friendly:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
   }
 }
