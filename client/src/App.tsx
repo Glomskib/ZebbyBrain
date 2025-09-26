@@ -19,14 +19,17 @@ function Router() {
 
   return (
     <Switch>
+      {/* Routes available to all users */}
+      <Route path="/marketplace" component={Marketplace} />
+      <Route path="/product/:id" component={({ params }: { params: { id: string } }) => <ProductDetail productId={params.id} />} />
+      
+      {/* Authentication-dependent routes */}
       {isLoading || !isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (
         <>
           <Route path="/" component={Dashboard} />
           <Route path="/tracker" component={SymptomTracker} />
-          <Route path="/marketplace" component={Marketplace} />
-          <Route path="/product/:id" component={({ params }: { params: { id: string } }) => <ProductDetail productId={params.id} />} />
           <Route path="/settings" component={Settings} />
           <Route path="/import" component={ImportSettings} />
           <Route path="/import/review" component={ImportReviewQueue} />
