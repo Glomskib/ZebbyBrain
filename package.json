@@ -50,6 +50,7 @@
     "@types/multer": "^2.0.0",
     "@types/pdfmake": "^0.2.11",
     "@types/stripe": "^8.0.416",
+    "@types/xml2js": "^0.4.14",
     "@types/yauzl": "^2.10.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

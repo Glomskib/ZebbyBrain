@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import hpp from "hpp";
 import cors from "cors";
+import crypto from "crypto";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
@@ -16,6 +17,12 @@ app.use(cors({
   credentials: true 
 }));
 
+// Per-request nonce for inline scripts (if needed)
+app.use((req, res, next) => {
+  (res as any).nonce = crypto.randomBytes(16).toString("base64");
+  next();
+});
+
 // Helmet for comprehensive security headers
 app.use(helmet({
   contentSecurityPolicy: {
@@ -23,12 +30,16 @@ app.use(helmet({
     directives: {
       "default-src": ["'self'"],
       "img-src": ["'self'", "data:", "blob:"],
+      "font-src": ["'self'", "https://fonts.gstatic.com"],
+      "style-src": ["'self'", "https://fonts.googleapis.com", "'unsafe-inline'"], // for Tailwind + Google Fonts
       "script-src": process.env.NODE_ENV === "development" 
-        ? ["'self'", "'unsafe-inline'", "'unsafe-eval'"] // Allow inline scripts in development for Vite
-        : ["'self'"],
-      "style-src": ["'self'", "'unsafe-inline'"], // for Tailwind inline styles
+        ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"] // Allow inline scripts in development for Vite + Stripe
+        : ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],
       "connect-src": ["'self'", "https://api.stripe.com", "https://api.openai.com"],
+      "frame-src": ["https://js.stripe.com"],
       "frame-ancestors": ["'none'"],
+      "object-src": ["'none'"],
+      "base-uri": ["'self'"],
     },
   },
   frameguard: { action: "deny" }, // Explicitly set X-Frame-Options to DENY
