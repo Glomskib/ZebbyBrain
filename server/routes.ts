@@ -49,6 +49,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/auth', authTestRoutes);
   app.use('/api/billing', requireAuth, billingRoutes);
   app.use('/api', metaRoutes);
+  
+  // Mount insights routes with authentication
+  const insightsRoutes = await import('./routes/insights');
+  app.use('/api/insights', isAuthenticated, insightsRoutes.default);
 
   // Configure multer for file uploads
   const upload = multer({ 
