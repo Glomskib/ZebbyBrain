@@ -38,6 +38,15 @@ export const users = pgTable("users", {
   plan: varchar("plan").default("free"), // "free" | "plus"
   planStatus: varchar("plan_status").default("inactive"), // "active" | "past_due" | "canceled" | "inactive"
   currentPeriodEnd: timestamp("current_period_end"),
+  
+  // EDS-specific onboarding and profile fields
+  onboardingCompleted: boolean("onboarding_completed").default(false),
+  edsType: varchar("eds_type"), // "hEDS", "cEDS", "vEDS", "suspected", "other_rare_condition", null for not specified
+  diagnosisYear: integer("diagnosis_year"), // Year diagnosed (e.g., 2020)
+  primarySymptoms: text("primary_symptoms").array(), // ["Joint Pain", "POTS", "Fatigue", etc.]
+  experienceLevel: varchar("experience_level"), // "new_to_eds", "learning_to_manage", "experienced"
+  dailyGoals: text("daily_goals").array(), // ["Track symptoms", "Monitor POTS", "Find helpful products", etc.]
+  
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

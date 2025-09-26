@@ -52,6 +52,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // User profile routes
+  app.get('/api/user/profile', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      res.json({
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        onboardingCompleted: user.onboardingCompleted,
+        edsType: user.edsType,
+        diagnosisYear: user.diagnosisYear,
+        primarySymptoms: user.primarySymptoms,
+        experienceLevel: user.experienceLevel,
+        dailyGoals: user.dailyGoals,
+      });
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+      res.status(500).json({ message: "Failed to fetch user profile" });
+    }
+  });
+
+  app.put('/api/user/profile', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { onboardingCompleted, edsType, diagnosisYear, primarySymptoms, experienceLevel, dailyGoals } = req.body;
+      
+      const updatedUser = await storage.updateUserProfile(userId, {
+        onboardingCompleted,
+        edsType,
+        diagnosisYear,
+        primarySymptoms,
+        experienceLevel,
+        dailyGoals,
+      });
+      
+      res.json({
+        id: updatedUser.id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        onboardingCompleted: updatedUser.onboardingCompleted,
+        edsType: updatedUser.edsType,
+        diagnosisYear: updatedUser.diagnosisYear,
+        primarySymptoms: updatedUser.primarySymptoms,
+        experienceLevel: updatedUser.experienceLevel,
+        dailyGoals: updatedUser.dailyGoals,
+      });
+    } catch (error) {
+      console.error("Error updating user profile:", error);
+      res.status(500).json({ message: "Failed to update user profile" });
+    }
+  });
+
   // Enhanced symptom logging routes
   app.post('/api/symptoms', isAuthenticated, async (req: any, res) => {
     try {

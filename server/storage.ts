@@ -58,6 +58,14 @@ export interface IStorage {
   // User operations (mandatory for Replit Auth)
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+  updateUserProfile(userId: string, profileData: {
+    onboardingCompleted?: boolean;
+    edsType?: string | null;
+    diagnosisYear?: number | null;
+    primarySymptoms?: string[] | null;
+    experienceLevel?: string | null;
+    dailyGoals?: string[] | null;
+  }): Promise<User>;
   
   // Enhanced symptom tracking operations
   createSymptomLog(log: InsertSymptomLog): Promise<SymptomLog>;
@@ -156,6 +164,25 @@ export class DatabaseStorage implements IStorage {
           updatedAt: new Date(),
         },
       })
+      .returning();
+    return user;
+  }
+
+  async updateUserProfile(userId: string, profileData: {
+    onboardingCompleted?: boolean;
+    edsType?: string | null;
+    diagnosisYear?: number | null;
+    primarySymptoms?: string[] | null;
+    experienceLevel?: string | null;
+    dailyGoals?: string[] | null;
+  }): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({
+        ...profileData,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId))
       .returning();
     return user;
   }
