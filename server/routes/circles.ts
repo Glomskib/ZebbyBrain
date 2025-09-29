@@ -722,6 +722,11 @@ router.get("/member-feed/:ownerId", async (req: any, res) => {
         memberRole: membership.role,
       },
       scope: {
+        shareSymptoms: scope.shareSymptoms,
+        shareVitals: scope.shareVitals,
+        shareSleep: scope.shareSleep,
+        shareHydration: scope.shareHydration,
+        shareAIReflections: scope.shareAIReflections,
         detailLevel: scope.detailLevel,
         daysBack: scope.daysBack,
       },
@@ -929,6 +934,15 @@ router.get("/member-today/:ownerId", async (req: any, res) => {
       date: new Date().toISOString(),
       circleName: circle.name,
       memberRole: membership.role,
+      scope: {
+        shareSymptoms: scope.shareSymptoms,
+        shareVitals: scope.shareVitals,
+        shareSleep: scope.shareSleep,
+        shareHydration: scope.shareHydration,
+        shareAIReflections: scope.shareAIReflections,
+        detailLevel: scope.detailLevel,
+        daysBack: scope.daysBack,
+      },
       data: {}
     };
 

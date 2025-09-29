@@ -19,6 +19,7 @@ import SharePage from "@/pages/share";
 import GroupsDirectory from "@/pages/groups-directory";
 import GroupHome from "@/pages/group-home";
 import PersonalCircle from "@/pages/personal-circle";
+import MemberDashboard from "@/pages/member-dashboard";
 
 function Router() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -52,6 +53,7 @@ function Router() {
           <Route path="/groups" component={GroupsDirectory} />
           <Route path="/groups/:slug" component={GroupHome} />
           <Route path="/circle" component={PersonalCircle} />
+          <Route path="/member-dashboard" component={MemberDashboard} />
           <Route path="/settings" component={Settings} />
           <Route path="/import" component={ImportSettings} />
           <Route path="/import/review" component={ImportReviewQueue} />
