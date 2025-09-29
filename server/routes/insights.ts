@@ -5,6 +5,7 @@ import { db } from "../db";
 import { computeInsights, type RangeKey } from "../lib/insights";
 import { insightsCache } from "../../shared/schema";
 import { logApiPerformance } from "../lib/cache";
+import { triggerInsightsPrecompute } from "../cron";
 
 const router = Router();
 
@@ -117,6 +118,59 @@ router.delete("/cache", async (req, res) => {
     console.error("Error clearing insights cache:", error);
     return res.status(500).json({ 
       error: "Failed to clear cache"
+    });
+  }
+});
+
+/**
+ * POST /api/insights/precompute
+ * Admin endpoint to manually trigger insights precomputation for all active users
+ * Useful for testing and manual maintenance
+ */
+router.post("/precompute", async (req, res) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    // Only allow in development or for specific admin users
+    if (process.env.NODE_ENV !== "development") {
+      return res.status(403).json({ 
+        error: "Precompute endpoint only available in development" 
+      });
+    }
+
+    console.info(JSON.stringify({
+      evt: "manual_precompute_requested",
+      triggeredBy: userId,
+      timestamp: new Date().toISOString()
+    }));
+
+    // Trigger precomputation asynchronously (fire-and-forget)
+    // Don't await to avoid blocking the HTTP response
+    triggerInsightsPrecompute().catch(error => {
+      console.error(JSON.stringify({
+        evt: "manual_precompute_background_error",
+        triggeredBy: userId,
+        error: error instanceof Error ? error.message : "Unknown error",
+        timestamp: new Date().toISOString()
+      }));
+    });
+
+    // Return immediately to avoid request timeouts
+    return res.json({
+      message: "Insights precomputation started in background",
+      success: true,
+      triggeredAt: new Date().toISOString(),
+      note: "Check server logs for progress updates"
+    });
+    
+  } catch (error) {
+    console.error("Error triggering insights precomputation:", error);
+    return res.status(500).json({ 
+      error: "Failed to trigger precomputation",
+      message: "Please try again later"
     });
   }
 });

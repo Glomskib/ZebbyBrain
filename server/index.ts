@@ -6,6 +6,7 @@ import cors from "cors";
 import crypto from "crypto";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { setupCronJobs } from "./cron";
 
 const app = express();
 
@@ -184,5 +185,8 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    
+    // Start cron jobs for nightly insights precomputation
+    setupCronJobs();
   });
 })();
