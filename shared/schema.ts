@@ -441,6 +441,184 @@ export const shareComments = pgTable("share_comments", {
   parentIdx: index("share_comments_parent_idx").on(table.parentCommentId),
 }));
 
+// ============ GROUPS/ROOMS SOCIAL FEATURE ============
+
+// Groups/Rooms - Main table for community groups
+export const groups = pgTable("groups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  slug: varchar("slug").notNull().unique(), // URL-friendly identifier
+  name: varchar("name").notNull(),
+  visibility: varchar("visibility").notNull().default("private"), // "private" | "public"
+  kind: varchar("kind").notNull(), // "age" | "diagnosis" | "topic"
+  description: text("description"),
+  rules: text("rules"), // Community guidelines for this group
+  coverImageUrl: varchar("cover_image_url"),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  memberCount: integer("member_count").default(0), // Denormalized for performance
+  postCount: integer("post_count").default(0), // Denormalized for performance
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  kindVisibilityIdx: index("groups_kind_visibility_idx").on(table.kind, table.visibility),
+  slugIdx: index("groups_slug_idx").on(table.slug),
+}));
+
+// Group tags for categorization and discovery
+export const groupTags = pgTable("group_tags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  groupId: varchar("group_id").notNull().references(() => groups.id, { onDelete: 'cascade' }),
+  tag: varchar("tag").notNull(), // "POTS", "EDS Type III", "Hypermobility", etc.
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  groupTagIdx: index("group_tags_group_idx").on(table.groupId),
+  tagIdx: index("group_tags_tag_idx").on(table.tag),
+}));
+
+// Group membership and roles
+export const groupMemberships = pgTable("group_memberships", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  groupId: varchar("group_id").notNull().references(() => groups.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  role: varchar("role").notNull().default("member"), // "member" | "moderator" | "owner"
+  joinStatus: varchar("join_status").notNull().default("pending"), // "approved" | "pending" | "banned"
+  pseudonym: varchar("pseudonym"), // Optional group-specific nickname
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userGroupIdx: uniqueIndex("group_memberships_user_group_idx").on(table.userId, table.groupId),
+  groupStatusIdx: index("group_memberships_group_status_idx").on(table.groupId, table.joinStatus),
+}));
+
+// Posts in groups
+export const posts = pgTable("posts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  groupId: varchar("group_id").notNull().references(() => groups.id, { onDelete: 'cascade' }),
+  authorId: varchar("author_id").notNull().references(() => users.id),
+  body: text("body").notNull(), // Markdown subset
+  kind: varchar("kind").notNull().default("text"), // "text" | "poll" | "resource"
+  mediaUrl: varchar("media_url"), // Optional image/attachment
+  isPinned: boolean("is_pinned").default(false),
+  isRemoved: boolean("is_removed").default(false), // Soft delete for moderation
+  reactionCount: integer("reaction_count").default(0), // Denormalized
+  commentCount: integer("comment_count").default(0), // Denormalized
+  createdAt: timestamp("created_at").defaultNow(),
+  editedAt: timestamp("edited_at"),
+}, (table) => ({
+  groupCreatedIdx: index("posts_group_created_idx").on(table.groupId, table.createdAt.desc()),
+  groupPinnedIdx: index("posts_group_pinned_idx").on(table.groupId, table.isPinned),
+  authorIdx: index("posts_author_idx").on(table.authorId),
+}));
+
+// Poll associated with posts
+export const postPolls = pgTable("post_polls", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: varchar("post_id").notNull().references(() => posts.id, { onDelete: 'cascade' }).unique(),
+  question: text("question").notNull(),
+  closesAt: timestamp("closes_at"), // Optional poll close date
+  totalVotes: integer("total_votes").default(0), // Denormalized
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Poll options
+export const postPollOptions = pgTable("post_poll_options", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: varchar("post_id").notNull().references(() => posts.id, { onDelete: 'cascade' }),
+  optionText: varchar("option_text").notNull(),
+  votes: integer("votes").default(0), // Denormalized vote count
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  postIdx: index("post_poll_options_post_idx").on(table.postId),
+}));
+
+// Poll votes (to track who voted)
+export const postPollVotes = pgTable("post_poll_votes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: varchar("post_id").notNull().references(() => posts.id, { onDelete: 'cascade' }),
+  optionId: varchar("option_id").notNull().references(() => postPollOptions.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userPostIdx: uniqueIndex("post_poll_votes_user_post_idx").on(table.userId, table.postId),
+}));
+
+// Comments on posts
+export const groupComments = pgTable("group_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: varchar("post_id").notNull().references(() => posts.id, { onDelete: 'cascade' }),
+  authorId: varchar("author_id").notNull().references(() => users.id),
+  body: text("body").notNull(),
+  parentCommentId: varchar("parent_comment_id"), // For threading (max depth 2)
+  isRemoved: boolean("is_removed").default(false), // Soft delete for moderation
+  createdAt: timestamp("created_at").defaultNow(),
+  editedAt: timestamp("edited_at"),
+}, (table) => ({
+  postCreatedIdx: index("group_comments_post_created_idx").on(table.postId, table.createdAt.desc()),
+  parentIdx: index("group_comments_parent_idx").on(table.parentCommentId),
+}));
+
+// Reactions (emoji) on posts
+export const reactions = pgTable("reactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: varchar("post_id").notNull().references(() => posts.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  emoji: varchar("emoji").notNull(), // "❤️" | "👍" | "🙏" | "💪" | "🎉"
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  postEmojiIdx: index("reactions_post_emoji_idx").on(table.postId, table.emoji),
+  userPostEmojiIdx: uniqueIndex("reactions_user_post_emoji_idx").on(table.userId, table.postId, table.emoji),
+}));
+
+// Reports for content moderation
+export const groupReports = pgTable("group_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  targetType: varchar("target_type").notNull(), // "post" | "comment" | "user"
+  targetId: varchar("target_id").notNull(), // ID of the reported item
+  reporterId: varchar("reporter_id").notNull().references(() => users.id),
+  reasonCode: varchar("reason_code").notNull(), // "spam" | "harassment" | "medical_advice" | "other"
+  notes: text("notes"), // Additional context from reporter
+  status: varchar("status").notNull().default("open"), // "open" | "reviewed" | "actioned" | "dismissed"
+  moderatorId: varchar("moderator_id").references(() => users.id), // Who handled it
+  moderatorAction: varchar("moderator_action"), // "removed" | "muted" | "banned" | "no_action"
+  moderatorNotes: text("moderator_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => ({
+  targetTypeIdx: index("group_reports_target_idx").on(table.targetType, table.targetId),
+  statusIdx: index("group_reports_status_idx").on(table.status),
+}));
+
+// Bans/mutes for users in groups
+export const groupBans = pgTable("group_bans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  groupId: varchar("group_id").references(() => groups.id, { onDelete: 'cascade' }), // null for platform-wide ban
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  reason: text("reason").notNull(),
+  bannedBy: varchar("banned_by").notNull().references(() => users.id),
+  expiresAt: timestamp("expires_at"), // null for permanent ban
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userGroupIdx: index("group_bans_user_group_idx").on(table.userId, table.groupId),
+}));
+
+// Notifications for group activity
+export const groupNotifications = pgTable("group_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  groupId: varchar("group_id").references(() => groups.id, { onDelete: 'cascade' }),
+  type: varchar("type").notNull(), // "new_post" | "comment_reply" | "poll_closed" | "mention" | "join_approved"
+  actorId: varchar("actor_id").references(() => users.id), // Who triggered the notification
+  targetType: varchar("target_type"), // "post" | "comment" | "poll"
+  targetId: varchar("target_id"), // ID of related content
+  message: text("message").notNull(), // Generic message text
+  isRead: boolean("is_read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userReadIdx: index("group_notifications_user_read_idx").on(table.userId, table.isRead),
+  createdIdx: index("group_notifications_created_idx").on(table.createdAt.desc()),
+}));
+
+// ============ END GROUPS/ROOMS SOCIAL FEATURE ============
+
 // Reminders system for medication, hydration, posture, and custom reminders
 export const reminders = pgTable("reminders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -494,6 +672,11 @@ export const usersRelations = relations(users, ({ many }) => ({
   sodiumIntakeLogs: many(sodiumIntakeLogs),
   insightsCache: many(insightsCache),
   reminders: many(reminders),
+  groupMemberships: many(groupMemberships),
+  createdGroups: many(groups),
+  posts: many(posts),
+  groupComments: many(groupComments),
+  reactions: many(reactions),
 }));
 
 export const symptomLogsRelations = relations(symptomLogs, ({ one, many }) => ({
@@ -628,6 +811,142 @@ export const insightsCacheRelations = relations(insightsCache, ({ one }) => ({
 export const remindersRelations = relations(reminders, ({ one }) => ({
   user: one(users, {
     fields: [reminders.userId],
+    references: [users.id],
+  }),
+}));
+
+// Groups relations
+export const groupsRelations = relations(groups, ({ one, many }) => ({
+  creator: one(users, {
+    fields: [groups.createdBy],
+    references: [users.id],
+  }),
+  memberships: many(groupMemberships),
+  tags: many(groupTags),
+  posts: many(posts),
+}));
+
+export const groupTagsRelations = relations(groupTags, ({ one }) => ({
+  group: one(groups, {
+    fields: [groupTags.groupId],
+    references: [groups.id],
+  }),
+}));
+
+export const groupMembershipsRelations = relations(groupMemberships, ({ one }) => ({
+  group: one(groups, {
+    fields: [groupMemberships.groupId],
+    references: [groups.id],
+  }),
+  user: one(users, {
+    fields: [groupMemberships.userId],
+    references: [users.id],
+  }),
+}));
+
+export const postsRelations = relations(posts, ({ one, many }) => ({
+  group: one(groups, {
+    fields: [posts.groupId],
+    references: [groups.id],
+  }),
+  author: one(users, {
+    fields: [posts.authorId],
+    references: [users.id],
+  }),
+  poll: one(postPolls, {
+    fields: [posts.id],
+    references: [postPolls.postId],
+  }),
+  comments: many(groupComments),
+  reactions: many(reactions),
+}));
+
+export const postPollsRelations = relations(postPolls, ({ one, many }) => ({
+  post: one(posts, {
+    fields: [postPolls.postId],
+    references: [posts.id],
+  }),
+  options: many(postPollOptions),
+}));
+
+export const postPollOptionsRelations = relations(postPollOptions, ({ one, many }) => ({
+  post: one(posts, {
+    fields: [postPollOptions.postId],
+    references: [posts.id],
+  }),
+  votes: many(postPollVotes),
+}));
+
+export const postPollVotesRelations = relations(postPollVotes, ({ one }) => ({
+  post: one(posts, {
+    fields: [postPollVotes.postId],
+    references: [posts.id],
+  }),
+  option: one(postPollOptions, {
+    fields: [postPollVotes.optionId],
+    references: [postPollOptions.id],
+  }),
+  user: one(users, {
+    fields: [postPollVotes.userId],
+    references: [users.id],
+  }),
+}));
+
+export const groupCommentsRelations = relations(groupComments, ({ one }) => ({
+  post: one(posts, {
+    fields: [groupComments.postId],
+    references: [posts.id],
+  }),
+  author: one(users, {
+    fields: [groupComments.authorId],
+    references: [users.id],
+  }),
+}));
+
+export const reactionsRelations = relations(reactions, ({ one }) => ({
+  post: one(posts, {
+    fields: [reactions.postId],
+    references: [posts.id],
+  }),
+  user: one(users, {
+    fields: [reactions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const groupReportsRelations = relations(groupReports, ({ one }) => ({
+  reporter: one(users, {
+    fields: [groupReports.reporterId],
+    references: [users.id],
+  }),
+}));
+
+export const groupBansRelations = relations(groupBans, ({ one }) => ({
+  group: one(groups, {
+    fields: [groupBans.groupId],
+    references: [groups.id],
+  }),
+  user: one(users, {
+    fields: [groupBans.userId],
+    references: [users.id],
+  }),
+  bannedByUser: one(users, {
+    fields: [groupBans.bannedBy],
+    references: [users.id],
+  }),
+}));
+
+export const groupNotificationsRelations = relations(groupNotifications, ({ one }) => ({
+  user: one(users, {
+    fields: [groupNotifications.userId],
+    references: [users.id],
+  }),
+  group: one(groups, {
+    fields: [groupNotifications.groupId],
+    references: [groups.id],
+  }),
+  actor: one(users, {
+    fields: [groupNotifications.actorId],
     references: [users.id],
   }),
 }));
@@ -827,3 +1146,105 @@ export const insertShareCommentsSchema = createInsertSchema(shareComments).omit(
 });
 export type InsertShareComments = z.infer<typeof insertShareCommentsSchema>;
 export type ShareComments = typeof shareComments.$inferSelect;
+
+// Groups types
+export const insertGroupSchema = createInsertSchema(groups).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  memberCount: true,
+  postCount: true,
+});
+export type InsertGroup = z.infer<typeof insertGroupSchema>;
+export type Group = typeof groups.$inferSelect;
+
+export const insertGroupTagSchema = createInsertSchema(groupTags).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertGroupTag = z.infer<typeof insertGroupTagSchema>;
+export type GroupTag = typeof groupTags.$inferSelect;
+
+export const insertGroupMembershipSchema = createInsertSchema(groupMemberships).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertGroupMembership = z.infer<typeof insertGroupMembershipSchema>;
+export type GroupMembership = typeof groupMemberships.$inferSelect;
+
+export const insertPostSchema = createInsertSchema(posts).omit({
+  id: true,
+  createdAt: true,
+  reactionCount: true,
+  commentCount: true,
+});
+export type InsertPost = z.infer<typeof insertPostSchema>;
+export type Post = typeof posts.$inferSelect;
+
+export const insertPostPollSchema = createInsertSchema(postPolls).omit({
+  id: true,
+  createdAt: true,
+  totalVotes: true,
+}).extend({
+  closesAt: z.string().datetime().optional().transform((str) => str ? new Date(str) : undefined),
+});
+export type InsertPostPoll = z.infer<typeof insertPostPollSchema>;
+export type PostPoll = typeof postPolls.$inferSelect;
+
+export const insertPostPollOptionSchema = createInsertSchema(postPollOptions).omit({
+  id: true,
+  createdAt: true,
+  votes: true,
+});
+export type InsertPostPollOption = z.infer<typeof insertPostPollOptionSchema>;
+export type PostPollOption = typeof postPollOptions.$inferSelect;
+
+export const insertPostPollVoteSchema = createInsertSchema(postPollVotes).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertPostPollVote = z.infer<typeof insertPostPollVoteSchema>;
+export type PostPollVote = typeof postPollVotes.$inferSelect;
+
+export const insertGroupCommentSchema = createInsertSchema(groupComments).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertGroupComment = z.infer<typeof insertGroupCommentSchema>;
+export type GroupComment = typeof groupComments.$inferSelect;
+
+export const insertReactionSchema = createInsertSchema(reactions).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertReaction = z.infer<typeof insertReactionSchema>;
+export type Reaction = typeof reactions.$inferSelect;
+
+export const insertGroupReportSchema = createInsertSchema(groupReports).omit({
+  id: true,
+  createdAt: true,
+  moderatorId: true,
+  moderatorAction: true,
+  moderatorNotes: true,
+  resolvedAt: true,
+});
+export type InsertGroupReport = z.infer<typeof insertGroupReportSchema>;
+export type GroupReport = typeof groupReports.$inferSelect;
+
+export const insertGroupBanSchema = createInsertSchema(groupBans).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  expiresAt: z.string().datetime().optional().transform((str) => str ? new Date(str) : undefined),
+});
+export type InsertGroupBan = z.infer<typeof insertGroupBanSchema>;
+export type GroupBan = typeof groupBans.$inferSelect;
+
+export const insertGroupNotificationSchema = createInsertSchema(groupNotifications).omit({
+  id: true,
+  createdAt: true,
+  isRead: true,
+});
+export type InsertGroupNotification = z.infer<typeof insertGroupNotificationSchema>;
+export type GroupNotification = typeof groupNotifications.$inferSelect;
