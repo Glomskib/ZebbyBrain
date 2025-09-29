@@ -621,6 +621,119 @@ export const groupNotifications = pgTable("group_notifications", {
 
 // ============ END GROUPS/ROOMS SOCIAL FEATURE ============
 
+// ============ PERSONAL CIRCLE (PRIVATE SHARING) ============
+
+// Personal Circle - owner can invite trusted people to view scoped health data
+export const circles = pgTable("circles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").notNull().references(() => users.id, { onDelete: 'cascade' }).unique(), // 1 circle per owner
+  name: varchar("name").notNull().default("My Circle"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  ownerIdx: index("circles_owner_idx").on(table.ownerId),
+}));
+
+// Circle members - invited people with read-only access
+export const circleMembers = pgTable("circle_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  circleId: varchar("circle_id").notNull().references(() => circles.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").references(() => users.id, { onDelete: 'cascade' }), // null until invite accepted
+  email: varchar("email").notNull(), // invite target email
+  role: varchar("role").notNull().default("member"), // "member" | "guardian"
+  status: varchar("status").notNull().default("pending"), // "pending" | "active" | "revoked"
+  pseudonym: varchar("pseudonym"), // owner-visible label like "Mom"
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  circleIdIdx: index("circle_members_circle_idx").on(table.circleId),
+  userIdIdx: index("circle_members_user_idx").on(table.userId),
+  circleEmailUnique: uniqueIndex("circle_members_circle_email_unique").on(table.circleId, table.email),
+}));
+
+// Circle sharing scope - what data owner shares and how much detail
+export const circleScopes = pgTable("circle_scopes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  circleId: varchar("circle_id").notNull().references(() => circles.id, { onDelete: 'cascade' }).unique(),
+  // granular sharing choices
+  shareSymptoms: boolean("share_symptoms").default(true),
+  shareVitals: boolean("share_vitals").default(true),
+  shareSleep: boolean("share_sleep").default(false),
+  shareHydration: boolean("share_hydration").default(false),
+  shareAIReflections: boolean("share_ai_reflections").default(false),
+  // how much detail
+  detailLevel: varchar("detail_level").notNull().default("summary"), // "summary" | "detail"
+  // time window of shared history
+  daysBack: integer("days_back").notNull().default(30), // e.g., last 30/90 days
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  circleIdIdx: index("circle_scopes_circle_idx").on(table.circleId),
+}));
+
+// Circle alert rules - automated reach out when thresholds crossed
+export const circleAlertRules = pgTable("circle_alert_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  circleId: varchar("circle_id").notNull().references(() => circles.id, { onDelete: 'cascade' }).unique(),
+  // trigger config
+  active: boolean("active").default(false),
+  quietStart: varchar("quiet_start"), // "22:00" local time
+  quietEnd: varchar("quiet_end"), // "07:00" local time
+  cooldownMin: integer("cooldown_min").notNull().default(180), // minimum minutes between alerts
+  // example triggers (extendable)
+  flareThreshold: integer("flare_threshold"), // e.g., pain >= 8/10
+  hrDeltaBpm: integer("hr_delta_bpm"), // standing - supine >= N
+  lowSleepHours: decimal("low_sleep_hours", { precision: 4, scale: 2 }), // last-night sleep < N
+  // channel preferences
+  channelEmail: boolean("channel_email").default(true),
+  channelSMS: boolean("channel_sms").default(false),
+  notifyGuardianFirst: boolean("notify_guardian_first").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  circleIdIdx: index("circle_alert_rules_circle_idx").on(table.circleId),
+}));
+
+// Circle alert log - audit trail of all alerts sent
+export const circleAlertLogs = pgTable("circle_alert_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  circleId: varchar("circle_id").notNull().references(() => circles.id, { onDelete: 'cascade' }),
+  ruleId: varchar("rule_id").references(() => circleAlertRules.id, { onDelete: 'set null' }),
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+  channel: varchar("channel").notNull(), // "email" | "sms" | "inapp"
+  toMemberId: varchar("to_member_id").references(() => circleMembers.id, { onDelete: 'set null' }),
+  summary: text("summary").notNull(), // short, non-PHI subject/line
+  payloadHash: varchar("payload_hash").notNull(), // hash of content for audit
+}, (table) => ({
+  circleIdIdx: index("circle_alert_logs_circle_idx").on(table.circleId),
+  sentAtIdx: index("circle_alert_logs_sent_at_idx").on(table.sentAt.desc()),
+}));
+
+// Circle invite tokens - secure tokens for accepting invites
+export const circleInviteTokens = pgTable("circle_invite_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  circleId: varchar("circle_id").notNull().references(() => circles.id, { onDelete: 'cascade' }),
+  email: varchar("email").notNull(),
+  token: varchar("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  circleIdIdx: index("circle_invite_tokens_circle_idx").on(table.circleId),
+  tokenIdx: uniqueIndex("circle_invite_tokens_token_idx").on(table.token),
+}));
+
+// Pending circle alerts - alerts waiting for cancel window
+export const circlePendingAlerts = pgTable("circle_pending_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  circleId: varchar("circle_id").notNull().references(() => circles.id, { onDelete: 'cascade' }),
+  ruleId: varchar("rule_id").references(() => circleAlertRules.id, { onDelete: 'set null' }),
+  triggerReason: text("trigger_reason").notNull(), // what caused this alert
+  scheduledFor: timestamp("scheduled_for").notNull(), // when to send (after cancel window)
+  canceledAt: timestamp("canceled_at"), // if owner cancels
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  circleIdIdx: index("circle_pending_alerts_circle_idx").on(table.circleId),
+  scheduledIdx: index("circle_pending_alerts_scheduled_idx").on(table.scheduledFor),
+}));
+
+// ============ END PERSONAL CIRCLE ============
+
 // Reminders system for medication, hydration, posture, and custom reminders
 export const reminders = pgTable("reminders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -953,6 +1066,67 @@ export const groupNotificationsRelations = relations(groupNotifications, ({ one 
   }),
 }));
 
+// Circle relations
+export const circlesRelations = relations(circles, ({ one, many }) => ({
+  owner: one(users, {
+    fields: [circles.ownerId],
+    references: [users.id],
+  }),
+  members: many(circleMembers),
+  scope: one(circleScopes),
+  alertRule: one(circleAlertRules),
+}));
+
+export const circleMembersRelations = relations(circleMembers, ({ one }) => ({
+  circle: one(circles, {
+    fields: [circleMembers.circleId],
+    references: [circles.id],
+  }),
+  user: one(users, {
+    fields: [circleMembers.userId],
+    references: [users.id],
+  }),
+}));
+
+export const circleScopesRelations = relations(circleScopes, ({ one }) => ({
+  circle: one(circles, {
+    fields: [circleScopes.circleId],
+    references: [circles.id],
+  }),
+}));
+
+export const circleAlertRulesRelations = relations(circleAlertRules, ({ one }) => ({
+  circle: one(circles, {
+    fields: [circleAlertRules.circleId],
+    references: [circles.id],
+  }),
+}));
+
+export const circleAlertLogsRelations = relations(circleAlertLogs, ({ one }) => ({
+  circle: one(circles, {
+    fields: [circleAlertLogs.circleId],
+    references: [circles.id],
+  }),
+  member: one(circleMembers, {
+    fields: [circleAlertLogs.toMemberId],
+    references: [circleMembers.id],
+  }),
+}));
+
+export const circleInviteTokensRelations = relations(circleInviteTokens, ({ one }) => ({
+  circle: one(circles, {
+    fields: [circleInviteTokens.circleId],
+    references: [circles.id],
+  }),
+}));
+
+export const circlePendingAlertsRelations = relations(circlePendingAlerts, ({ one }) => ({
+  circle: one(circles, {
+    fields: [circlePendingAlerts.circleId],
+    references: [circles.id],
+  }),
+}));
+
 // Schema types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -1250,3 +1424,57 @@ export const insertGroupNotificationSchema = createInsertSchema(groupNotificatio
 });
 export type InsertGroupNotification = z.infer<typeof insertGroupNotificationSchema>;
 export type GroupNotification = typeof groupNotifications.$inferSelect;
+
+// Circle schemas
+export const insertCircleSchema = createInsertSchema(circles).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertCircle = z.infer<typeof insertCircleSchema>;
+export type Circle = typeof circles.$inferSelect;
+
+export const insertCircleMemberSchema = createInsertSchema(circleMembers).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertCircleMember = z.infer<typeof insertCircleMemberSchema>;
+export type CircleMember = typeof circleMembers.$inferSelect;
+
+export const insertCircleScopeSchema = createInsertSchema(circleScopes).omit({
+  id: true,
+  updatedAt: true,
+});
+export type InsertCircleScope = z.infer<typeof insertCircleScopeSchema>;
+export type CircleScope = typeof circleScopes.$inferSelect;
+
+export const insertCircleAlertRuleSchema = createInsertSchema(circleAlertRules).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertCircleAlertRule = z.infer<typeof insertCircleAlertRuleSchema>;
+export type CircleAlertRule = typeof circleAlertRules.$inferSelect;
+
+export const insertCircleAlertLogSchema = createInsertSchema(circleAlertLogs).omit({
+  id: true,
+  sentAt: true,
+});
+export type InsertCircleAlertLog = z.infer<typeof insertCircleAlertLogSchema>;
+export type CircleAlertLog = typeof circleAlertLogs.$inferSelect;
+
+export const insertCircleInviteTokenSchema = createInsertSchema(circleInviteTokens).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  expiresAt: z.string().datetime().transform((str) => new Date(str)),
+});
+export type InsertCircleInviteToken = z.infer<typeof insertCircleInviteTokenSchema>;
+export type CircleInviteToken = typeof circleInviteTokens.$inferSelect;
+
+export const insertCirclePendingAlertSchema = createInsertSchema(circlePendingAlerts).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  scheduledFor: z.string().datetime().transform((str) => new Date(str)),
+});
+export type InsertCirclePendingAlert = z.infer<typeof insertCirclePendingAlertSchema>;
+export type CirclePendingAlert = typeof circlePendingAlerts.$inferSelect;
