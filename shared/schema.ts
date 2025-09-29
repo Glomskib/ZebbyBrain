@@ -69,9 +69,16 @@ export const symptomLogs = pgTable("symptom_logs", {
   timestamp: timestamp("timestamp").notNull(),
   notes: text("notes"), // Overall session notes
   // Contextual data captured at time of logging
-  weatherTemp: decimal("weather_temp", { precision: 5, scale: 2 }), // Temperature in Celsius
-  weatherCondition: varchar("weather_condition"), // "sunny", "rainy", "cloudy", etc.
-  weatherLocation: varchar("weather_location"), // City/location for weather data
+  weatherTemp: decimal("weather_temp", { precision: 5, scale: 2 }), // Temperature in Celsius (legacy)
+  weatherCondition: varchar("weather_condition"), // "sunny", "rainy", "cloudy", etc. (legacy)
+  weatherLocation: varchar("weather_location"), // City/location for weather data (legacy)
+  // Enhanced weather data (Wave 1 - FF_WEATHER)
+  weatherTempC: decimal("weather_temp_c", { precision: 5, scale: 2 }), // Temperature in Celsius (accurate)
+  weatherText: text("weather_text"), // Detailed weather condition text
+  weatherObservedAt: timestamp("weather_observed_at", { withTimezone: true }), // When weather was captured
+  lat: decimal("lat", { precision: 10, scale: 7 }), // Latitude where logged
+  lon: decimal("lon", { precision: 10, scale: 7 }), // Longitude where logged
+  weatherSource: varchar("weather_source"), // Source: 'open-meteo', 'openweather', etc.
   waterIntakeCurrentMl: integer("water_intake_current_ml"), // Current day water intake in ml
   heartRateBpm: integer("heart_rate_bpm"), // Heart rate at time of logging
   sodiumIntakeCurrentMg: integer("sodium_intake_current_mg"), // Current day sodium intake in mg
@@ -92,6 +99,9 @@ export const symptomEntries = pgTable("symptom_entries", {
   symptomName: varchar("symptom_name").notNull(), // "Joint Pain", "Fatigue", etc.
   intensity: integer("intensity").notNull(), // 1-10 scale for this specific symptom
   notes: text("notes"), // Specific notes for this symptom
+  // Wave 1C - Body-part specific tracking (FF_BODY_PARTS)
+  bodyPart: varchar("body_part"), // "neck", "shoulder_left", "knee_right", "back_upper", "jaw", "abdomen", etc.
+  side: varchar("side"), // "left", "right", "bilateral", null for non-paired parts
   createdAt: timestamp("created_at").defaultNow(),
 });
 

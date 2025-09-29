@@ -1,0 +1,265 @@
+Option B: Prioritized MVP, but structure it so Cursor/Replit Agent can chunk the work:
+
+Wave 1 (ship this week):
+
+Weather fix at log time
+
+Replace “Reflection” with AI Research & Trends
+
+Body-part symptom logging
+
+Zebby Avatar (persistent chat button, context from logs)
+
+Shopify Marketplace (read-only list + checkout redirect)
+
+Wave 2 (next):
+
+Groups (age/gender gated) with posts/comments/reactions
+
+My Herd (rename Circle) + Referrals & Rewards
+
+My Herd dashboard (scoped viewer)
+
+Wave 3 (polish):
+
+Trend charts embedded into PDF v2
+
+Reward ledger UI, referral share links
+
+Moderation/reporting for groups (basic)
+
+Each wave is protected by feature flags so you can merge continuously.
+
+2) Cost savers to enable now
+
+Feature flags via env: FF_WEATHER, FF_AI_TRENDS, FF_BODY_PARTS, FF_AVATAR, FF_SHOPIFY, FF_GROUPS, FF_HERD, FF_REFERRALS, FF_REWARDS (boolean).
+
+Shared migrations: batch columns per table into single migrations per wave.
+
+Mock first, swap later:
+
+Weather: Open-Meteo (no key) now; swap if needed.
+
+Shopify: Storefront API (read) → redirect checkout (no server-side order creation).
+
+Minimal UI: reuse your existing Tile/Badge/Button classes.
+
+Tests: a few Supertest routes + a smoke E2E per wave (prevents rework).
+
+3) Copy-paste Super Prompt for Cursor / Replit Agent
+
+Title: Zebby – Budget MVP Waves (Flags + Tests)
+Goal: Implement all 10 requested features in small, testable slices behind feature flags. Keep enterprise security. Provide diffs + tests after each wave.
+
+GLOBAL SETUP
+
+Add feature flags (env & loader)
+
+.env.example add:
+
+FF_WEATHER=true
+FF_AI_TRENDS=true
+FF_BODY_PARTS=true
+FF_AVATAR=true
+FF_SHOPIFY=true
+FF_GROUPS=false
+FF_HERD=false
+FF_REFERRALS=false
+FF_REWARDS=false
+
+
+server/src/config/flags.ts:
+
+export const FF = {
+  WEATHER: process.env.FF_WEATHER === 'true',
+  AI_TRENDS: process.env.FF_AI_TRENDS === 'true',
+  BODY_PARTS: process.env.FF_BODY_PARTS === 'true',
+  AVATAR: process.env.FF_AVATAR === 'true',
+  SHOPIFY: process.env.FF_SHOPIFY === 'true',
+  GROUPS: process.env.FF_GROUPS === 'true',
+  HERD: process.env.FF_HERD === 'true',
+  REFERRALS: process.env.FF_REFERRALS === 'true',
+  REWARDS: process.env.FF_REWARDS === 'true',
+};
+
+
+In routes/UI, guard features with these flags.
+
+Security invariants (must not regress)
+
+Keep Helmet/CSP, rate limits, Stripe webhook raw order, exports Cache-Control: no-store.
+
+All new GETs that might include health data: Cache-Control: no-store.
+
+WAVE 1 — Weather fix • AI Trends • Body-parts • Avatar • Shopify
+A) Weather at log time (accurate temp)
+
+DB migration (batch add to log tables):
+
+weatherTempC NUMERIC, weatherText TEXT, weatherObservedAt TIMESTAMPTZ, lat NUMERIC, lon NUMERIC, weatherSource TEXT.
+
+Service server/src/services/weather.ts (Open-Meteo):
+
+Input: lat, lon, timestamp; Output: { tempC, text, observedAt, source: 'open-meteo' }.
+
+Round to 0.5°C, store metric; UI converts to °F if user preference requires.
+
+On create log endpoints (symptoms/vitals/sleep/hydration):
+
+If FF.WEATHER, stamp weather once at creation; never fetch at export-time.
+
+Client log forms:
+
+Ask for location consent once; persist last lat/lon; show stamped temp/time inline.
+
+Tests:
+
+Create symptom with lat/lon → record has weatherTempC & observedAt.
+
+No weather calls during export.
+
+B) Replace “Reflection” → AI Research & Trends
+
+API POST /api/ai/insights (if FF.AI_TRENDS):
+
+Build facts: last 30/90d: avg pain, flare days, HR Δ (standing–supine), sleep hours trend, hydration trend.
+
+Prompt OpenAI: supportive, non-medical-advice; synthesize “what might help to consider” + trends; return { analysis, trendBullets[], actionIdeas[] }. Cache 24h/user/range.
+
+Client: Replace Reflection card with “Zebby Findings” (analysis, bullets, 3 optional steps + “Why you’re seeing this”).
+
+Tests:
+
+Returns specific insights referencing combined metrics; no PII; caches.
+
+C) Symptom tracker → Body-part specific
+
+DB migration: add bodyPart TEXT (enum in TS), side TEXT (left/right/bilateral|null) to symptom_event.
+
+Client: body-map or simple grid selector; filter views by bodyPart.
+
+Insights: add per-bodyPart aggregates (avg, flares, trend).
+
+Tests:
+
+Create/read by bodyPart; insights endpoint returns per-part metrics.
+
+D) Zebby Avatar (persistent chat button)
+
+UI: floating button → side panel. On any log card, “Ask Zebby about this” opens with context.
+
+API POST /api/ai/chat (if FF.AVATAR):
+
+System: empathetic; non-diagnostic.
+
+Tools: load recent snapshot & target entry summary.
+
+Rate limit 10/min; redact logs.
+
+Tests:
+
+Chat includes context of referenced entry; rate limit enforced.
+
+E) Shopify Marketplace integration
+
+Env:
+
+SHOPIFY_STORE_DOMAIN=yourstore.myshopify.com
+SHOPIFY_STOREFRONT_TOKEN=...
+
+
+Server /api/shop/products?collection=&cursor= → proxy Storefront API; cache 10m.
+
+Client: marketplace pulls from /api/shop/products; Buy → redirect to Shopify checkout.
+
+Tests:
+
+Products list loads; clicking Buy opens external checkout.
+
+WAVE 2 — Groups (age/gender gated) • My Herd (Circle rename) • Referrals & Rewards
+F) Groups (Whoop/FB style, gated)
+
+Seed groups: 0–9, 10–19, …, 80+; Adult Male Only (≥18, gender=male), Female Only (≥18, gender=female).
+
+DB: group, group_membership, post, comment, reaction.
+
+APIs (all gated by FF.GROUPS):
+
+GET /api/groups returns only groups user is eligible for (age/gender from profile).
+
+Join/leave; posts (create/list), comments, reactions; sanitize markdown (no HTML).
+
+Rate limits: posts 6/h, comments 20/h, reactions 60/h.
+
+UI: Groups directory (eligible), group feed w/ composer, reactions, comments.
+
+Tests:
+
+Under-age user cannot access adult groups; wrong gender blocked; basic posting works.
+
+G) My Herd (rename Circle) + Referrals & Rewards
+
+Rename “Circle” → “My Herd” in copy and endpoints (keep old paths aliased).
+
+Referrals (if FF.REFERRALS):
+
+referral_code on user; /r/:code onboarding attaches referral.
+
+referral_event logs; rules: +100 on email confirm; +250 on “first active week”.
+
+Rewards (if FF.REWARDS): rewards_ledger with reasons (invite_confirmed, active_week).
+
+Herd link: invites into My Herd flow; accepted → becomes viewer per Herd scope.
+
+UI: Settings → My Herd (members, invite, reward balance, recent rewards).
+
+Tests:
+
+Referral code attaches; reward points accrue after milestones; Herd viewer access respects scope.
+
+WAVE 3 — PDF v2 trends • Moderation basic • Polishing
+H) PDF v2 (trends & stamps)
+
+Export ?v=2: add cover (brand/date range), AI Findings summary, embed small PNG sparklines (pain, HR Δ, sleep), and per-entry time/temperature/weather stamps (if captured). Keep under 5 MB.
+
+Tests:
+
+With and without data; size < 5 MB; no external calls.
+
+I) Groups moderation basics
+
+report table, simple mod queue, remove content, mute/ban.
+
+Profanity list → auto-flag to queue (but do not block posting).
+
+Tests for report lifecycle.
+
+ACCEPTANCE (for each wave)
+
+All new endpoints require auth, respect rate limits, return no-store for health data.
+
+Security headers intact on /api/health.
+
+Minimal Supertest suite added per wave; CI passes.
+
+DELIVERABLES
+
+Migrations, routes, services, and React components per wave.
+
+Feature flags wired; safe to deploy partially.
+
+Test files and short README updates (how to enable flags, env needed).
+
+A summary of changed files & any deviations.
+
+NOTES TO AGENT
+
+Reuse existing tile/btn/badge classes and Zebby theme.
+
+Do not cache protected API responses in the service worker.
+
+Keep AI output non-diagnostic and supportive.
+
+For Shopify: do not log secrets; server-side proxy strips headers from logs.
+
+If profile lacks DOB/gender, show a gated message and link to Profile to set it.

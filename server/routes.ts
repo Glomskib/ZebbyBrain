@@ -195,20 +195,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Get weather data if location is provided
+      // Get weather data if location is provided (Wave 1 - FF_WEATHER)
       let weatherData = null;
+      let enhancedWeatherData = null;
       if (location && location !== "Unknown") {
-        const { getCurrentWeather, getWeatherByCity } = await import('./weatherService');
-        
-        if (location.includes(',')) {
-          // Location is lat,lon coordinates
+        // Try new enhanced weather service first (Open-Meteo, no API key)
+        const { FF } = await import('./config/flags');
+        if (FF.WEATHER && location.includes(',')) {
+          const { fetchWeather } = await import('./services/weather');
           const [lat, lon] = location.split(',').map(Number);
           if (!isNaN(lat) && !isNaN(lon)) {
-            weatherData = await getCurrentWeather(lat, lon);
+            enhancedWeatherData = await fetchWeather(lat, lon);
           }
-        } else {
-          // Location is city name
-          weatherData = await getWeatherByCity(location);
+        }
+        
+        // Fallback to legacy weather service
+        if (!enhancedWeatherData) {
+          const { getCurrentWeather, getWeatherByCity } = await import('./weatherService');
+          if (location.includes(',')) {
+            const [lat, lon] = location.split(',').map(Number);
+            if (!isNaN(lat) && !isNaN(lon)) {
+              weatherData = await getCurrentWeather(lat, lon);
+            }
+          } else {
+            weatherData = await getWeatherByCity(location);
+          }
         }
       }
 
@@ -220,9 +231,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         waterIntakeCurrentMl: sessionData.waterIntakeCurrentMl || null,
         heartRateBpm: sessionData.heartRateBpm || null, 
         sodiumIntakeCurrentMg: sessionData.sodiumIntakeCurrentMg || null,
+        // Legacy weather fields (backward compatibility)
         weatherTemp: weatherData?.temperature ? weatherData.temperature.toString() : null,
         weatherCondition: weatherData?.condition || null,
         weatherLocation: weatherData?.location || null,
+        // Enhanced weather fields (Wave 1 - FF_WEATHER)
+        weatherTempC: enhancedWeatherData?.tempC ? enhancedWeatherData.tempC.toString() : null,
+        weatherText: enhancedWeatherData?.text || null,
+        weatherObservedAt: enhancedWeatherData?.observedAt || null,
+        lat: enhancedWeatherData?.lat ? enhancedWeatherData.lat.toString() : null,
+        lon: enhancedWeatherData?.lon ? enhancedWeatherData.lon.toString() : null,
+        weatherSource: enhancedWeatherData?.source || null,
         // Legacy fields for backward compatibility
         symptoms: symptomEntries.map((entry: any) => entry.symptomName),
         intensity: Math.round(symptomEntries.reduce((sum: number, entry: any) => sum + entry.intensity, 0) / symptomEntries.length)
