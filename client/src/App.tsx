@@ -15,6 +15,7 @@ import ImportSettings from "@/pages/ImportSettings";
 import ImportReviewQueue from "@/pages/ImportReviewQueue";
 import Onboarding from "@/pages/onboarding";
 import NotFound from "@/pages/not-found";
+import SharePage from "@/pages/share";
 
 function Router() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -27,6 +28,7 @@ function Router() {
       {/* Routes available to all users */}
       <Route path="/marketplace" component={Marketplace} />
       <Route path="/product/:id" component={({ params }: { params: { id: string } }) => <ProductDetail productId={params.id} />} />
+      <Route path="/share/:id" component={SharePage} />
       <Route path="/login" component={() => { window.location.href = '/api/login'; return null; }} />
       
       {/* Onboarding route - accessible to authenticated users */}
