@@ -1,0 +1,96 @@
+Based on everything we’ve built in this project so far (enterprise security, Stripe + promos/trials, exports, insights, marketplace, imports, Personal Circle plan), here’s a prioritized, concrete punch-list:
+
+A) Finish “Personal Circle” + Reach Out (high impact, almost ready)
+
+✅ DB & APIs from our spec.
+
+⏳ Implement UI pages:
+
+Settings → Personal Circle (members list, invite, revoke, scopes, alert rules)
+
+Home: “Reach Out” button + cancel countdown bar (10-min)
+
+Member Dashboard (read-only, scoped summary)
+
+⏳ Email templates (plain, non-PHI):
+
+Invite, Accept Confirmed, Reach-Out, Pending Alert (cancel option), Alert Sent
+
+⏳ Cron hook: evaluate rules every 15 min, respect quiet hours + cooldown.
+
+Acceptance: member must accept invite to view; scope respected; alerts logged; cancel window works.
+
+B) Clinician Pack PDF v2 (branded + trends)
+
+⏳ Cover page (logo, date range, generated at).
+
+⏳ Each entry row shows time + (if available) weather/HR/water stamps.
+
+⏳ “Zebby’s reflection” (short AI summary, non-diagnostic).
+
+⏳ Embed sparklines (pain, HR Δ, sleep) from in-app charts into PDF.
+
+Acceptance: <5 MB, clean print, graceful with zero data.
+
+C) Reminders MVP (meds, hydration, posture, custom)
+
+⏳ DB: reminder table (type, label, time/cron, tz, enabled).
+
+⏳ Scheduler (ENABLE_CRON=true); idempotent sends; time-zone aware.
+
+⏳ UI: create/pause/snooze; daily email or in-app banner if email off.
+
+Acceptance: fires once per window; pause stops sends; logged; no PII in logs.
+
+D) PWA install + offline shell (now)
+
+⏳ Add manifest + icons.
+
+⏳ Service worker that does not cache /api/* protected routes or exports; offline shell only for Home/Insights (last cached, no PHI).
+
+⏳ “Install” CTA in Settings.
+
+Acceptance: Lighthouse says “Installable”; offline shell loads; CSP unchanged.
+
+E) Marketplace polish
+
+⏳ Sort + paging (+ keep dedupe).
+
+⏳ JSON-LD on category pages (ItemList + Product).
+
+⏳ Null-image fallback, lazy-load, keyboard focus order.
+
+Acceptance: Sorting & paging compose with filters; SEO validates.
+
+F) Custom domain & email sender (prod readiness)
+
+⏳ Point www.zebbysworld.com
+ to Replit app; verify TLS/HSTS.
+
+⏳ Update Helmet CSP for your domain; keep Stripe allowances if using Portal.
+
+⏳ Configure SPF/DKIM/DMARC for no-reply@zebbysworld.com so reminders/invites don’t land in spam.
+
+⏳ Host Privacy/Terms/Support and /.well-known/security.txt.
+
+Acceptance: headers intact; emails pass authentication; health check OK over custom domain.
+
+G) Data controls & retention (user trust)
+
+⏳ Settings → Data: Backup (.zip) + Restore.
+
+⏳ Delete account (7-day undo, purge worker).
+
+⏳ Retention: Keep all, but at 2 years auto-export then server delete (opt-out toggle).
+
+Acceptance: round-trip restore works; deletion flow shows countdown.
+
+Quick sanity checks you can run now
+
+Test login works: /api/auth/test-login returns token; UI shows you as signed in.
+
+Insights: cache hit on 2nd request; charts render; PDF v1 still downloads.
+
+Stripe (dev): Plus-gated features stay gated unless you promote your dev user.
+
+Security headers: /api/health shows CSP, X-Frame-Options: DENY, nosniff; exports use Cache-Control: no-store.
