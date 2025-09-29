@@ -439,8 +439,6 @@ export const shareComments = pgTable("share_comments", {
 }, (table) => ({
   contentApprovedIdx: index("share_comments_content_approved_idx").on(table.sharedContentId, table.isApproved),
   parentIdx: index("share_comments_parent_idx").on(table.parentCommentId),
-  // Add foreign key constraint separately to avoid circular reference issues
-  parentCommentFk: table.parentCommentId.references(() => table.id),
 }));
 
 // Reminders system for medication, hydration, posture, and custom reminders

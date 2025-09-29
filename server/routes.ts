@@ -2308,6 +2308,227 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Sharing API Routes
+  const shareValidationSchema = z.object({
+    title: z.string().min(1, "Title is required"),
+    description: z.string().optional(),
+    contentType: z.enum(["symptom_trends", "health_summary", "ai_insights", "product_review", "achievement", "custom"]),
+    dateRangeStart: z.string().datetime().optional(),
+    dateRangeEnd: z.string().datetime().optional(),
+    dataSelections: z.record(z.any()),
+    contentSnapshot: z.record(z.any()),
+    shareType: z.enum(["public", "password_protected", "private"]).default("public"),
+    sharePassword: z.string().optional(),
+    expiresAt: z.string().datetime().optional(),
+    allowComments: z.boolean().default(false),
+    showAuthorInfo: z.boolean().default(true),
+  }).superRefine((data, ctx) => {
+    // Require password for password-protected shares
+    if (data.shareType === "password_protected" && (!data.sharePassword || data.sharePassword.trim() === "")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password is required for password-protected shares",
+        path: ["sharePassword"]
+      });
+    }
+  });
+
+  // Create shared content
+  app.post('/api/sharing/content', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const validatedData = shareValidationSchema.parse(req.body);
+      
+      const sharedContent = await storage.createSharedContent({
+        userId,
+        ...validatedData,
+        dateRangeStart: validatedData.dateRangeStart ? new Date(validatedData.dateRangeStart) : undefined,
+        dateRangeEnd: validatedData.dateRangeEnd ? new Date(validatedData.dateRangeEnd) : undefined,
+        expiresAt: validatedData.expiresAt ? new Date(validatedData.expiresAt) : undefined,
+      });
+
+      res.json(sharedContent);
+    } catch (error) {
+      console.error("Error creating shared content:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create shared content" });
+    }
+  });
+
+  // Get user's shared content
+  app.get('/api/sharing/content', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const sharedContent = await storage.getUserSharedContent(userId);
+      res.json(sharedContent);
+    } catch (error) {
+      console.error("Error fetching user shared content:", error);
+      res.status(500).json({ message: "Failed to fetch shared content" });
+    }
+  });
+
+  // Get public shared content (no auth required, but password may be required)
+  app.get('/api/sharing/public/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { password } = req.query; // Accept password as query parameter
+      const viewerIpHash = req.ip ? require('crypto').createHash('sha256').update(req.ip).digest('hex') : undefined;
+      
+      const sharedContent = await storage.getPublicSharedContent(id, password as string, viewerIpHash);
+      
+      if (!sharedContent) {
+        return res.status(404).json({ 
+          message: "Shared content not found, no longer available, or invalid password provided" 
+        });
+      }
+
+      // Check expiration
+      if (sharedContent.expiresAt && new Date() > sharedContent.expiresAt) {
+        return res.status(410).json({ message: "This shared content has expired" });
+      }
+
+      res.json(sharedContent);
+    } catch (error) {
+      console.error("Error fetching public shared content:", error);
+      res.status(500).json({ message: "Failed to fetch shared content" });
+    }
+  });
+
+  // Alternative POST endpoint for password-protected content (more secure)
+  app.post('/api/sharing/public/:id/access', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { password } = req.body;
+      const viewerIpHash = req.ip ? require('crypto').createHash('sha256').update(req.ip).digest('hex') : undefined;
+      
+      const sharedContent = await storage.getPublicSharedContent(id, password, viewerIpHash);
+      
+      if (!sharedContent) {
+        return res.status(403).json({ 
+          message: "Access denied. Invalid password or content not found." 
+        });
+      }
+
+      // Check expiration
+      if (sharedContent.expiresAt && new Date() > sharedContent.expiresAt) {
+        return res.status(410).json({ message: "This shared content has expired" });
+      }
+
+      res.json(sharedContent);
+    } catch (error) {
+      console.error("Error accessing password-protected content:", error);
+      res.status(500).json({ message: "Failed to access shared content" });
+    }
+  });
+
+  // Update shared content
+  app.put('/api/sharing/content/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      const validatedData = shareValidationSchema.partial().parse(req.body);
+      
+      const updatedContent = await storage.updateSharedContent(id, userId, {
+        ...validatedData,
+        dateRangeStart: validatedData.dateRangeStart ? new Date(validatedData.dateRangeStart) : undefined,
+        dateRangeEnd: validatedData.dateRangeEnd ? new Date(validatedData.dateRangeEnd) : undefined,
+        expiresAt: validatedData.expiresAt ? new Date(validatedData.expiresAt) : undefined,
+      });
+
+      res.json(updatedContent);
+    } catch (error) {
+      console.error("Error updating shared content:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update shared content" });
+    }
+  });
+
+  // Delete shared content
+  app.delete('/api/sharing/content/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      
+      await storage.deleteSharedContent(id, userId);
+      res.json({ message: "Shared content deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting shared content:", error);
+      res.status(500).json({ message: "Failed to delete shared content" });
+    }
+  });
+
+  // Get sharing analytics
+  app.get('/api/sharing/analytics/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      
+      // Verify user owns this content
+      const content = await storage.getSharedContent(id);
+      if (!content || content.userId !== userId) {
+        return res.status(404).json({ message: "Shared content not found" });
+      }
+
+      const analytics = await storage.getShareAnalytics(id);
+      const summary = await storage.getShareAnalyticsSummary(id);
+      
+      res.json({ analytics, summary });
+    } catch (error) {
+      console.error("Error fetching share analytics:", error);
+      res.status(500).json({ message: "Failed to fetch analytics" });
+    }
+  });
+
+  // Add comment to shared content
+  app.post('/api/sharing/comments/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { commentText, authorName, authorEmail, isSupport, isQuestion } = req.body;
+      
+      if (!commentText || !authorName) {
+        return res.status(400).json({ message: "Comment text and author name are required" });
+      }
+
+      // Verify shared content exists and allows comments
+      const content = await storage.getSharedContent(id);
+      if (!content || !content.allowComments) {
+        return res.status(404).json({ message: "Comments not allowed on this content" });
+      }
+
+      const comment = await storage.createShareComment({
+        sharedContentId: id,
+        commentText,
+        authorName,
+        authorEmail,
+        isSupport: isSupport || false,
+        isQuestion: isQuestion || false,
+      });
+
+      res.json(comment);
+    } catch (error) {
+      console.error("Error creating comment:", error);
+      res.status(500).json({ message: "Failed to create comment" });
+    }
+  });
+
+  // Get comments for shared content
+  app.get('/api/sharing/comments/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { approved } = req.query;
+      
+      const comments = await storage.getShareComments(id, approved === 'true' ? true : undefined);
+      res.json(comments);
+    } catch (error) {
+      console.error("Error fetching comments:", error);
+      res.status(500).json({ message: "Failed to fetch comments" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

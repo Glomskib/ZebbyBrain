@@ -1,0 +1,246 @@
+Replit Agent Prompt — “Zebby Social: Groups/Rooms MVP (Whoop/FB-style, EDS-safe)”
+Goals
+
+Ship a secure, supportive Groups/Rooms MVP:
+
+Curated rooms (by age band, diagnosis subtype, symptom/topic).
+
+Posts, comments, emoji reactions, polls.
+
+Pseudonym mode (per-group) + profile privacy.
+
+Community guidelines, reporting, and mod tools.
+
+Zero medical advice; supportive, non-diagnostic tone.
+
+Safe defaults: private groups by default (invite/approval), read-only for non-members.
+
+A) Data model (add migrations)
+
+Tables
+
+group — id, slug, name, visibility: 'private'|'public', kind: 'age'|'diagnosis'|'topic', description, rules, createdBy, createdAt.
+
+group_tag — (optional controlled vocab): tag (e.g., “POTS”, “EDS Type III”).
+
+group_membership — id, groupId, userId, role: 'member'|'moderator'|'owner', joinStatus: 'approved'|'pending'|'banned', pseudonym (nullable), createdAt.
+
+post — id, groupId, authorId, body (markdown subset), kind: 'text'|'poll'|'resource', mediaUrl?, createdAt, editedAt.
+
+post_poll — postId, question, closesAt.
+
+post_poll_option — id, postId, optionText, votes (denormalized int).
+
+comment — id, postId, authorId, body, parentCommentId (threading), createdAt, editedAt.
+
+reaction — id, postId, userId, emoji (❤️ 👍 🙏), createdAt (unique per user/post/emoji).
+
+report — id, targetType: 'post'|'comment'|'user', targetId, reporterId, reasonCode, notes, status: 'open'|'reviewed'|'actioned', createdAt.
+
+ban — id, groupId?, userId, reason, expiresAt?, createdAt.
+
+Indexes
+
+(groupId, createdAt DESC) on post, comment.
+
+(userId, groupId) unique on group_membership.
+
+(postId, emoji), (postId, createdAt).
+
+(targetType, targetId) on report.
+
+B) Permissions & privacy
+
+Group visibility
+
+public: visible list + posts visible to signed-in users; posting requires membership.
+
+private (default): discoverable title/description only; content hidden; join approval.
+
+Membership roles
+
+owner, moderator, member. Only owner/mods can pin posts, approve joins, remove content, mute/ban.
+
+Pseudonym mode
+
+Per-group setting: members can set a group-specific nickname (stored in membership). Posts/comments show pseudonym instead of profile name when enabled.
+
+Content rules
+
+No medical advice/diagnoses. Supportive language only. Crisis resources pinned.
+
+Rate limits
+
+Posts: 6/hour/user/group; comments: 20/hour; reactions: 60/hour.
+
+C) API (Express; JWT auth; rate-limited)
+
+Groups
+
+GET /api/groups?kind=&q=&page= — list; includes membership status for current user.
+
+POST /api/groups (owner only/admin) — create curated rooms.
+
+POST /api/groups/:id/join — request join (auto-approve for public).
+
+POST /api/groups/:id/approve (mod) — approve userId.
+
+POST /api/groups/:id/pseudonym — set/clear group pseudonym.
+
+Posts
+
+GET /api/groups/:id/posts?page=&sort=new|top — infinite scroll feed (cursor).
+
+POST /api/groups/:id/posts — create post { kind, body, poll? }.
+
+POST /api/posts/:id/react — { emoji }.
+
+POST /api/posts/:id/pin (mod).
+
+DELETE /api/posts/:id (author or mod).
+
+Comments
+
+GET /api/posts/:id/comments?page= — nested threading (limited depth 2).
+
+POST /api/posts/:id/comments — create.
+
+DELETE /api/comments/:id (author or mod).
+
+Polls
+
+POST /api/posts/:id/poll/vote — one vote/user; change allowed until closesAt.
+
+Reporting & moderation
+
+POST /api/report — { targetType, targetId, reasonCode, notes? }.
+
+GET /api/mod/reports?status= (mod).
+
+POST /api/mod/reports/:id/action — { action:'remove'|'mute'|'ban'|'dismiss' }.
+
+Safety
+
+Server-side markdown whitelist (no HTML), link sanitizer, image whitelist (data:, blob:, self).
+
+Profanity/heavy keyword list → hold for review (auto-flag) but still store.
+
+All responses exclude emails/PII; use pseudonym if set.
+
+D) Feed & discovery (Whoop/FB style)
+
+Default Home → “My Groups” feed (latest).
+
+Group page → Pinned posts on top, then recent; simple “Top” uses reaction + comment count over 7 days.
+
+Suggested groups: based on user’s profile (age band) + opted tags (POTS, hypermobility, dysautonomia). No cross-group leakage of membership lists.
+
+E) UI (Tailwind, Zebby vibe)
+
+Pages
+
+Groups Directory: tabs (Age, Diagnosis, Topics); cards show visibility, member count, short rules.
+
+Group Home: header (name, rules badge, join/leave, pseudonym editor), pinned posts, composer (“Share a win”, “Ask a question”, “Poll”).
+
+Post Thread: post + comments with nested replies; reaction bar; report button w/ reasons.
+
+Moderation Queue (mods only): open reports list, bulk actions.
+
+Components
+
+Post composer: textarea + emoji picker + poll builder (≤5 options, optional close date).
+
+Reaction bar: common emoji.
+
+Pseudonym editor: input with preview; enforce 2–24 chars; unique within group.
+
+Empty states: supportive copy; remind of guidelines.
+
+Accessibility
+
+Keyboard-first: composer focus, submit via Ctrl/Cmd+Enter.
+
+aria-live on new comments; proper landmarks.
+
+F) Safety & policy (non-negotiable)
+
+Pin Community Guidelines in each group.
+
+Crisis banner (resources) always present; “Zebby cannot provide medical advice. For emergencies, call local services.”
+
+Auto-moderation:
+
+Keyword lists (diagnostic claims, spam, harassment). Flag → queue.
+
+Link safety: only allow whitelisted domains (docs, reputable orgs) or add “external link” interstitial.
+
+Audit trails: mod actions logged (who/when/why).
+
+G) Notifications (lightweight)
+
+In-app notifications: new post in joined group, comment on your post, poll closed (with result).
+
+Email notifications (opt-in): daily digest only (avoid PHI leakage; subject lines generic).
+
+Respect PWA service worker; do not push PHI; use generic messaging (“You have new group activity on Zebby.”).
+
+H) Analytics (privacy-first)
+
+Count posts, comments, active members per group (no content).
+
+Track report rates; alert if spike.
+
+Export anonymized stats to admin dashboard only.
+
+I) Acceptance criteria
+
+A user can join a private group (pending → approved) and post with pseudonym, react, comment, and vote in polls.
+
+Non-members cannot read private content; public groups allow read but require join to post.
+
+Reporting flow works end-to-end; moderators can remove content and ban users; audit log records action.
+
+Auto-flagging holds risky content for review; harmless posts pass.
+
+Rate limits enforced; API returns 429 on abuse.
+
+All text sanitized; no inline HTML rendered; CSP unchanged and safe.
+
+CI tests:
+
+Cannot read private group without membership (403).
+
+Pseudonym shows instead of real name inside that group.
+
+Report → action path updates status and hides content.
+
+Feed pagination stable; pinned posts remain on top.
+
+J) Stretch (optional, if time)
+
+Room Challenges (Whoop-style): weekly gentle prompts (“Hydration streak”), opt-in, no competitive leaderboards—just supportive badges.
+
+Resources posts: mod-curated links with preview cards.
+
+Saved posts: per user bookmark.
+
+Constraints & existing safeguards to keep
+
+Existing Helmet/CSP, CORS, rate limits, auth middleware, log redaction.
+
+No client-side secrets; no PHI in notifications; exports remain Cache-Control: no-store.
+
+Maintain performance budgets (feed API p95 < 350ms with indexes).
+
+Deliverables
+
+Migrations for all tables + indexes.
+
+New routes + controllers with tests and rate limits.
+
+UI pages/components (directory, group, thread, mod queue).
+
+Safety layer: sanitizer, keyword flagger, reporting workflow.
+
+Docs update: “Community Guidelines,” “How Zebby Groups keep you safe,” admin/mod handbook.

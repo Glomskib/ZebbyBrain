@@ -18,6 +18,10 @@ import {
   productReviews,
   reviewHelpfulness,
   reminders,
+  sharedContent,
+  sharePermissions,
+  shareAnalytics,
+  shareComments,
   type User,
   type UpsertUser,
   type SymptomLog,
@@ -53,9 +57,18 @@ import {
   type InsertReviewHelpfulness,
   type Reminder,
   type InsertReminder,
+  type SharedContent,
+  type InsertSharedContent,
+  type SharePermissions,
+  type InsertSharePermissions,
+  type ShareAnalytics,
+  type InsertShareAnalytics,
+  type ShareComments,
+  type InsertShareComments,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, inArray, gte, lte } from "drizzle-orm";
+import { eq, desc, and, or, inArray, gte, lte, sql } from "drizzle-orm";
+import bcrypt from "bcrypt";
 
 export interface IStorage {
   // User operations (mandatory for Replit Auth)
@@ -158,6 +171,31 @@ export interface IStorage {
   snoozeReminder(id: string, userId: string, snoozeUntil: Date): Promise<void>;
   getScheduledReminders(before: Date): Promise<Reminder[]>;
   updateReminderNextScheduled(id: string, nextScheduledAt: Date, lastSentAt?: Date): Promise<void>;
+
+  // Sharing operations
+  createSharedContent(content: InsertSharedContent): Promise<SharedContent>;
+  getSharedContent(id: string): Promise<SharedContent | undefined>;
+  getPublicSharedContent(id: string, providedPassword?: string, viewerIpHash?: string): Promise<SharedContent | undefined>;
+  getUserSharedContent(userId: string): Promise<SharedContent[]>;
+  updateSharedContent(id: string, userId: string, updates: Partial<InsertSharedContent>): Promise<SharedContent>;
+  deleteSharedContent(id: string, userId: string): Promise<void>;
+  incrementShareViews(id: string): Promise<void>;
+  
+  // Share permissions
+  createSharePermissions(permissions: InsertSharePermissions): Promise<SharePermissions>;
+  getSharePermissions(sharedContentId: string): Promise<SharePermissions | undefined>;
+  updateSharePermissions(sharedContentId: string, updates: Partial<InsertSharePermissions>): Promise<SharePermissions>;
+  
+  // Share analytics  
+  recordShareAnalytics(analytics: InsertShareAnalytics): Promise<ShareAnalytics>;
+  getShareAnalytics(sharedContentId: string, limit?: number): Promise<ShareAnalytics[]>;
+  getShareAnalyticsSummary(sharedContentId: string): Promise<{ totalViews: number; uniqueViewers: number; countries: string[] }>;
+  
+  // Share comments
+  createShareComment(comment: InsertShareComments): Promise<ShareComments>;
+  getShareComments(sharedContentId: string, approved?: boolean): Promise<ShareComments[]>;
+  updateCommentApproval(id: string, isApproved: boolean, moderatorNotes?: string): Promise<void>;
+  deleteShareComment(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -988,6 +1026,221 @@ export class DatabaseStorage implements IStorage {
       .update(reminders)
       .set(updates)
       .where(eq(reminders.id, id));
+  }
+
+  // Sharing operations implementation
+  async createSharedContent(content: InsertSharedContent): Promise<SharedContent> {
+    // Hash password if this is password-protected content
+    let processedContent = { ...content };
+    if (content.shareType === "password_protected" && content.sharePassword) {
+      const saltRounds = 12;
+      processedContent.sharePassword = await bcrypt.hash(content.sharePassword, saltRounds);
+    }
+
+    const [created] = await db
+      .insert(sharedContent)
+      .values(processedContent)
+      .returning();
+    return created;
+  }
+
+  async getSharedContent(id: string): Promise<SharedContent | undefined> {
+    const [content] = await db
+      .select()
+      .from(sharedContent)
+      .where(eq(sharedContent.id, id));
+    return content;
+  }
+
+  async getPublicSharedContent(id: string, providedPassword?: string, viewerIpHash?: string): Promise<SharedContent | undefined> {
+    const [content] = await db
+      .select()
+      .from(sharedContent)
+      .where(
+        and(
+          eq(sharedContent.id, id),
+          eq(sharedContent.isActive, true),
+          or(
+            eq(sharedContent.shareType, "public"),
+            eq(sharedContent.shareType, "password_protected")
+          )
+        )
+      );
+
+    if (!content) {
+      return undefined;
+    }
+
+    // Check password protection
+    if (content.shareType === "password_protected") {
+      if (!providedPassword || !content.sharePassword) {
+        return undefined; // No password provided or no password set
+      }
+      
+      // Secure password verification using bcrypt
+      const isPasswordValid = await bcrypt.compare(providedPassword, content.sharePassword);
+      if (!isPasswordValid) {
+        return undefined; // Invalid password
+      }
+    }
+
+    // Record analytics and increment views only after authorization
+    if (viewerIpHash) {
+      await this.recordShareAnalytics({
+        sharedContentId: id,
+        viewerIpHash,
+        interactionType: "view",
+        referrerSource: "direct",
+      });
+
+      await this.incrementShareViews(id);
+    }
+
+    return content;
+  }
+
+  async getUserSharedContent(userId: string): Promise<SharedContent[]> {
+    return await db
+      .select()
+      .from(sharedContent)
+      .where(eq(sharedContent.userId, userId))
+      .orderBy(desc(sharedContent.createdAt));
+  }
+
+  async updateSharedContent(id: string, userId: string, updates: Partial<InsertSharedContent>): Promise<SharedContent> {
+    // Hash password if being updated to password-protected content
+    let processedUpdates = { ...updates };
+    if (updates.shareType === "password_protected" && updates.sharePassword) {
+      const saltRounds = 12;
+      processedUpdates.sharePassword = await bcrypt.hash(updates.sharePassword, saltRounds);
+    }
+
+    const [updated] = await db
+      .update(sharedContent)
+      .set({ ...processedUpdates, updatedAt: new Date() })
+      .where(and(eq(sharedContent.id, id), eq(sharedContent.userId, userId)))
+      .returning();
+    return updated;
+  }
+
+  async deleteSharedContent(id: string, userId: string): Promise<void> {
+    await db
+      .delete(sharedContent)
+      .where(and(eq(sharedContent.id, id), eq(sharedContent.userId, userId)));
+  }
+
+  async incrementShareViews(id: string): Promise<void> {
+    await db
+      .update(sharedContent)
+      .set({ 
+        viewCount: sql`${sharedContent.viewCount} + 1`,
+        lastViewedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(sharedContent.id, id));
+  }
+
+  // Share permissions implementation
+  async createSharePermissions(permissions: InsertSharePermissions): Promise<SharePermissions> {
+    const [created] = await db
+      .insert(sharePermissions)
+      .values(permissions)
+      .returning();
+    return created;
+  }
+
+  async getSharePermissions(sharedContentId: string): Promise<SharePermissions | undefined> {
+    const [permissions] = await db
+      .select()
+      .from(sharePermissions)
+      .where(eq(sharePermissions.sharedContentId, sharedContentId));
+    return permissions;
+  }
+
+  async updateSharePermissions(sharedContentId: string, updates: Partial<InsertSharePermissions>): Promise<SharePermissions> {
+    const [updated] = await db
+      .update(sharePermissions)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(sharePermissions.sharedContentId, sharedContentId))
+      .returning();
+    return updated;
+  }
+
+  // Share analytics implementation
+  async recordShareAnalytics(analytics: InsertShareAnalytics): Promise<ShareAnalytics> {
+    const [recorded] = await db
+      .insert(shareAnalytics)
+      .values(analytics)
+      .returning();
+    return recorded;
+  }
+
+  async getShareAnalytics(sharedContentId: string, limit = 100): Promise<ShareAnalytics[]> {
+    return await db
+      .select()
+      .from(shareAnalytics)
+      .where(eq(shareAnalytics.sharedContentId, sharedContentId))
+      .orderBy(desc(shareAnalytics.timestamp))
+      .limit(limit);
+  }
+
+  async getShareAnalyticsSummary(sharedContentId: string): Promise<{ totalViews: number; uniqueViewers: number; countries: string[] }> {
+    const analytics = await db
+      .select({
+        interactionType: shareAnalytics.interactionType,
+        viewerIpHash: shareAnalytics.viewerIpHash,
+        viewerCountry: shareAnalytics.viewerCountry,
+      })
+      .from(shareAnalytics)
+      .where(eq(shareAnalytics.sharedContentId, sharedContentId));
+
+    const totalViews = analytics.filter(a => a.interactionType === "view").length;
+    const uniqueIpHashes = analytics.map(a => a.viewerIpHash).filter(Boolean);
+    const uniqueViewers = new Set(uniqueIpHashes).size;
+    const uniqueCountries = analytics.map(a => a.viewerCountry).filter(Boolean);
+    const countries = Array.from(new Set(uniqueCountries));
+
+    return { totalViews, uniqueViewers, countries };
+  }
+
+  // Share comments implementation
+  async createShareComment(comment: InsertShareComments): Promise<ShareComments> {
+    const [created] = await db
+      .insert(shareComments)
+      .values(comment)
+      .returning();
+    return created;
+  }
+
+  async getShareComments(sharedContentId: string, approved?: boolean): Promise<ShareComments[]> {
+    const conditions = [eq(shareComments.sharedContentId, sharedContentId)];
+    
+    if (approved !== undefined) {
+      conditions.push(eq(shareComments.isApproved, approved));
+    }
+
+    return await db
+      .select()
+      .from(shareComments)
+      .where(and(...conditions))
+      .orderBy(desc(shareComments.createdAt));
+  }
+
+  async updateCommentApproval(id: string, isApproved: boolean, moderatorNotes?: string): Promise<void> {
+    await db
+      .update(shareComments)
+      .set({ 
+        isApproved, 
+        moderatorNotes,
+        updatedAt: new Date()
+      })
+      .where(eq(shareComments.id, id));
+  }
+
+  async deleteShareComment(id: string): Promise<void> {
+    await db
+      .delete(shareComments)
+      .where(eq(shareComments.id, id));
   }
 }
 
