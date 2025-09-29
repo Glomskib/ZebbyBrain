@@ -6,6 +6,14 @@ Zebby's World is a comprehensive health tracking application specifically design
 
 ## Recent Changes
 
+### September 2025 - Zebby Social: Groups Directory MVP
+- **Groups Directory Frontend**: Discover page with search, category filtering, and three tabs (Discover/Suggested/Trending)
+- **Membership Status Handling**: Proper differentiation between approved/pending/no membership states
+- **Smart Group Cards**: Display name, description, member count, category, visibility with appropriate Join/View/Pending buttons
+- **Slug-Based Routing**: All navigation uses group slugs (`/groups/{slug}`) matching backend APIs
+- **Public Groups API**: GET /api/groups/public with tags array for group discovery
+- **My Groups API**: GET /api/groups/my-groups with membership details for user's groups
+
 ### September 2025 - EDS-Focused Onboarding System
 - **Complete 6-step onboarding flow** for new EDS/rare condition patients
 - **Extended user schema** with EDS-specific profile fields (type, diagnosis year, symptoms, goals)
@@ -57,6 +65,7 @@ Preferred communication style: Simple, everyday language.
 - **Data Visualization**: Charts showing symptom patterns and trends
 - **Marketplace Integration**: Curated products for EDS/rare condition management with specialized review system
 - **User Dashboard**: Centralized view of recent activity and AI insights
+- **Zebby Social**: Community groups feature with Groups Directory for discovering and joining condition-specific support groups
 
 ## External Dependencies
 
