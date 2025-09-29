@@ -324,6 +324,125 @@ export const insightsCache = pgTable("insights_cache", {
   userRangeIdx: uniqueIndex("insights_cache_user_range_idx").on(table.userId, table.rangeKey),
 }));
 
+// Shared content - Main table for shareable health insights and progress
+export const sharedContent = pgTable("shared_content", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  
+  // Content metadata
+  title: varchar("title").notNull(), // User-defined title for the share
+  description: text("description"), // Optional description/context
+  contentType: varchar("content_type").notNull(), // "symptom_trends", "health_summary", "ai_insights", "product_review", "achievement", "custom"
+  
+  // Content configuration
+  dateRangeStart: timestamp("date_range_start"), // Start of data range being shared
+  dateRangeEnd: timestamp("date_range_end"), // End of data range being shared
+  dataSelections: jsonb("data_selections").notNull(), // What specific data to include
+  
+  // Generated content
+  contentSnapshot: jsonb("content_snapshot").notNull(), // Pre-generated content for fast loading
+  imageUrl: varchar("image_url"), // Generated visualization/chart URL if applicable
+  
+  // Sharing settings
+  shareType: varchar("share_type").notNull().default("public"), // "public", "password_protected", "private"
+  sharePassword: varchar("share_password"), // Hashed password for protected shares
+  expiresAt: timestamp("expires_at"), // Optional expiration date
+  allowComments: boolean("allow_comments").default(false),
+  showAuthorInfo: boolean("show_author_info").default(true), // Whether to show user's name/info
+  
+  // Analytics
+  viewCount: integer("view_count").default(0),
+  lastViewedAt: timestamp("last_viewed_at"),
+  
+  // Status
+  isActive: boolean("is_active").default(true),
+  isReported: boolean("is_reported").default(false), // For community moderation
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userActiveIdx: index("shared_content_user_active_idx").on(table.userId, table.isActive),
+  contentTypeIdx: index("shared_content_type_idx").on(table.contentType),
+  expiresIdx: index("shared_content_expires_idx").on(table.expiresAt),
+}));
+
+// Share permissions and access tracking
+export const sharePermissions = pgTable("share_permissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sharedContentId: varchar("shared_content_id").notNull().references(() => sharedContent.id, { onDelete: 'cascade' }),
+  
+  // Access control
+  accessType: varchar("access_type").notNull(), // "anyone", "specific_users", "domain_restricted", "healthcare_provider"
+  allowedUsers: text("allowed_users").array(), // Specific user IDs or emails if restricted
+  allowedDomains: text("allowed_domains").array(), // Email domains if domain-restricted
+  
+  // Usage permissions
+  allowDownload: boolean("allow_download").default(false),
+  allowPrint: boolean("allow_print").default(true),
+  allowShare: boolean("allow_share").default(false), // Whether viewers can reshare
+  watermarkRequired: boolean("watermark_required").default(false),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Analytics for shared content engagement
+export const shareAnalytics = pgTable("share_analytics", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sharedContentId: varchar("shared_content_id").notNull().references(() => sharedContent.id, { onDelete: 'cascade' }),
+  
+  // View tracking
+  viewerIpHash: varchar("viewer_ip_hash"), // Hashed IP for anonymized analytics
+  viewerUserId: varchar("viewer_user_id").references(() => users.id), // If viewer is logged in
+  viewerUserAgent: text("viewer_user_agent"),
+  
+  // Engagement metrics
+  viewDurationSeconds: integer("view_duration_seconds"),
+  interactionType: varchar("interaction_type"), // "view", "download", "print", "comment", "share"
+  referrerSource: varchar("referrer_source"), // "direct", "social_media", "email", "healthcare_portal"
+  
+  // Geographic data (anonymized)
+  viewerCountry: varchar("viewer_country"),
+  viewerRegion: varchar("viewer_region"),
+  
+  timestamp: timestamp("timestamp").defaultNow(),
+}, (table) => ({
+  contentTimeIdx: index("share_analytics_content_time_idx").on(table.sharedContentId, table.timestamp.desc()),
+  interactionTypeIdx: index("share_analytics_interaction_idx").on(table.interactionType),
+}));
+
+// Community comments on shared content
+export const shareComments = pgTable("share_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sharedContentId: varchar("shared_content_id").notNull().references(() => sharedContent.id, { onDelete: 'cascade' }),
+  
+  // Comment author (can be anonymous)
+  authorUserId: varchar("author_user_id").references(() => users.id), // null for anonymous comments
+  authorName: varchar("author_name"), // Display name (real or anonymous)
+  authorEmail: varchar("author_email"), // For notifications, optional
+  
+  // Comment content
+  commentText: text("comment_text").notNull(),
+  isSupport: boolean("is_support").default(false), // Tagged as supportive/encouraging
+  isQuestion: boolean("is_question").default(false), // Tagged as a question
+  
+  // Moderation
+  isApproved: boolean("is_approved").default(false),
+  isReported: boolean("is_reported").default(false),
+  moderatorNotes: text("moderator_notes"),
+  
+  // Parent comment for threading (self-reference)
+  parentCommentId: varchar("parent_comment_id"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  contentApprovedIdx: index("share_comments_content_approved_idx").on(table.sharedContentId, table.isApproved),
+  parentIdx: index("share_comments_parent_idx").on(table.parentCommentId),
+  // Add foreign key constraint separately to avoid circular reference issues
+  parentCommentFk: table.parentCommentId.references(() => table.id),
+}));
+
 // Reminders system for medication, hydration, posture, and custom reminders
 export const reminders = pgTable("reminders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -669,3 +788,44 @@ export const insertInsightsCacheSchema = createInsertSchema(insightsCache).omit(
 });
 export type InsertInsightsCache = z.infer<typeof insertInsightsCacheSchema>;
 export type InsightsCache = typeof insightsCache.$inferSelect;
+
+// Sharing types
+export const insertSharedContentSchema = createInsertSchema(sharedContent).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  viewCount: true,
+  lastViewedAt: true,
+}).extend({
+  dateRangeStart: z.string().datetime().optional().transform((str) => str ? new Date(str) : undefined),
+  dateRangeEnd: z.string().datetime().optional().transform((str) => str ? new Date(str) : undefined),
+  expiresAt: z.string().datetime().optional().transform((str) => str ? new Date(str) : undefined),
+});
+export type InsertSharedContent = z.infer<typeof insertSharedContentSchema>;
+export type SharedContent = typeof sharedContent.$inferSelect;
+
+export const insertSharePermissionsSchema = createInsertSchema(sharePermissions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertSharePermissions = z.infer<typeof insertSharePermissionsSchema>;
+export type SharePermissions = typeof sharePermissions.$inferSelect;
+
+export const insertShareAnalyticsSchema = createInsertSchema(shareAnalytics).omit({
+  id: true,
+  timestamp: true,
+});
+export type InsertShareAnalytics = z.infer<typeof insertShareAnalyticsSchema>;
+export type ShareAnalytics = typeof shareAnalytics.$inferSelect;
+
+export const insertShareCommentsSchema = createInsertSchema(shareComments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  isApproved: true,
+  isReported: true,
+  moderatorNotes: true,
+});
+export type InsertShareComments = z.infer<typeof insertShareCommentsSchema>;
+export type ShareComments = typeof shareComments.$inferSelect;
