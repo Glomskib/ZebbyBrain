@@ -1705,13 +1705,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     to: z.string().optional(),
     sections: z.array(z.enum([
       "summary", "symptoms", "ai-interactions", "profile"
-    ])).nonempty()
+    ])).nonempty(),
+    version: z.enum(["1", "2"]).optional().default("1") // Support v2 format
   });
 
   app.post('/api/export/pdf', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const { from, to, sections } = pdfSectionsSchema.parse(req.body || {});
+      const { from, to, sections, version } = pdfSectionsSchema.parse(req.body || {});
       const fromDate = from ? new Date(from) : undefined;
       const toDate = to ? new Date(to) : undefined;
 
@@ -1729,8 +1730,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Fetch data based on requested sections
-      const [user, symptoms, aiInteractions] = await Promise.all([
+      // Fetch data based on requested sections and version
+      const [user, symptoms, aiInteractions, vitalsLogs, sleepLogs] = await Promise.all([
         sections.includes("profile") || sections.includes("summary") 
           ? storage.getUser(userId) 
           : Promise.resolve(null),
@@ -1739,7 +1740,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : Promise.resolve([]),
         sections.includes("ai-interactions") || sections.includes("summary")
           ? storage.exportUserAIInteractions(userId, fromDate, toDate)
-          : Promise.resolve([])
+          : Promise.resolve([]),
+        // For v2: fetch vitals for HR trends (heart rate data)
+        version === "2" ? storage.getUserVitalsLogs(userId, 'heart_rate', 1000, fromDate, toDate) : Promise.resolve([]),
+        // For v2: fetch sleep logs for sleep trends
+        version === "2" ? storage.getUserSleepLogs(userId, 100, fromDate, toDate) : Promise.resolve([])
       ]);
 
       // Create PDF document with built-in fonts that support bold styles
@@ -1754,6 +1759,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const formatDate = (date?: Date | string) => 
         date ? new Date(date).toLocaleDateString() : "—";
+      
+      const formatTime = (date?: Date | string) => 
+        date ? new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "—";
+
+      // Generate simple sparkline data as text representation for v2
+      const generateSparklineData = (data: number[]) => {
+        if (data.length === 0) return "No data";
+        const max = Math.max(...data);
+        const min = Math.min(...data);
+        const range = max - min;
+        if (range === 0) return "●●●●●"; // Flat line
+        
+        return data.slice(0, 10).map(val => {
+          const normalized = (val - min) / range;
+          if (normalized < 0.2) return "▁";
+          if (normalized < 0.4) return "▂";
+          if (normalized < 0.6) return "▄";
+          if (normalized < 0.8) return "▆";
+          return "█";
+        }).join("");
+      };
 
       // Generate highlight bullets based on data patterns
       const generateHighlights = (symptoms: SymptomLog[], aiInteractions: AIInteraction[]) => {
@@ -1798,94 +1824,253 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const highlights = generateHighlights(symptoms, aiInteractions);
 
-      const content: any[] = [
-        // Cover Page
-        { 
-          stack: [
-            { text: "🦓", fontSize: 48, alignment: "center", margin: [0, 60, 0, 20] },
-            { text: "ZEBBY", style: "logo", alignment: "center" },
-            { text: "Health Tracking Report", style: "subtitle", alignment: "center", margin: [0, 5, 0, 40] },
-            { text: `Patient: ${user?.firstName} ${user?.lastName}`, style: "patientInfo", alignment: "center" },
-            { text: `Report Date: ${new Date().toLocaleDateString()}`, style: "patientInfo", alignment: "center", margin: [0, 5, 0, 40] },
-            { text: "CLINICIAN PACK", style: "clinicianPack", alignment: "center", margin: [0, 20, 0, 60] },
-            { 
-              text: "This report contains comprehensive health tracking data for clinical review. All information is patient-reported and should be considered alongside clinical assessment.", 
-              style: "coverDisclaimer", 
-              alignment: "center",
-              margin: [40, 0, 40, 0]
-            }
-          ],
-          pageBreak: "after"
-        },
+      // Choose content based on version
+      const content: any[] = version === "2" ? generateClinicianPackV2Content() : generateStandardContent();
 
-        // Key Highlights Section
-        { text: "Key Highlights", style: "h1" },
-        { text: "Recent patterns and notable information for clinical consideration:", style: "subtitle", margin: [0, 0, 0, 10] },
-        {
-          ul: highlights,
-          margin: [0, 0, 0, 20],
-          style: "highlights"
-        },
+      function generateClinicianPackV2Content() {
+        return [
+          // Enhanced Cover Page for Clinician Pack v2
+          { 
+            stack: [
+              { text: "🦓", fontSize: 48, alignment: "center", margin: [0, 40, 0, 15] },
+              { text: "ZEBBY'S WORLD", style: "logoV2", alignment: "center" },
+              { text: "Clinician Pack Report v2", style: "clinicianTitle", alignment: "center", margin: [0, 5, 0, 30] },
+              { 
+                text: user?.firstName && user?.lastName 
+                  ? `Patient: ${user.firstName} ${user.lastName}` 
+                  : "Patient: [Name not provided]", 
+                style: "patientInfo", 
+                alignment: "center" 
+              },
+              { 
+                text: `Date Range: ${from ? formatDate(fromDate) : "All data"} - ${to ? formatDate(toDate) : "Present"}`,
+                style: "dateRange", 
+                alignment: "center", 
+                margin: [0, 5, 0, 5] 
+              },
+              { 
+                text: `Generated: ${new Date().toLocaleString()}`,
+                style: "timestamp", 
+                alignment: "center", 
+                margin: [0, 0, 0, 40] 
+              },
+              { 
+                text: "INFORMATIONAL ONLY — NOT MEDICAL ADVICE", 
+                style: "medicalDisclaimer", 
+                alignment: "center",
+                margin: [0, 20, 0, 60]
+              },
+              { 
+                text: "This report contains patient-reported health tracking data compiled for clinical review. All symptom entries, vitals, and AI interactions are self-reported by the patient. This information should be considered alongside clinical assessment and is not a substitute for professional medical evaluation.", 
+                style: "coverDisclaimer", 
+                alignment: "center",
+                margin: [40, 0, 40, 0]
+              }
+            ],
+            pageBreak: "after"
+          },
 
-        // Key Changes Since Last Visit
-        { text: "Key Changes Since Last Visit", style: "h2" },
-        { text: "Notable patterns and changes in the past 30 days (when applicable):", style: "subtitle", margin: [0, 0, 0, 10] },
-        (() => {
-          const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-          const recentSymptoms = symptoms.filter(log => new Date(log.timestamp) > thirtyDaysAgo);
-          const olderSymptoms = symptoms.filter(log => new Date(log.timestamp) <= thirtyDaysAgo);
-          
-          const changes: string[] = [];
-          
-          if (recentSymptoms.length > 0) {
-            const recentAvgIntensity = recentSymptoms.reduce((sum, log) => sum + log.intensity, 0) / recentSymptoms.length;
-            const olderAvgIntensity = olderSymptoms.length > 0 
-              ? olderSymptoms.reduce((sum, log) => sum + log.intensity, 0) / olderSymptoms.length 
-              : null;
-              
-            if (olderAvgIntensity !== null) {
-              const change = recentAvgIntensity - olderAvgIntensity;
-              const direction = change > 0.5 ? "increased" : change < -0.5 ? "decreased" : "remained stable";
-              changes.push(`Average symptom intensity has ${direction} (${recentAvgIntensity.toFixed(1)} vs ${olderAvgIntensity.toFixed(1)})`);
-            } else {
-              changes.push(`Started tracking symptoms with average intensity of ${recentAvgIntensity.toFixed(1)}/10`);
-            }
+          // AI Analysis Summary Block
+          (() => {
+            const latestAiReflection = aiInteractions
+              .filter(ai => ai.response && ai.response.length > 20)
+              .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
             
-            changes.push(`Recorded ${recentSymptoms.length} symptom logs in past 30 days`);
-            
-            // Most frequent recent symptoms
-            const recentSymptomCounts: Record<string, number> = {};
-            recentSymptoms.forEach(log => {
-              log.symptoms.forEach(symptom => {
-                recentSymptomCounts[symptom] = (recentSymptomCounts[symptom] || 0) + 1;
-              });
-            });
-            const topRecentSymptom = Object.entries(recentSymptomCounts).sort(([,a], [,b]) => b - a)[0];
-            if (topRecentSymptom) {
-              changes.push(`Most frequent recent symptom: ${topRecentSymptom[0]} (${topRecentSymptom[1]} times)`);
-            }
-          } else {
-            changes.push("No symptom logs recorded in the past 30 days");
+            return {
+              stack: [
+                { text: "AI Analysis Summary", style: "h1" },
+                { text: "Zebby's Gentle Reflection", style: "h2", margin: [0, 0, 0, 8] },
+                {
+                  text: latestAiReflection 
+                    ? latestAiReflection.response.slice(0, 120) + (latestAiReflection.response.length > 120 ? "..." : "")
+                    : "No recent AI analysis available for this time period.",
+                  style: "aiAnalysis",
+                  margin: [10, 5, 10, 15],
+                  italics: true
+                },
+                { 
+                  text: latestAiReflection 
+                    ? `Based on interaction from ${formatDate(latestAiReflection.createdAt)}` 
+                    : "",
+                  style: "aiTimestamp",
+                  fontSize: 8,
+                  color: '#6b7280',
+                  margin: [10, 0, 0, 20]
+                }
+              ]
+            };
+          })(),
+
+          // Trends Overview with Sparklines
+          {
+            stack: [
+              { text: "Health Trends Overview", style: "h1" },
+              { text: "Visual patterns for clinical assessment", style: "subtitle", margin: [0, 0, 0, 15] },
+              {
+                columns: [
+                  {
+                    width: '33%',
+                    stack: [
+                      { text: "Pain Levels", style: "trendTitle" },
+                      { 
+                        text: (() => {
+                          const painData = symptoms
+                            .filter(s => s.intensity && s.intensity > 0)
+                            .slice(-14) // Last 14 entries
+                            .map(s => s.intensity || 0);
+                          return generateSparklineData(painData);
+                        })(),
+                        style: "sparkline"
+                      },
+                      { 
+                        text: symptoms.length > 0 
+                          ? `Avg: ${(symptoms.reduce((sum, s) => sum + (s.intensity || 0), 0) / symptoms.length).toFixed(1)}/10`
+                          : "No data",
+                        style: "trendStat"
+                      }
+                    ]
+                  },
+                  {
+                    width: '33%',
+                    stack: [
+                      { text: "Heart Rate", style: "trendTitle" },
+                      { 
+                        text: (() => {
+                          const hrData = vitalsLogs
+                            .slice(-14) // Last 14 entries
+                            .map(v => parseFloat(v.value) || 0);
+                          return generateSparklineData(hrData);
+                        })(),
+                        style: "sparkline"
+                      },
+                      { 
+                        text: vitalsLogs.length > 0 
+                          ? `Avg: ${Math.round(vitalsLogs.reduce((sum, v) => sum + (parseFloat(v.value) || 0), 0) / vitalsLogs.length)} bpm`
+                          : "No data",
+                        style: "trendStat"
+                      }
+                    ]
+                  },
+                  {
+                    width: '33%',
+                    stack: [
+                      { text: "Sleep Hours", style: "trendTitle" },
+                      { 
+                        text: (() => {
+                          const sleepData = sleepLogs
+                            .slice(-14) // Last 14 entries
+                            .map(s => s.totalMinutes ? s.totalMinutes / 60 : 0);
+                          return generateSparklineData(sleepData);
+                        })(),
+                        style: "sparkline"
+                      },
+                      { 
+                        text: sleepLogs.length > 0 
+                          ? `Avg: ${(sleepLogs.reduce((sum, s) => sum + (s.totalMinutes || 0), 0) / sleepLogs.length / 60).toFixed(1)}h`
+                          : "No data",
+                        style: "trendStat"
+                      }
+                    ]
+                  }
+                ],
+                margin: [0, 0, 0, 25]
+              }
+            ]
           }
-          
-          if (changes.length === 0) {
-            changes.push("Insufficient data to determine changes since last visit");
-          }
-          
-          return {
-            ul: changes,
+          ,
+
+          // Enhanced Symptom Logs Table for v2 with time, weather, HR, water stamps
+          ...(sections.includes("symptoms") && symptoms.length ? [{
+            text: "Detailed Symptom Logs", style: "h1", pageBreak: "before"
+          }, {
+            text: `${symptoms.length} entries with contextual data`, style: "subtitle", margin: [0, 0, 0, 10]
+          }, {
+            table: {
+              headerRows: 1,
+              widths: ["12%", "8%", "25%", "10%", "20%", "25%"],
+              body: [
+                [
+                  {text:"Date", style:"tableHeader"}, 
+                  {text:"Time", style:"tableHeader"}, 
+                  {text:"Symptoms", style:"tableHeader"}, 
+                  {text:"Intensity", style:"tableHeader"}, 
+                  {text:"Context", style:"tableHeader"},
+                  {text:"Notes & AI Insight", style:"tableHeader"}
+                ],
+                ...symptoms.map((symptom: SymptomLog) => [
+                  { text: formatDate(symptom.timestamp), fontSize: 9 },
+                  { text: formatTime(symptom.timestamp), fontSize: 9 },
+                  { text: symptom.symptoms?.join(", ") || "No symptoms listed", fontSize: 9 },
+                  { text: symptom.intensity ? `${symptom.intensity}/10` : "—", fontSize: 9, alignment: "center" },
+                  { 
+                    text: [
+                      symptom.weatherTemp ? `🌡️ ${symptom.weatherTemp}°C` : "",
+                      symptom.weatherCondition ? ` ${symptom.weatherCondition}` : "",
+                      symptom.heartRateBpm ? `\n❤️ ${symptom.heartRateBpm} bpm` : "",
+                      symptom.waterIntakeCurrentMl ? `\n💧 ${symptom.waterIntakeCurrentMl}ml` : ""
+                    ].filter(Boolean).join(""),
+                    fontSize: 8,
+                    color: '#6b7280'
+                  },
+                  { 
+                    text: [
+                      { text: (symptom.notes || "No notes").slice(0, 100), fontSize: 9 },
+                      symptom.aiReflection ? { text: `\n\nAI: ${symptom.aiReflection.slice(0, 80)}...`, fontSize: 8, color: '#059669', italics: true } : ""
+                    ].filter(Boolean)
+                  }
+                ])
+              ]
+            },
+            layout: {
+              fillColor: (rowIndex: number) => rowIndex === 0 ? '#f9fafb' : rowIndex % 2 === 0 ? '#f9fafb' : null,
+              hLineWidth: () => 0.5,
+              vLineWidth: () => 0.5,
+              hLineColor: () => '#e5e7eb',
+              vLineColor: () => '#e5e7eb'
+            },
+            margin: [0,0,0,15]
+          }] : [])
+        ];
+      }
+
+      function generateStandardContent() {
+        return [
+          // Cover Page
+          { 
+            stack: [
+              { text: "🦓", fontSize: 48, alignment: "center", margin: [0, 60, 0, 20] },
+              { text: "ZEBBY", style: "logo", alignment: "center" },
+              { text: "Health Tracking Report", style: "subtitle", alignment: "center", margin: [0, 5, 0, 40] },
+              { text: `Patient: ${user?.firstName} ${user?.lastName}`, style: "patientInfo", alignment: "center" },
+              { text: `Report Date: ${new Date().toLocaleDateString()}`, style: "patientInfo", alignment: "center", margin: [0, 5, 0, 40] },
+              { text: "CLINICIAN PACK", style: "clinicianPack", alignment: "center", margin: [0, 20, 0, 60] },
+              { 
+                text: "This report contains comprehensive health tracking data for clinical review. All information is patient-reported and should be considered alongside clinical assessment.", 
+                style: "coverDisclaimer",
+                alignment: "center",
+                margin: [40, 0, 40, 0]
+              }
+            ],
+            pageBreak: "after"
+          },
+
+          // Key Highlights Section for v1
+          { text: "Key Highlights", style: "h1" },
+          { text: "Recent patterns and notable information for clinical consideration:", style: "subtitle", margin: [0, 0, 0, 10] },
+          {
+            ul: highlights,
             margin: [0, 0, 0, 20],
             style: "highlights"
-          };
-        })(),
+          }
+        ];
+      }
 
-        { text: "Data Range & Summary", style: "h2" },
-        { text: `Range: ${from ? formatDate(fromDate) : "All available data"} – ${to ? formatDate(toDate) : "Present"}`, margin: [0,0,0,10] },
-      ];
+      // Add enhanced content sections common to both versions
+      const commonSections: any[] = [];
 
       if (sections.includes("summary")) {
-        content.push({ text: "Summary", style: "h2" });
-        content.push({
+        commonSections.push({ text: "Summary", style: "h2" });
+        commonSections.push({
           ul: [
             `User: ${user?.firstName} ${user?.lastName} (${user?.email})`,
             `Symptoms logged: ${symptoms.length}`,
@@ -1897,8 +2082,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (sections.includes("profile") && user) {
-        content.push({ text: "Profile", style: "h2" });
-        content.push({
+        commonSections.push({ text: "Profile", style: "h2" });
+        commonSections.push({
           ul: [
             `Name: ${user.firstName} ${user.lastName}`,
             `Email: ${user.email}`,
@@ -1909,48 +2094,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      if (sections.includes("symptoms") && symptoms.length) {
-        content.push({ text: "Symptom Logs", style: "h2" });
-        content.push({ text: `Total entries: ${symptoms.length}`, style: "subtitle", margin: [0, 0, 0, 8] });
-        content.push({
-          table: {
-            headerRows: 1,
-            widths: ["15%", "35%", "12%", "38%"],
-            body: [
-              [
-                {text:"Date", style:"tableHeader"}, 
-                {text:"Symptoms", style:"tableHeader"}, 
-                {text:"Intensity", style:"tableHeader"}, 
-                {text:"Notes & AI Reflection", style:"tableHeader"}
-              ],
-              ...symptoms.map((symptom: SymptomLog) => [
-                { text: formatDate(symptom.timestamp), fontSize: 9 },
-                { text: symptom.symptoms.join(", "), fontSize: 9 },
-                { text: `${symptom.intensity}/10`, fontSize: 9, alignment: "center" },
-                { 
-                  text: [
-                    { text: (symptom.notes || "No notes").slice(0, 150), fontSize: 9 },
-                    symptom.aiReflection ? { text: `\n\nAI Insight: ${symptom.aiReflection.slice(0, 100)}...`, fontSize: 8, color: '#059669', italics: true } : ""
-                  ].filter(Boolean)
-                }
-              ])
-            ]
-          },
-          layout: {
-            fillColor: (rowIndex: number) => rowIndex === 0 ? '#f9fafb' : rowIndex % 2 === 0 ? '#f9fafb' : null,
-            hLineWidth: () => 0.5,
-            vLineWidth: () => 0.5,
-            hLineColor: () => '#e5e7eb',
-            vLineColor: () => '#e5e7eb'
-          },
-          margin: [0,0,0,15]
-        });
-      }
-
-      if (sections.includes("ai-interactions") && aiInteractions.length) {
-        content.push({ text: "AI Support Conversations", style: "h2" });
-        content.push({ text: `Total conversations: ${aiInteractions.length}`, style: "subtitle", margin: [0, 0, 0, 8] });
-        content.push({
+      if (sections.includes("ai-interactions") && aiInteractions.length && version === "1") {
+        commonSections.push({ text: "AI Support Conversations", style: "h2" });
+        commonSections.push({ text: `Total conversations: ${aiInteractions.length}`, style: "subtitle", margin: [0, 0, 0, 8] });
+        commonSections.push({
           table: {
             headerRows: 1,
             widths: ["15%", "40%", "45%"],
@@ -1978,25 +2125,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Append common sections to content
+      content.push(...commonSections);
+
       const docDef: any = {
         pageMargins: [50, 50, 50, 70],
         content,
         defaultStyle: { font: 'Helvetica', fontSize: 10, lineHeight: 1.3 },
         styles: {
           logo: { fontSize: 32, bold: true, color: '#2563eb', letterSpacing: 3 },
+          logoV2: { fontSize: 28, bold: true, color: '#059669', letterSpacing: 4 },
           subtitle: { fontSize: 14, color: '#666', margin: [0, 0, 0, 10] },
           patientInfo: { fontSize: 12, bold: true, color: '#374151' },
+          dateRange: { fontSize: 11, color: '#6b7280' },
+          timestamp: { fontSize: 10, color: '#6b7280' },
           clinicianPack: { fontSize: 16, bold: true, color: '#059669', letterSpacing: 2 },
+          clinicianTitle: { fontSize: 18, bold: true, color: '#059669', letterSpacing: 1 },
+          medicalDisclaimer: { fontSize: 14, bold: true, color: '#dc2626', letterSpacing: 1 },
           coverDisclaimer: { fontSize: 9, color: '#6b7280', lineHeight: 1.4, italics: true },
           h1: { fontSize: 18, bold: true, margin: [0, 0, 0, 8], color: '#1f2937' },
           h2: { fontSize: 14, bold: true, margin: [0, 16, 0, 8], color: '#374151' },
           highlights: { fontSize: 11, lineHeight: 1.4, margin: [0, 4, 0, 4] },
+          aiAnalysis: { fontSize: 11, color: '#059669', lineHeight: 1.4 },
+          aiTimestamp: { fontSize: 8, color: '#6b7280' },
+          trendTitle: { fontSize: 10, bold: true, color: '#374151', margin: [0, 0, 0, 4] },
+          sparkline: { fontSize: 14, color: '#2563eb', alignment: 'center', margin: [0, 2, 0, 2] },
+          trendStat: { fontSize: 9, color: '#6b7280', alignment: 'center' },
           disclaimer: { italics: true, color: "#6b7280", fontSize: 9 },
           tableHeader: { bold: true, fillColor: '#f3f4f6', color: '#374151' },
-          print: { fontSize: 9, color: '#000' } // Print-optimized styles
+          print: { fontSize: 9, color: '#000' }
         },
         header: (currentPage: number) => currentPage > 1 ? {
-          text: `${user?.firstName} ${user?.lastName} • Zebby Health Report`,
+          text: version === "2" 
+            ? `${user?.firstName} ${user?.lastName} • Zebby's World Clinician Pack v2`
+            : `${user?.firstName} ${user?.lastName} • Zebby Health Report`,
           alignment: 'center',
           fontSize: 8,
           color: '#6b7280',
@@ -2004,7 +2166,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } : null,
         footer: (currentPage: number, pageCount: number) => ({
           columns: [
-            { text: 'Generated by Zebby Health Tracker', fontSize: 7, color: '#9ca3af' },
+            { 
+              text: version === "2" 
+                ? 'Zebby • Not medical advice • Generated for clinical review'
+                : 'Generated by Zebby Health Tracker', 
+              fontSize: 7, 
+              color: '#9ca3af' 
+            },
             { text: `${currentPage}/${pageCount}`, fontSize: 7, color: '#9ca3af', alignment: 'right' }
           ],
           margin: [50, 15, 50, 0]
@@ -2013,7 +2181,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const pdfDoc = printer.createPdfKitDocument(docDef);
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="${generateFilename("zebby_report", "pdf")}"`);
+      res.setHeader("Content-Disposition", `attachment; filename="${generateFilename(version === "2" ? "zebby_clinician_pack_v2" : "zebby_report", "pdf")}"`);
       res.setHeader("Cache-Control", "no-store");
       pdfDoc.pipe(res);
       pdfDoc.end();
@@ -2028,446 +2196,4 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
   return httpServer;
-}
-
-// Helper functions for health data import
-async function processAppleHealthData(userId: string, parsedData: any) {
-  const results = {
-    imported: 0,
-    conflicts: 0,
-    skipped: 0
-  };
-
-  // Process heart rate data
-  for (const record of parsedData.heartRate || []) {
-    try {
-      const existingVitals = await storage.getUserVitalsLogs(userId, 'heart_rate', 1000);
-      const conflictFound = existingVitals.find(v => 
-        Math.abs(new Date(v.timestamp).getTime() - new Date(record.startDate).getTime()) < 300000 // 5 min window
-      );
-
-      if (conflictFound) {
-        await storage.createImportConflict({
-          userId,
-          source: 'apple_health',
-          dataType: 'vitals',
-          existingDataId: conflictFound.id,
-          importData: record,
-          conflictReason: 'similar_time',
-          status: 'pending'
-        });
-        results.conflicts++;
-      } else {
-        await storage.createVitalsLog({
-          userId,
-          type: 'heart_rate',
-          value: record.value.toString(),
-          unit: 'bpm',
-          source: 'apple_health',
-          sourceId: record.uuid,
-          timestamp: new Date(record.startDate)
-        });
-        results.imported++;
-      }
-    } catch (error) {
-      console.error('Error processing Apple Health heart rate record:', error);
-      results.skipped++;
-    }
-  }
-
-  // Process steps data
-  for (const record of parsedData.steps || []) {
-    try {
-      const existingVitals = await storage.getUserVitalsLogs(userId, 'steps', 1000);
-      const conflictFound = existingVitals.find(v => 
-        Math.abs(new Date(v.timestamp).getTime() - new Date(record.startDate).getTime()) < 300000 // 5 min window
-      );
-
-      if (conflictFound) {
-        await storage.createImportConflict({
-          userId,
-          source: 'apple_health',
-          dataType: 'vitals',
-          existingDataId: conflictFound.id,
-          importData: record,
-          conflictReason: 'similar_time',
-          status: 'pending'
-        });
-        results.conflicts++;
-      } else {
-        await storage.createVitalsLog({
-          userId,
-          type: 'steps',
-          value: record.value.toString(),
-          unit: record.unit,
-          source: 'apple_health',
-          sourceId: record.uuid,
-          timestamp: new Date(record.startDate)
-        });
-        results.imported++;
-      }
-    } catch (error) {
-      console.error('Error processing Apple Health steps record:', error);
-      results.skipped++;
-    }
-  }
-
-  // Process sleep data
-  for (const record of parsedData.sleep || []) {
-    try {
-      const existingSleep = await storage.getUserSleepLogs(userId, 1000);
-      const conflictFound = existingSleep.find(s => 
-        Math.abs(new Date(s.bedtime).getTime() - new Date(record.startDate).getTime()) < 3600000 // 1 hour window
-      );
-
-      if (conflictFound) {
-        await storage.createImportConflict({
-          userId,
-          source: 'apple_health',
-          dataType: 'sleep',
-          existingDataId: conflictFound.id,
-          importData: record,
-          conflictReason: 'similar_time',
-          status: 'pending'
-        });
-        results.conflicts++;
-      } else {
-        const duration = new Date(record.endDate).getTime() - new Date(record.startDate).getTime();
-        await storage.createSleepLog({
-          userId,
-          bedtime: new Date(record.startDate),
-          wakeTime: new Date(record.endDate),
-          totalMinutes: Math.round(duration / 60000),
-          source: 'apple_health',
-          sourceId: record.uuid
-        });
-        results.imported++;
-      }
-    } catch (error) {
-      console.error('Error processing Apple Health sleep record:', error);
-      results.skipped++;
-    }
-  }
-
-  return results;
-}
-
-async function syncGoogleFitData(userId: string, source: any) {
-  const results = {
-    imported: 0,
-    conflicts: 0,
-    skipped: 0
-  };
-
-  try {
-    // Fetch heart rate data from Google Fit API
-    const endTime = Date.now();
-    const startTime = endTime - (7 * 24 * 60 * 60 * 1000); // Last 7 days
-
-    const heartRateResponse = await fetch(
-      `https://www.googleapis.com/fitness/v1/users/me/dataSources/derived:com.google.heart_rate.bpm:com.google.android.gms:merge_heart_rate_bpm/datasets/${startTime * 1000000}-${endTime * 1000000}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${source.accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    if (heartRateResponse.ok) {
-      const heartRateData = await heartRateResponse.json();
-      
-      for (const point of heartRateData.point || []) {
-        const timestamp = new Date(parseInt(point.startTimeNanos) / 1000000);
-        const value = point.value[0]?.fpVal || point.value[0]?.intVal;
-        
-        if (!value) continue;
-
-        // Check for conflicts
-        const existingVitals = await storage.getUserVitalsLogs(userId, 'heart_rate', 1000);
-        const conflictFound = existingVitals.find(v => 
-          Math.abs(new Date(v.timestamp).getTime() - timestamp.getTime()) < 300000 // 5 min window
-        );
-
-        if (conflictFound) {
-          await storage.createImportConflict({
-            userId,
-            source: 'google_fit',
-            dataType: 'vitals',
-            existingDataId: conflictFound.id,
-            importData: { timestamp, value, unit: 'bpm' },
-            conflictReason: 'similar_time',
-            status: 'pending'
-          });
-          results.conflicts++;
-        } else {
-          await storage.createVitalsLog({
-            userId,
-            type: 'heart_rate',
-            value: value.toString(),
-            unit: 'bpm',
-            source: 'google_fit',
-            sourceId: `gfit_hr_${point.startTimeNanos}`,
-            timestamp
-          });
-          results.imported++;
-        }
-      }
-    }
-
-    // Fetch steps data from Google Fit API
-    const stepsResponse = await fetch(
-      `https://www.googleapis.com/fitness/v1/users/me/dataSources/derived:com.google.step_count.delta:com.google.android.gms:estimated_steps/datasets/${startTime * 1000000}-${endTime * 1000000}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${source.accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    if (stepsResponse.ok) {
-      const stepsData = await stepsResponse.json();
-      
-      for (const point of stepsData.point || []) {
-        const timestamp = new Date(parseInt(point.startTimeNanos) / 1000000);
-        const value = point.value[0]?.intVal;
-        
-        if (!value) continue;
-
-        // Check for conflicts
-        const existingVitals = await storage.getUserVitalsLogs(userId, 'steps', 1000);
-        const conflictFound = existingVitals.find(v => 
-          Math.abs(new Date(v.timestamp).getTime() - timestamp.getTime()) < 300000 // 5 min window
-        );
-
-        if (conflictFound) {
-          await storage.createImportConflict({
-            userId,
-            source: 'google_fit',
-            dataType: 'vitals',
-            existingDataId: conflictFound.id,
-            importData: { timestamp, value, unit: 'steps' },
-            conflictReason: 'similar_time',
-            status: 'pending'
-          });
-          results.conflicts++;
-        } else {
-          await storage.createVitalsLog({
-            userId,
-            type: 'steps',
-            value: value.toString(),
-            unit: 'steps',
-            source: 'google_fit',
-            sourceId: `gfit_steps_${point.startTimeNanos}`,
-            timestamp
-          });
-          results.imported++;
-        }
-      }
-    }
-
-    // Fetch sleep data from Google Fit API
-    const sleepResponse = await fetch(
-      `https://www.googleapis.com/fitness/v1/users/me/dataSources/derived:com.google.sleep.segment:com.google.android.gms:merged/datasets/${startTime * 1000000}-${endTime * 1000000}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${source.accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    if (sleepResponse.ok) {
-      const sleepData = await sleepResponse.json();
-      
-      // Group sleep points by session
-      const sleepSessions = groupSleepSessions(sleepData.point || []);
-      
-      for (const session of sleepSessions) {
-        // Check for conflicts
-        const existingSleep = await storage.getUserSleepLogs(userId, 1000);
-        const conflictFound = existingSleep.find(s => 
-          Math.abs(new Date(s.bedtime).getTime() - session.bedtime.getTime()) < 3600000 // 1 hour window
-        );
-
-        if (conflictFound) {
-          await storage.createImportConflict({
-            userId,
-            source: 'google_fit',
-            dataType: 'sleep',
-            existingDataId: conflictFound.id,
-            importData: session,
-            conflictReason: 'similar_time',
-            status: 'pending'
-          });
-          results.conflicts++;
-        } else {
-          await storage.createSleepLog({
-            userId,
-            bedtime: session.bedtime,
-            wakeTime: session.wakeTime,
-            totalMinutes: session.totalMinutes,
-            deepMinutes: session.deepMinutes,
-            remMinutes: session.remMinutes,
-            lightMinutes: session.lightMinutes,
-            source: 'google_fit',
-            sourceId: `gfit_sleep_${session.bedtime.getTime()}`
-          });
-          results.imported++;
-        }
-      }
-    }
-
-  } catch (error) {
-    console.error('Error syncing Google Fit data:', error);
-    // If token expired, we could refresh it here
-    if (error.message?.includes('401')) {
-      // Token refresh logic could go here
-    }
-  }
-
-  return results;
-}
-
-function groupSleepSessions(sleepPoints: any[]) {
-  const sessions: any[] = [];
-  let currentSession: any = null;
-
-  for (const point of sleepPoints) {
-    const startTime = new Date(parseInt(point.startTimeNanos) / 1000000);
-    const endTime = new Date(parseInt(point.endTimeNanos) / 1000000);
-    const sleepType = point.value[0]?.intVal; // 1=awake, 2=sleep, 3=out-of-bed, 4=light sleep, 5=deep sleep, 6=REM sleep
-
-    if (!currentSession || (startTime.getTime() - currentSession.wakeTime.getTime()) > 4 * 60 * 60 * 1000) {
-      // New session if more than 4 hours gap
-      if (currentSession) sessions.push(currentSession);
-      currentSession = {
-        bedtime: startTime,
-        wakeTime: endTime,
-        totalMinutes: 0,
-        deepMinutes: 0,
-        remMinutes: 0,
-        lightMinutes: 0
-      };
-    }
-
-    const duration = (endTime.getTime() - startTime.getTime()) / (1000 * 60);
-    currentSession.wakeTime = endTime;
-    currentSession.totalMinutes += duration;
-
-    if (sleepType === 5) currentSession.deepMinutes += duration;
-    else if (sleepType === 6) currentSession.remMinutes += duration;
-    else if (sleepType === 4) currentSession.lightMinutes += duration;
-  }
-
-  if (currentSession) sessions.push(currentSession);
-  return sessions;
-}
-
-async function extractAppleHealthXML(zipBuffer: Buffer): Promise<string> {
-  return new Promise((resolve, reject) => {
-    yauzl.fromBuffer(zipBuffer, { lazyEntries: true }, (err, zipFile) => {
-      if (err) {
-        reject(new Error(`Failed to read ZIP file: ${err.message}`));
-        return;
-      }
-
-      if (!zipFile) {
-        reject(new Error('Invalid ZIP file'));
-        return;
-      }
-
-      zipFile.readEntry();
-      
-      zipFile.on('entry', (entry) => {
-        if (entry.fileName === 'apple_health_export/export.xml' || entry.fileName === 'export.xml') {
-          zipFile.openReadStream(entry, (err, readStream) => {
-            if (err) {
-              reject(new Error(`Failed to read export.xml: ${err.message}`));
-              return;
-            }
-
-            if (!readStream) {
-              reject(new Error('Could not open export.xml'));
-              return;
-            }
-
-            const chunks: Buffer[] = [];
-            readStream.on('data', (chunk) => chunks.push(chunk));
-            readStream.on('end', () => {
-              const xmlData = Buffer.concat(chunks).toString('utf8');
-              resolve(xmlData);
-            });
-            readStream.on('error', (err) => reject(err));
-          });
-        } else {
-          zipFile.readEntry();
-        }
-      });
-
-      zipFile.on('end', () => {
-        reject(new Error('export.xml not found in ZIP file'));
-      });
-
-      zipFile.on('error', (err) => {
-        reject(new Error(`ZIP processing error: ${err.message}`));
-      });
-    });
-  });
-}
-
-async function parseAppleHealthXML(xmlData: string): Promise<any> {
-  return new Promise((resolve, reject) => {
-    parseString(xmlData, (err, result) => {
-      if (err) {
-        reject(new Error(`Failed to parse Apple Health XML: ${err.message}`));
-        return;
-      }
-
-      const healthData = result?.HealthData;
-      if (!healthData) {
-        reject(new Error('Invalid Apple Health XML format - missing HealthData'));
-        return;
-      }
-
-      // Extract relevant data
-      const records = healthData.Record || [];
-      const heartRateRecords = records.filter((r: any) => 
-        r.$.type === 'HKQuantityTypeIdentifierHeartRate'
-      );
-      const stepsRecords = records.filter((r: any) => 
-        r.$.type === 'HKQuantityTypeIdentifierStepCount'
-      );
-      const sleepRecords = records.filter((r: any) => 
-        r.$.type === 'HKCategoryTypeIdentifierSleepAnalysis'
-      );
-
-      resolve({
-        heartRate: heartRateRecords.map((r: any) => ({
-          type: 'heart_rate',
-          value: parseFloat(r.$.value),
-          unit: r.$.unit,
-          startDate: r.$.startDate,
-          endDate: r.$.endDate,
-          uuid: r.$.uuid || `apple_${Date.now()}_${Math.random()}`
-        })),
-        steps: stepsRecords.map((r: any) => ({
-          type: 'steps',
-          value: parseInt(r.$.value),
-          unit: r.$.unit || 'count',
-          startDate: r.$.startDate,
-          endDate: r.$.endDate,
-          uuid: r.$.uuid || `apple_steps_${Date.now()}_${Math.random()}`
-        })),
-        sleep: sleepRecords.map((r: any) => ({
-          type: 'sleep',
-          value: parseInt(r.$.value), // 0=inBed, 1=asleep, 2=awake
-          startDate: r.$.startDate,
-          endDate: r.$.endDate,
-          uuid: r.$.uuid || `apple_sleep_${Date.now()}_${Math.random()}`
-        }))
-      });
-    });
-  });
 }

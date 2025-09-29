@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TrendingUp, TrendingDown, Minus, Heart, Moon, Activity, AlertTriangle, Target, BarChart3 } from "lucide-react";
 import { useState } from "react";
+import { Sparkline } from "@/components/Sparkline";
 
 type RangeKey = "7d" | "30d" | "90d";
 
@@ -16,6 +17,8 @@ interface InsightCard {
   summary: string;
   nudge: string;
   disclaimer: string;
+  sparklineData?: number[];
+  sparklineLabel?: string;
 }
 
 interface InsightCardsData {
@@ -264,8 +267,24 @@ function InsightCardComponent({ card, index }: { card: InsightCard; index: numbe
       
       <CardContent className="pt-0">
         <div className="space-y-3">
-          <div className="flex items-center" data-testid={`metric-${card.id}`}>
+          <div className="flex items-center justify-between" data-testid={`metric-${card.id}`}>
             {formatMetric(card)}
+            {card.sparklineData && card.sparklineData.length > 0 && (
+              <div className="flex flex-col items-end gap-1">
+                <Sparkline 
+                  data={card.sparklineData} 
+                  width={60} 
+                  height={20} 
+                  color="currentColor"
+                  className="text-muted-foreground"
+                />
+                {card.sparklineLabel && (
+                  <span className="text-xs text-muted-foreground">
+                    {card.sparklineLabel}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           
           <p className="text-sm text-foreground">

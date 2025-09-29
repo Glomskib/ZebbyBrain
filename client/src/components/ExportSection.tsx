@@ -83,7 +83,7 @@ export function ExportSection() {
     }
   };
 
-  const downloadPdf = async () => {
+  const downloadPdf = async (version = "1") => {
     try {
       setIsExporting(true);
       const selectedSections = Object.entries(pdfSections)
@@ -106,7 +106,8 @@ export function ExportSection() {
         body: JSON.stringify({
           from: fromDate || undefined,
           to: toDate || undefined,
-          sections: selectedSections
+          sections: selectedSections,
+          version: version
         })
       });
       
@@ -270,15 +271,33 @@ export function ExportSection() {
             ))}
           </div>
           
-          <Button 
-            onClick={downloadPdf}
-            disabled={isExporting}
-            className="w-full"
-            data-testid="button-generate-pdf"
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            {isExporting ? "Generating..." : "Generate PDF Report"}
-          </Button>
+          <div className="space-y-3">
+            <Button 
+              onClick={() => downloadPdf("1")}
+              disabled={isExporting}
+              className="w-full"
+              variant="outline"
+              data-testid="button-generate-pdf-standard"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              {isExporting ? "Generating..." : "Generate Standard PDF Report"}
+            </Button>
+            
+            <Button 
+              onClick={() => downloadPdf("2")}
+              disabled={isExporting}
+              className="w-full"
+              data-testid="button-generate-pdf-clinician"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              {isExporting ? "Generating..." : "Generate Clinician Pack v2"}
+            </Button>
+            
+            <div className="text-xs text-muted-foreground space-y-1">
+              <div><strong>Standard PDF:</strong> Basic health report with your selected sections</div>
+              <div><strong>Clinician Pack v2:</strong> Enhanced clinical report with trends, AI insights, weather/heart rate context, and professional formatting for healthcare providers</div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

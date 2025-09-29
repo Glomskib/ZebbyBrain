@@ -50,6 +50,8 @@ interface InsightCard {
   summary: string;
   nudge: string;
   disclaimer: string;
+  sparklineData?: number[];
+  sparklineLabel?: string;
 }
 
 /**
@@ -215,6 +217,37 @@ export async function computeInsights(userId: string, rangeKey: RangeKey) {
   });
   const corr = pearson(xs, ys); // r negative => more sleep, less next-day pain
 
+  // --- Generate sparkline data ---
+  const daysCount = days;
+  const dailyDates: string[] = [];
+  for (let i = 0; i < daysCount; i++) {
+    const date = shiftDays(from, i);
+    dailyDates.push(date.toISOString().slice(0, 10));
+  }
+
+  // Pain intensity sparkline (daily averages)
+  const painSparkline: number[] = dailyDates.map(date => {
+    const dayPain = byDayPain[date] || [];
+    return dayPain.length > 0 ? avg(dayPain) : 0;
+  });
+
+  // HR delta sparkline (daily posture changes)
+  const hrDeltaSparkline: number[] = dailyDates.map(date => {
+    const dayData = map[date];
+    if (dayData && dayData.supine.length > 0 && dayData.standing.length > 0) {
+      return avg(dayData.standing) - avg(dayData.supine);
+    }
+    return 0;
+  });
+
+  // Sleep hours sparkline (daily sleep duration)
+  const sleepHoursSparkline: number[] = dailyDates.map(date => {
+    const daySleep = sleeps.find(sl => 
+      startOfDay(sl.bedtime).toISOString().slice(0, 10) === date
+    );
+    return daySleep?.totalMinutes ? daySleep.totalMinutes / 60 : 0;
+  });
+
   // --- Build cards (plain language) ---
   const trend =
     Math.abs(delta) < 0.2 ? "flat"
@@ -237,7 +270,9 @@ export async function computeInsights(userId: string, rangeKey: RangeKey) {
       trend === "down" ? "Nice progress—consider keeping whatever helped this period." :
       trend === "flat" ? "If you'd like to experiment, try one tiny change and observe for a week." :
       "Consider a gentle check-in: hydration, a posture break, or a brief rest.",
-    disclaimer: "For awareness only — not medical advice."
+    disclaimer: "For awareness only — not medical advice.",
+    sparklineData: painSparkline, // Include all daily data points
+    sparklineLabel: `${rangeKey} trend`
   });
 
   // Flare frequency card
@@ -265,7 +300,9 @@ export async function computeInsights(userId: string, rangeKey: RangeKey) {
       ? `Average increase from lying to standing was ${meanHrDelta} bpm.`
       : "Not enough posture-specific HR readings to estimate change.",
     nudge: "If helpful, capture HR when lying down and standing up to spot POTS patterns.",
-    disclaimer: "For awareness only — not medical advice."
+    disclaimer: "For awareness only — not medical advice.",
+    sparklineData: hrDeltaSparkline, // Include all daily data points, including valid zero deltas
+    sparklineLabel: "HR Δ trend"
   });
 
   // Sleep correlation card
@@ -285,7 +322,9 @@ export async function computeInsights(userId: string, rangeKey: RangeKey) {
     metric: { r: Math.round(corr.r * 100) / 100, strength: corr.strength },
     summary: `Found ${direction} ${assoc} (r=${Math.round(corr.r * 100) / 100}, ${corr.strength}).`,
     nudge: "Treat this as exploratory; try steady bed/wake times for a week and observe.",
-    disclaimer: "Correlation is not causation; informational only."
+    disclaimer: "Correlation is not causation; informational only.",
+    sparklineData: sleepHoursSparkline, // Include all daily data points
+    sparklineLabel: "Sleep hours"
   });
 
   return { period: rangeKey, cards };
