@@ -6,6 +6,7 @@ import {
   circleMembers,
   circleScopes,
   circleAlertRules,
+  circleAlertLogs,
   circleInviteTokens,
   users,
   symptomLogs,
@@ -18,15 +19,17 @@ import {
   insertCircleMemberSchema,
   insertCircleScopeSchema,
   insertCircleAlertRuleSchema,
+  insertCircleAlertLogSchema,
   insertCircleInviteTokenSchema,
   type Circle,
   type CircleMember,
   type CircleScope,
   type CircleAlertRule
 } from "@shared/schema";
-import { eq, and, or, sql, desc, gte, lte } from "drizzle-orm";
+import { eq, and, or, sql, desc, gte, lte, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { subDays, startOfDay, endOfDay } from "date-fns";
+import nodemailer from "nodemailer";
 
 const router = express.Router();
 
@@ -1055,6 +1058,182 @@ router.get("/member-today/:ownerId", async (req: any, res) => {
   } catch (error: any) {
     console.error("Error fetching today snapshot:", error);
     res.status(500).json({ error: "Failed to fetch today snapshot" });
+  }
+});
+
+// Helper function to get email transporter
+function getEmailTransporter(): nodemailer.Transporter | null {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || "587"),
+    secure: process.env.SMTP_SECURE === "true",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+}
+
+// POST /api/circles/reach-out - Manual reach out to selected members
+router.post("/reach-out", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userId = req.user.claims.sub;
+
+    // Validate request body
+    const reachOutSchema = z.object({
+      memberIds: z.array(z.number()).min(1, "At least one member must be selected"),
+      message: z.string().optional(),
+    });
+
+    const validatedData = reachOutSchema.parse(req.body);
+    const { memberIds, message } = validatedData;
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found" });
+    }
+
+    // Get selected members and verify they belong to this circle
+    const members = await db
+      .select({
+        id: circleMembers.id,
+        email: circleMembers.email,
+        pseudonym: circleMembers.pseudonym,
+        role: circleMembers.role,
+        userId: circleMembers.userId,
+      })
+      .from(circleMembers)
+      .leftJoin(users, eq(circleMembers.userId, users.id))
+      .where(
+        and(
+          eq(circleMembers.circleId, circle.id),
+          inArray(circleMembers.id, memberIds),
+          eq(circleMembers.status, "active")
+        )
+      );
+
+    if (members.length === 0) {
+      return res.status(404).json({ error: "No active members found" });
+    }
+
+    if (members.length !== memberIds.length) {
+      return res.status(400).json({ 
+        error: "Some selected members are not active members of your circle" 
+      });
+    }
+
+    // Get circle owner info
+    const [owner] = await db
+      .select({
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+
+    if (!owner) {
+      return res.status(404).json({ error: "Owner not found" });
+    }
+
+    const ownerName = `${owner.firstName} ${owner.lastName}`.trim() || owner.email;
+
+    // Send emails to selected members
+    const transporter = getEmailTransporter();
+    const emailResults: Array<{ memberId: number; email: string; sent: boolean; error?: string }> = [];
+
+    for (const member of members) {
+      try {
+        // Log the reach out
+        await db.insert(circleAlertLogs).values({
+          circleId: circle.id,
+          toMemberId: member.id,
+          alertType: "manual",
+          message: message || "I could use some support right now.",
+          sentAt: new Date(),
+          cancelledAt: null,
+        });
+
+        // Send email if transporter is configured
+        if (transporter && member.email) {
+          const emailSubject = `${ownerName} needs your support`;
+          const emailBody = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #6366f1;">Someone in your circle needs support</h2>
+              <p><strong>${ownerName}</strong> has reached out to you through Zebby's World Personal Circle.</p>
+              ${message ? `<p style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;"><em>"${message}"</em></p>` : ''}
+              <p>This is a manual reach out, which means they specifically thought of you and wanted you to know they could use some support.</p>
+              <p style="margin-top: 30px;">
+                <a href="${process.env.VITE_APP_URL || 'https://zebbysworld.com'}/circle/member-view" 
+                   style="background: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                  View Their Health Updates
+                </a>
+              </p>
+              <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
+                You're receiving this because you're a member of ${ownerName}'s Personal Circle on Zebby's World.
+              </p>
+            </div>
+          `;
+
+          await transporter.sendMail({
+            from: process.env.SMTP_FROM_EMAIL || "noreply@zebbysworld.com",
+            to: member.email,
+            subject: emailSubject,
+            html: emailBody,
+          });
+
+          emailResults.push({ memberId: member.id, email: member.email, sent: true });
+          
+          console.info(JSON.stringify({
+            evt: "reach_out_email_sent",
+            circleId: circle.id,
+            memberId: member.id,
+            memberEmail: member.email,
+            timestamp: new Date().toISOString()
+          }));
+        } else {
+          emailResults.push({ 
+            memberId: member.id, 
+            email: member.email || "no email", 
+            sent: false,
+            error: transporter ? "No email address" : "Email not configured"
+          });
+        }
+      } catch (emailError: any) {
+        console.error(`Error sending reach out to member ${member.id}:`, emailError);
+        emailResults.push({ 
+          memberId: member.id, 
+          email: member.email || "unknown", 
+          sent: false,
+          error: emailError.message 
+        });
+      }
+    }
+
+    res.json({ 
+      success: true,
+      message: "Reach out notifications sent",
+      results: emailResults,
+    });
+  } catch (error: any) {
+    console.error("Error processing reach out:", error);
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors[0].message });
+    }
+    res.status(500).json({ error: "Failed to process reach out" });
   }
 });
 
