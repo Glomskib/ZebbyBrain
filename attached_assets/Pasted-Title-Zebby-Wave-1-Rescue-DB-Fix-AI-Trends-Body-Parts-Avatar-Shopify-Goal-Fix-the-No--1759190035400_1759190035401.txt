@@ -1,0 +1,126 @@
+Title: Zebby – Wave-1 Rescue (DB Fix + AI Trends + Body-Parts + Avatar + Shopify)
+Goal: Fix the “No changes detected but columns missing” issue, make storage null-safe, and complete remaining Wave-1 features behind feature flags. Keep enterprise security.
+
+Tasks
+1) Database migrations (make reality match schema)
+
+Create a SQL migration file with the ALTER TABLE statements above (idempotent).
+
+Add a script npm run db:migrate:sql that runs it once on startup for Replit.
+
+Ensure app boots even if columns already exist.
+
+2) Storage layer hardening
+
+In all repositories/DAOs for symptoms, vitals, sleep, hydration:
+
+On create, attach weather* only if service returned values; attach bodyPart/side if provided.
+
+On read, treat missing fields as null; don’t select non-existent columns conditionally—select them and handle null.
+
+Add a feature flag guard: if FF_WEATHER=false, skip calling the weather service entirely.
+
+3) AI Research & Trends (replace Reflection)
+
+New route POST /api/ai/insights (auth required):
+
+Build a facts object: last 30/90d averages (pain), flare days (≥7), HR Δ (standing−supine), sleep hours, hydration trend.
+
+Call OpenAI with a system prompt: empathetic, non-medical advice; “Provide supportive insights, lifestyle ideas, and trend callouts. Do not diagnose.”
+
+Return { analysis, trendBullets[], actionIdeas[] }. Cache per user+range for 24h.
+
+Client: replace “Reflection” component with “Zebby Findings” (analysis + bullets + 3 optional steps + small “Why you’re seeing this” note).
+
+4) Body-part UI (minimal but useful)
+
+Add constants for body parts (head, jaw, neck, shoulder_left, shoulder_right, elbow_left, …, knee_right, back_upper, back_lower, chest, abdomen, ankle_left, ankle_right).
+
+Logging form: add a Body part dropdown (or 2-column grid) and Side dropdown where applicable.
+
+Insights: add filter by bodyPart; show small per-part counters (avg/flare trend).
+
+Server: extend insights endpoint to aggregate by bodyPart.
+
+5) Zebby Avatar (persistent chat)
+
+Floating Zebby button (bottom-right). Side panel opens chat.
+
+“Ask Zebby about this” in log items opens the panel with that entry’s context (id + summary).
+
+API POST /api/ai/chat: merges recent snapshot + optional entry summary. Rate limit 10/min. Redact PII.
+
+6) Shopify marketplace (read-only)
+
+Env:
+
+SHOPIFY_STORE_DOMAIN=yourstore.myshopify.com
+SHOPIFY_STOREFRONT_TOKEN=...
+
+
+Server proxy:
+
+/api/shop/products?collection=&cursor= → Storefront API; cache 10m.
+
+/api/shop/product/:id → details.
+
+Client: switch marketplace to /api/shop/*; “Buy” redirects to Shopify checkout URL.
+
+7) Feature flags & safety
+
+Ensure Wave-1 flags exist and default to true for testing:
+
+FF_WEATHER=true
+FF_AI_TRENDS=true
+FF_BODY_PARTS=true
+FF_AVATAR=true
+FF_SHOPIFY=true
+
+
+All health-data GETs send Cache-Control: no-store.
+
+Keep Helmet/CSP, rate limits; do not cache protected APIs in service worker.
+
+8) Tests (minimal but high-value)
+
+DB: After migration runs, a symptom create with lat/lon stores weatherTempC & weatherObservedAt.
+
+AI: /api/ai/insights returns specific references to combined metrics (mock OpenAI in test).
+
+Body parts: create with bodyPart, read filtered insights; server returns per-part aggregates.
+
+Avatar: chat endpoint respects rate limit; includes entry context when provided.
+
+Shopify: products endpoint returns mapped list; Buy link present.
+
+9) Deliverables
+
+SQL migration file + db:migrate:sql script.
+
+Updated repositories/services with null-safe writes/reads.
+
+New AI endpoints + client components (Findings & Avatar panel).
+
+Body-part UI and server aggregation.
+
+Shopify proxy + client switch.
+
+Tests + brief README update (“How to run Wave-1”).
+
+Rollout order (don’t deviate)
+
+Apply SQL migration (or run Prisma/Drizzle migration).
+
+Restart the Repl.
+
+Verify a new symptom can be created (no 500s, weather stamped).
+
+Turn on flags and test:
+
+Findings loads (& caches),
+
+Body-part selector saves/filters,
+
+Avatar panel opens from an entry,
+
+Marketplace lists Shopify products and redirects on Buy.
