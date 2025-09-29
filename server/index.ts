@@ -39,7 +39,7 @@ app.use(helmet({
       "default-src": ["'self'"],
       "img-src": ["'self'", "data:", "blob:"],
       "font-src": ["'self'", "https://fonts.gstatic.com"],
-      "style-src": ["'self'", "https://fonts.googleapis.com", "'unsafe-inline'"], // for Tailwind + Google Fonts
+      "style-src": ["'self'", "https://fonts.googleapis.com"], // for Tailwind + Google Fonts
       "script-src": process.env.NODE_ENV === "development" 
         ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"] // Allow inline scripts in development for Vite + Stripe
         : ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],
@@ -64,7 +64,7 @@ app.use(helmet.contentSecurityPolicy({
     "default-src": ["'self'"],
     "img-src": ["'self'", "data:", "blob:"],
     "font-src": ["'self'", "https://fonts.gstatic.com"],
-    "style-src": ["'self'", "https://fonts.googleapis.com", "'unsafe-inline'"], // for Tailwind + Google Fonts
+    "style-src": ["'self'", "https://fonts.googleapis.com"], // for Tailwind + Google Fonts
     "script-src": process.env.NODE_ENV === "development" 
       ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"] // Allow inline scripts in development for Vite + Stripe
       : ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],

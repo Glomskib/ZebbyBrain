@@ -140,15 +140,19 @@ export default function InsightCards() {
             Gentle analytics to help understand your EDS patterns — not medical advice
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2" role="group" aria-label="Time range selection">
+          <div aria-live="polite" aria-atomic="true" className="sr-only">
+            Insights updated for {ranges.find(r => r.key === selectedRange)?.label}
+          </div>
           {ranges.map(range => (
             <Button
               key={range.key}
               variant={selectedRange === range.key ? "default" : "outline"}
               size="sm"
               onClick={() => setSelectedRange(range.key)}
-              className="text-xs"
+              className="text-xs focus:ring-2 focus:ring-primary focus:ring-opacity-50 focus:outline-none"
               data-testid={`button-timeframe-${range.key}`}
+              aria-pressed={selectedRange === range.key}
             >
               {range.label}
             </Button>

@@ -434,7 +434,7 @@ function SourceCard({
         </div>
         <button
           onClick={() => onToggle(!enabled)}
-          className={`switch ${enabled ? '' : 'switch-off'}`}
+          className={`switch ${enabled ? '' : 'switch-off'} focus:ring-2 focus:ring-primary focus:ring-opacity-50 focus:outline-none`}
           aria-pressed={enabled}
           data-testid={`toggle-${testId}`}
         >
@@ -489,7 +489,7 @@ function AppleHealthCard({
         </div>
         <button
           onClick={() => onToggle(!enabled)}
-          className={`switch ${enabled ? '' : 'switch-off'}`}
+          className={`switch ${enabled ? '' : 'switch-off'} focus:ring-2 focus:ring-primary focus:ring-opacity-50 focus:outline-none`}
           aria-pressed={enabled}
           data-testid={`toggle-${testId}`}
         >
