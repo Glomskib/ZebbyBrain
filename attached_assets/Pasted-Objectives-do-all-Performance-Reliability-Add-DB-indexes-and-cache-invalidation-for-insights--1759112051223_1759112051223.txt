@@ -1,0 +1,349 @@
+Objectives (do all)
+
+Performance & Reliability
+
+Add DB indexes and cache invalidation for insights.
+
+Add SLO logging for key endpoints.
+
+UX Polish (Zebby theme)
+
+Unify the import/insights UI to Zebby’s sky/grass theme.
+
+Improve empty states, loading skeletons, and accessibility.
+
+Security & Ops
+
+Tighten prod CSP (remove unsafe-inline when possible).
+
+Add cron precompute for insights (fast first paint).
+
+Add backups + data retention controls.
+
+Billing & Promotions
+
+Add “Redeem code” self-serve flow (promo code / coupon).
+
+Ensure idempotency & rate limits remain intact.
+
+Marketplace
+
+Add sort/paging, ensure dedupe, guard against null images.
+
+Add JSON-LD Product metadata for SEO.
+
+Repo assumptions
+
+Server: Express + (Drizzle ORM or Prisma) + TypeScript.
+
+Auth: OIDC/session + JWT helper (already in place).
+
+Billing: Stripe Checkout + Portal + webhook (raw body first).
+
+Frontend: React + Tailwind; shared “tile/btn/badge” Zebby classes.
+
+Current endpoints: /api/insights/snapshot, /api/exports/*, /api/billing/*, /stripe/webhook, /api/import/*, /api/products.
+
+1) Performance & Reliability
+1.1 Add composite indexes (Postgres)
+
+Create a migration with these SQLs (adapt table/column names to your schema):
+
+-- symptoms by user + time
+CREATE INDEX IF NOT EXISTS idx_symptom_user_time
+  ON symptom_event (user_id, date_time DESC);
+
+-- vitals by user + time
+CREATE INDEX IF NOT EXISTS idx_vitals_user_time
+  ON vitals_reading (user_id, date_time DESC);
+
+-- sleep by user + date
+CREATE INDEX IF NOT EXISTS idx_sleep_user_date
+  ON sleep_log (user_id, date DESC);
+
+-- insights cache unique key (user_id + range_key)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_insights_user_range
+  ON insights_cache (user_id, range_key);
+
+1.2 Invalidate insights cache on writes
+
+If not using DB triggers, implement app-level invalidation:
+
+// server/db/cache.ts
+import { db } from "./client";
+import { insightsCache } from "./schema";
+export async function invalidateInsightsCache(userId: string) {
+  await db.delete(insightsCache).where(insightsCache.userId.eq(userId));
+}
+
+
+Call after any insert/update/delete to symptom_event, vitals_reading, or sleep_log.
+
+1.3 SLO logging for key endpoints
+
+Add structured logs for:
+
+/api/insights/snapshot
+
+/api/exports/pdf, /api/exports/csv/*
+
+/api/billing/create-checkout-session
+
+const t0 = Date.now();
+// … do work …
+const ms = Date.now() - t0;
+console.info(JSON.stringify({
+  evt: "api_perf",
+  path: req.path,
+  userId: (req as any).user?.id || "anon",
+  ms,
+  cache: cacheHit ? "hit" : "miss",
+  status: res.statusCode
+}));
+
+
+Acceptance
+
+p95 for /api/insights/snapshot < 400ms on seeded data.
+
+Cache shows miss then hit on consecutive calls.
+
+Logs present with evt=api_perf.
+
+2) UX Polish (Zebby theme)
+2.1 Import Settings & Review Queue polish
+
+Apply the skyback/tile/btn/badge classes (already defined) to:
+
+ImportSettings.tsx
+
+ImportReviewQueue.tsx
+
+Add consistent empty states:
+
+<div className="text-center py-12">
+  <div className="text-5xl mb-2">🦓</div>
+  <div className="font-semibold">Nothing here yet</div>
+  <div className="opacity-70 text-sm">Once you import data, items will appear.</div>
+</div>
+
+2.2 Accessibility
+
+Add aria-live="polite" on range switch feedback in InsightCards.
+
+Ensure focus outlines visible (focus:ring Tailwind utilities).
+
+alt text on all marketplace product images.
+
+Acceptance
+
+Keyboard-only navigation works across Import/Insights pages.
+
+Screen readers announce “Insights updated” on range change.
+
+3) Security & Ops
+3.1 Tighten prod CSP (remove 'unsafe-inline' if possible)
+
+Move leftover inline styles/scripts to files.
+
+Keep Stripe allowances only if used.
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'","data:","blob:"],
+      "font-src": ["'self'","https://fonts.gstatic.com"],
+      "style-src": ["'self'","https://fonts.googleapis.com"], // drop 'unsafe-inline' if no inline styles remain
+      "script-src": ["'self'","https://js.stripe.com"],       // only if using Elements/Portal
+      "connect-src": ["'self'","https://api.stripe.com"],
+      "frame-src": ["https://js.stripe.com"],
+      "frame-ancestors": ["'none'"],
+      "object-src": ["'none'"],
+      "base-uri": ["'self'"],
+    },
+  },
+}));
+
+3.2 Nightly insights precompute (cron)
+
+Add a simple daily job to pre-fill cache for active users (adjust to Replit’s scheduling approach):
+
+// server/jobs/precomputeInsights.ts
+import { db } from "../db/client";
+import { users } from "../db/schema";
+import { computeInsights } from "../lib/insights";
+
+export async function precompute() {
+  const active = await db.select().from(users).limit(1000); // or activity-based
+  const ranges: ("7d"|"30d"|"90d")[] = ["7d","30d","90d"];
+  for (const u of active) {
+    for (const r of ranges) {
+      const payload = await computeInsights(u.id, r);
+      // upsert into insights_cache
+      // …
+    }
+  }
+}
+
+
+Wire a tiny in-app scheduler on boot (runs 2am server time; ensure single-run in autoscale):
+
+if (process.env.ENABLE_CRON === "true") {
+  const HOUR = 1000 * 60 * 60;
+  setInterval(() => {
+    const now = new Date();
+    if (now.getUTCHours() === 2) precompute().catch(console.error);
+  }, HOUR);
+}
+
+
+Acceptance
+
+ENABLE_CRON=true runs the job once per day; cache entries appear for active users.
+
+3.3 Backups & data retention
+
+Add a manual export of DB (admin-only route) or ensure DB provider backups are on.
+
+Add Settings → Data retention (e.g., auto-purge notes after N days, default off).
+
+4) Billing & Promotions
+4.1 “Redeem code” self-serve flow
+
+Add a code textbox + “Apply” button in Settings:
+
+async function redeemCode(code: string) {
+  const r = await fetch("/api/billing/create-checkout-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ promoCode: code }) // user types e.g. KICKSTARTER2025
+  });
+  const j = await r.json();
+  if (j.url) window.location.href = j.url;
+}
+
+
+Keep allow_promotion_codes: true on the server so Checkout accepts the code.
+
+4.2 Guard rails remain
+
+Idempotency key still applied.
+
+Rate limit remains 5/min.
+
+Trial month cap (≤3), coupon allowlist env.
+
+Acceptance
+
+Entering valid promo takes user to Checkout with discount visible.
+
+Invalid code shows friendly toast; no session created.
+
+Repeated clicks don’t create duplicates.
+
+5) Marketplace Enhancements
+5.1 Sorting & paging
+
+Add sort=priceAsc|priceDesc|newest and page/limit query params; server validates and applies OFFSET/LIMIT.
+
+5.2 Robust dedupe & image guards
+
+Ensure product key uniqueness (sku or slug unique index).
+
+Fallback image if missing; lazy-load for performance.
+
+5.3 Product JSON-LD (SEO)
+
+Add schema to product detail page:
+
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"Product",
+  "name":"Copper Compression Knee Brace",
+  "description":"Comfort support for joint stability; not medical advice.",
+  "brand":{"@type":"Brand","name":"Copper Compression"},
+  "offers": {"@type":"Offer","price":"29.99","priceCurrency":"USD","availability":"https://schema.org/InStock"}
+}
+</script>
+
+
+Acceptance
+
+Category filters + sort + paging compose correctly.
+
+Lighthouse passes basic SEO checks on a product page.
+
+Tests & Checks (must pass in CI)
+
+Security headers test
+
+// supertest on /api/health
+expect(res.headers["x-frame-options"]).toBe("DENY");
+expect(res.headers["x-content-type-options"]).toBe("nosniff");
+expect(res.headers["content-security-policy"]).toBeTruthy();
+
+
+Auth regression tests (billing)
+
+401 when unauthenticated to /api/billing/create-checkout-session.
+
+200 when authenticated; URL returned.
+
+Export headers
+
+/api/exports/csv/* and /api/exports/pdf include Cache-Control: no-store.
+
+Insights
+
+New user → snapshot returns 200 with safe empty-state summaries.
+
+After writing a symptom, cache invalidates and next snapshot reflects it.
+
+Marketplace
+
+Filtering by category returns only relevant products (no duplicates).
+
+Sorting by price asc/desc works; paging stable.
+
+Deliverables
+
+Migrations for indexes.
+
+Cache invalidation (app-level or DB triggers).
+
+SLO logs on insights/exports/billing.
+
+Nightly precompute (guarded by ENABLE_CRON).
+
+Import/Insights UI polish (Zebby theme, a11y).
+
+“Redeem code” UX in Settings; promo code path verified.
+
+Marketplace sort/paging + JSON-LD.
+
+Updated CI to include new tests.
+
+Definition of Done
+
+All CI checks pass (security headers, auth, export headers, marketplace, insights).
+
+p95 latency targets met on /api/insights/snapshot (< 400ms).
+
+No CSP violations in report logs for one day after deploy.
+
+Users can redeem promo codes; duplicate checkout sessions prevented.
+
+Empty states and accessibility improvements verified.
+
+Notes for Agent
+
+Be conservative with deletions; prefer additive changes.
+
+Use existing theme tokens/classes whenever possible.
+
+Keep enterprise security posture intact (no client-side secrets; JWT only for auth context; webhook order preserved).
+
+If table/column names differ, adapt queries/migrations accordingly and note changes in the PR description.

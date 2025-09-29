@@ -71,7 +71,9 @@ export const symptomLogs = pgTable("symptom_logs", {
   // Legacy fields for backward compatibility - will be populated from symptomEntries
   symptoms: text("symptoms").array(), // Deprecated: use symptomEntries instead
   intensity: integer("intensity"), // Deprecated: use individual symptomEntries intensities
-});
+}, (table) => ({
+  userTimeIdx: index("symptom_logs_user_time_idx").on(table.userId, table.timestamp.desc()),
+}));
 
 // Individual symptom entries within a logging session
 export const symptomEntries = pgTable("symptom_entries", {
@@ -163,7 +165,9 @@ export const vitalsLogs = pgTable("vitals_logs", {
   timestamp: timestamp("timestamp").notNull(),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  userTimeIdx: index("vitals_logs_user_time_idx").on(table.userId, table.timestamp.desc()),
+}));
 
 // Sleep tracking
 export const sleepLogs = pgTable("sleep_logs", {
@@ -181,7 +185,9 @@ export const sleepLogs = pgTable("sleep_logs", {
   sourceId: varchar("source_id"), // External source identifier for deduplication
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  userBedtimeIdx: index("sleep_logs_user_bedtime_idx").on(table.userId, table.bedtime.desc()),
+}));
 
 // Data import sources configuration
 export const dataImportSources = pgTable("data_import_sources", {

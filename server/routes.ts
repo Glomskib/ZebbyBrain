@@ -37,6 +37,7 @@ import PdfPrinter from "pdfmake";
 import { parseString } from "xml2js";
 import multer from "multer";
 import yauzl from "yauzl";
+import { invalidateInsightsCache, logApiPerformance } from "./lib/cache";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -142,6 +143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Enhanced symptom logging routes
   app.post('/api/symptoms', isAuthenticated, async (req: any, res) => {
+    const startTime = Date.now();
     try {
       const userId = req.user.claims.sub;
       
@@ -254,6 +256,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Failed to generate AI reflection:", error);
       });
 
+      // Invalidate insights cache after successful creation
+      await invalidateInsightsCache(userId);
+      
+      // Log performance metrics
+      logApiPerformance(req, res, startTime, false);
+      
       res.json({ 
         ...symptomLog, 
         symptomEntries: createdEntries,
@@ -420,6 +428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Vitals tracking routes
   app.post('/api/vitals', isAuthenticated, async (req: any, res) => {
+    const startTime = Date.now();
     try {
       const userId = req.user.claims.sub;
       const validatedData = insertVitalsLogSchema.parse({
@@ -428,6 +437,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const vitalsLog = await storage.createVitalsLog(validatedData);
+      
+      // Invalidate insights cache after successful creation
+      await invalidateInsightsCache(userId);
+      
+      // Log performance metrics
+      logApiPerformance(req, res, startTime, false);
+      
       res.json(vitalsLog);
     } catch (error) {
       console.error("Error creating vitals log:", error);
@@ -453,6 +469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Sleep tracking routes
   app.post('/api/sleep', isAuthenticated, async (req: any, res) => {
+    const startTime = Date.now();
     try {
       const userId = req.user.claims.sub;
       const validatedData = insertSleepLogSchema.parse({
@@ -461,6 +478,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const sleepLog = await storage.createSleepLog(validatedData);
+      
+      // Invalidate insights cache after successful creation
+      await invalidateInsightsCache(userId);
+      
+      // Log performance metrics
+      logApiPerformance(req, res, startTime, false);
+      
       res.json(sleepLog);
     } catch (error) {
       console.error("Error creating sleep log:", error);
