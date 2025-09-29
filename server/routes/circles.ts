@@ -8,6 +8,12 @@ import {
   circleAlertRules,
   circleInviteTokens,
   users,
+  symptomLogs,
+  symptomEntries,
+  vitalsLogs,
+  sleepLogs,
+  waterIntakeLogs,
+  sodiumIntakeLogs,
   insertCircleSchema,
   insertCircleMemberSchema,
   insertCircleScopeSchema,
@@ -18,8 +24,9 @@ import {
   type CircleScope,
   type CircleAlertRule
 } from "@shared/schema";
-import { eq, and, or, sql, desc } from "drizzle-orm";
+import { eq, and, or, sql, desc, gte, lte } from "drizzle-orm";
 import crypto from "crypto";
+import { subDays, startOfDay, endOfDay } from "date-fns";
 
 const router = express.Router();
 
@@ -563,6 +570,491 @@ router.delete("/members/:memberId", async (req: any, res) => {
   } catch (error: any) {
     console.error("Error deleting member:", error);
     res.status(500).json({ error: "Failed to delete member" });
+  }
+});
+
+// ============ MEMBER ENDPOINTS ============
+
+// POST /api/circles/accept-invite - Accept a circle invitation
+router.post("/accept-invite", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const schema = z.object({
+      token: z.string(),
+    });
+
+    const { token } = schema.parse(req.body);
+    const userId = req.user.claims.sub;
+    const userEmail = req.user.claims.email;
+
+    // Find and validate token
+    const [inviteToken] = await db
+      .select()
+      .from(circleInviteTokens)
+      .where(eq(circleInviteTokens.token, token));
+
+    if (!inviteToken) {
+      return res.status(404).json({ error: "Invalid or expired invite token" });
+    }
+
+    // Check if token expired
+    if (new Date() > inviteToken.expiresAt) {
+      return res.status(400).json({ error: "Invite token has expired" });
+    }
+
+    // Verify email matches
+    if (inviteToken.email !== userEmail) {
+      return res.status(403).json({ error: "This invite was sent to a different email address" });
+    }
+
+    // Find the pending member record
+    const [member] = await db
+      .select()
+      .from(circleMembers)
+      .where(
+        and(
+          eq(circleMembers.circleId, inviteToken.circleId),
+          eq(circleMembers.email, inviteToken.email),
+          eq(circleMembers.status, "pending")
+        )
+      );
+
+    if (!member) {
+      return res.status(404).json({ error: "Member invitation not found" });
+    }
+
+    // Update member to active and link to user
+    const [updatedMember] = await db
+      .update(circleMembers)
+      .set({ 
+        userId,
+        status: "active"
+      })
+      .where(eq(circleMembers.id, member.id))
+      .returning();
+
+    // Delete the used token
+    await db
+      .delete(circleInviteTokens)
+      .where(eq(circleInviteTokens.id, inviteToken.id));
+
+    // Get circle info
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.id, inviteToken.circleId));
+
+    res.json({ 
+      success: true,
+      member: updatedMember,
+      circle
+    });
+  } catch (error: any) {
+    console.error("Error accepting invite:", error);
+    if (error.name === "ZodError") {
+      return res.status(400).json({ error: "Invalid request data", details: error.errors });
+    }
+    res.status(500).json({ error: "Failed to accept invite" });
+  }
+});
+
+// GET /api/circles/member-feed/:ownerId - Get health feed for a circle owner (member view)
+router.get("/member-feed/:ownerId", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { ownerId } = req.params;
+    const userId = req.user.claims.sub;
+
+    // Get owner's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, ownerId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found" });
+    }
+
+    // Verify user is an active member
+    const [membership] = await db
+      .select()
+      .from(circleMembers)
+      .where(
+        and(
+          eq(circleMembers.circleId, circle.id),
+          eq(circleMembers.userId, userId),
+          eq(circleMembers.status, "active")
+        )
+      );
+
+    if (!membership) {
+      return res.status(403).json({ error: "You are not an active member of this circle" });
+    }
+
+    // Get scope settings
+    const [scope] = await db
+      .select()
+      .from(circleScopes)
+      .where(eq(circleScopes.circleId, circle.id));
+
+    if (!scope) {
+      return res.status(404).json({ error: "Scope settings not found" });
+    }
+
+    // Calculate date range based on daysBack
+    const endDate = new Date();
+    const startDate = subDays(endDate, scope.daysBack);
+
+    // Build response object with scoped data
+    const feedData: any = {
+      ownerInfo: {
+        circleId: circle.id,
+        circleName: circle.name,
+        memberRole: membership.role,
+      },
+      scope: {
+        detailLevel: scope.detailLevel,
+        daysBack: scope.daysBack,
+      },
+      data: {}
+    };
+
+    // Fetch symptoms if shared
+    if (scope.shareSymptoms) {
+      const symptoms = await db
+        .select({
+          id: symptomLogs.id,
+          timestamp: symptomLogs.timestamp,
+          notes: scope.detailLevel === "detail" ? symptomLogs.notes : sql`NULL`,
+          aiReflection: scope.shareAIReflections && scope.detailLevel === "detail" ? symptomLogs.aiReflection : sql`NULL`,
+          heartRateBpm: symptomLogs.heartRateBpm,
+          weatherTemp: symptomLogs.weatherTemp,
+          weatherCondition: symptomLogs.weatherCondition,
+        })
+        .from(symptomLogs)
+        .where(
+          and(
+            eq(symptomLogs.userId, ownerId),
+            gte(symptomLogs.timestamp, startDate),
+            lte(symptomLogs.timestamp, endDate)
+          )
+        )
+        .orderBy(desc(symptomLogs.timestamp))
+        .limit(50);
+
+      // Fetch symptom entries for each log
+      const symptomIds = symptoms.map(s => s.id);
+      let entries: any[] = [];
+      if (symptomIds.length > 0) {
+        entries = await db
+          .select({
+            symptomLogId: symptomEntries.symptomLogId,
+            symptomName: symptomEntries.symptomName,
+            intensity: symptomEntries.intensity,
+            notes: scope.detailLevel === "detail" ? symptomEntries.notes : sql`NULL`,
+          })
+          .from(symptomEntries)
+          .where(sql`${symptomEntries.symptomLogId} = ANY(${symptomIds})`);
+      }
+
+      feedData.data.symptoms = symptoms.map(log => ({
+        ...log,
+        entries: entries.filter(e => e.symptomLogId === log.id)
+      }));
+    }
+
+    // Fetch vitals if shared
+    if (scope.shareVitals) {
+      const vitals = await db
+        .select({
+          id: vitalsLogs.id,
+          timestamp: vitalsLogs.timestamp,
+          type: vitalsLogs.type,
+          value: vitalsLogs.value,
+          unit: vitalsLogs.unit,
+          notes: scope.detailLevel === "detail" ? vitalsLogs.notes : sql`NULL`,
+        })
+        .from(vitalsLogs)
+        .where(
+          and(
+            eq(vitalsLogs.userId, ownerId),
+            gte(vitalsLogs.timestamp, startDate),
+            lte(vitalsLogs.timestamp, endDate)
+          )
+        )
+        .orderBy(desc(vitalsLogs.timestamp))
+        .limit(100);
+
+      feedData.data.vitals = vitals;
+    }
+
+    // Fetch sleep if shared
+    if (scope.shareSleep) {
+      const sleep = await db
+        .select({
+          id: sleepLogs.id,
+          bedtime: sleepLogs.bedtime,
+          wakeTime: sleepLogs.wakeTime,
+          totalMinutes: sleepLogs.totalMinutes,
+          quality: sleepLogs.quality,
+          notes: scope.detailLevel === "detail" ? sleepLogs.notes : sql`NULL`,
+        })
+        .from(sleepLogs)
+        .where(
+          and(
+            eq(sleepLogs.userId, ownerId),
+            gte(sleepLogs.bedtime, startDate),
+            lte(sleepLogs.bedtime, endDate)
+          )
+        )
+        .orderBy(desc(sleepLogs.bedtime))
+        .limit(50);
+
+      feedData.data.sleep = sleep;
+    }
+
+    // Fetch hydration if shared
+    if (scope.shareHydration) {
+      const water = await db
+        .select({
+          id: waterIntakeLogs.id,
+          timestamp: waterIntakeLogs.timestamp,
+          amountMl: waterIntakeLogs.amountMl,
+        })
+        .from(waterIntakeLogs)
+        .where(
+          and(
+            eq(waterIntakeLogs.userId, ownerId),
+            gte(waterIntakeLogs.timestamp, startDate),
+            lte(waterIntakeLogs.timestamp, endDate)
+          )
+        )
+        .orderBy(desc(waterIntakeLogs.timestamp))
+        .limit(100);
+
+      const sodium = await db
+        .select({
+          id: sodiumIntakeLogs.id,
+          timestamp: sodiumIntakeLogs.timestamp,
+          amountMg: sodiumIntakeLogs.amountMg,
+        })
+        .from(sodiumIntakeLogs)
+        .where(
+          and(
+            eq(sodiumIntakeLogs.userId, ownerId),
+            gte(sodiumIntakeLogs.timestamp, startDate),
+            lte(sodiumIntakeLogs.timestamp, endDate)
+          )
+        )
+        .orderBy(desc(sodiumIntakeLogs.timestamp))
+        .limit(100);
+
+      feedData.data.hydration = { water, sodium };
+    }
+
+    // Set no-store headers for privacy
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+
+    res.json(feedData);
+  } catch (error: any) {
+    console.error("Error fetching member feed:", error);
+    res.status(500).json({ error: "Failed to fetch member feed" });
+  }
+});
+
+// GET /api/circles/member-today/:ownerId - Get today's snapshot for a circle owner
+router.get("/member-today/:ownerId", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { ownerId } = req.params;
+    const userId = req.user.claims.sub;
+
+    // Get owner's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, ownerId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found" });
+    }
+
+    // Verify user is an active member
+    const [membership] = await db
+      .select()
+      .from(circleMembers)
+      .where(
+        and(
+          eq(circleMembers.circleId, circle.id),
+          eq(circleMembers.userId, userId),
+          eq(circleMembers.status, "active")
+        )
+      );
+
+    if (!membership) {
+      return res.status(403).json({ error: "You are not an active member of this circle" });
+    }
+
+    // Get scope settings
+    const [scope] = await db
+      .select()
+      .from(circleScopes)
+      .where(eq(circleScopes.circleId, circle.id));
+
+    if (!scope) {
+      return res.status(404).json({ error: "Scope settings not found" });
+    }
+
+    // Today's date range
+    const todayStart = startOfDay(new Date());
+    const todayEnd = endOfDay(new Date());
+
+    const snapshot: any = {
+      date: new Date().toISOString(),
+      circleName: circle.name,
+      memberRole: membership.role,
+      data: {}
+    };
+
+    // Get today's symptoms
+    if (scope.shareSymptoms) {
+      const [latestSymptom] = await db
+        .select({
+          id: symptomLogs.id,
+          timestamp: symptomLogs.timestamp,
+          heartRateBpm: symptomLogs.heartRateBpm,
+        })
+        .from(symptomLogs)
+        .where(
+          and(
+            eq(symptomLogs.userId, ownerId),
+            gte(symptomLogs.timestamp, todayStart),
+            lte(symptomLogs.timestamp, todayEnd)
+          )
+        )
+        .orderBy(desc(symptomLogs.timestamp))
+        .limit(1);
+
+      if (latestSymptom) {
+        const entries = await db
+          .select({
+            symptomName: symptomEntries.symptomName,
+            intensity: symptomEntries.intensity,
+          })
+          .from(symptomEntries)
+          .where(eq(symptomEntries.symptomLogId, latestSymptom.id));
+
+        snapshot.data.latestSymptoms = {
+          timestamp: latestSymptom.timestamp,
+          entries: entries,
+          heartRate: latestSymptom.heartRateBpm,
+        };
+      }
+    }
+
+    // Get latest vitals
+    if (scope.shareVitals) {
+      const recentVitals = await db
+        .select({
+          type: vitalsLogs.type,
+          value: vitalsLogs.value,
+          unit: vitalsLogs.unit,
+          timestamp: vitalsLogs.timestamp,
+        })
+        .from(vitalsLogs)
+        .where(
+          and(
+            eq(vitalsLogs.userId, ownerId),
+            gte(vitalsLogs.timestamp, todayStart)
+          )
+        )
+        .orderBy(desc(vitalsLogs.timestamp))
+        .limit(5);
+
+      snapshot.data.recentVitals = recentVitals;
+    }
+
+    // Get today's hydration totals
+    if (scope.shareHydration) {
+      const [waterTotal] = await db
+        .select({
+          total: sql<number>`SUM(${waterIntakeLogs.amountMl})`,
+        })
+        .from(waterIntakeLogs)
+        .where(
+          and(
+            eq(waterIntakeLogs.userId, ownerId),
+            gte(waterIntakeLogs.timestamp, todayStart),
+            lte(waterIntakeLogs.timestamp, todayEnd)
+          )
+        );
+
+      const [sodiumTotal] = await db
+        .select({
+          total: sql<number>`SUM(${sodiumIntakeLogs.amountMg})`,
+        })
+        .from(sodiumIntakeLogs)
+        .where(
+          and(
+            eq(sodiumIntakeLogs.userId, ownerId),
+            gte(sodiumIntakeLogs.timestamp, todayStart),
+            lte(sodiumIntakeLogs.timestamp, todayEnd)
+          )
+        );
+
+      snapshot.data.todayHydration = {
+        waterMl: waterTotal?.total || 0,
+        sodiumMg: sodiumTotal?.total || 0,
+      };
+    }
+
+    // Get last night's sleep
+    if (scope.shareSleep) {
+      const yesterday = subDays(new Date(), 1);
+      const [lastSleep] = await db
+        .select({
+          bedtime: sleepLogs.bedtime,
+          wakeTime: sleepLogs.wakeTime,
+          totalMinutes: sleepLogs.totalMinutes,
+          quality: sleepLogs.quality,
+        })
+        .from(sleepLogs)
+        .where(
+          and(
+            eq(sleepLogs.userId, ownerId),
+            gte(sleepLogs.bedtime, yesterday)
+          )
+        )
+        .orderBy(desc(sleepLogs.bedtime))
+        .limit(1);
+
+      snapshot.data.lastSleep = lastSleep || null;
+    }
+
+    // Set no-store headers for privacy
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+
+    res.json(snapshot);
+  } catch (error: any) {
+    console.error("Error fetching today snapshot:", error);
+    res.status(500).json({ error: "Failed to fetch today snapshot" });
   }
 });
 
