@@ -6,6 +6,18 @@ Zebby's World is a comprehensive health tracking application specifically design
 
 ## Recent Changes
 
+### September 2025 - Personal Circle (Private Health Sharing) - In Progress
+- **Database Schema**: 7 tables for private health data sharing (circles, members, scopes, alert rules, logs, tokens, pending alerts)
+- **Backend API Routes**: Complete Circle management API with 10 endpoints
+  - Circle auto-creation with default settings (symptoms+vitals shared, summary detail, 30 days back)
+  - Member invitations with secure 7-day tokens and email-based invites
+  - Granular scope controls (shareSymptoms, shareVitals, shareSleep, shareHydration, shareAIReflections)
+  - Alert rules configuration (thresholds, quiet hours, cooldowns, notification channels)
+  - Member management (invite, revoke, update pseudonyms/roles, delete)
+- **Security**: Ownership verification on all operations, Zod validation, isAuthenticated middleware
+- **Privacy-by-Design**: One circle per owner, detail levels (summary/detail), time windows (1-365 days)
+- **Remaining**: Member endpoints (accept invite, view feed), reach out feature, automated alerts, frontend UI
+
 ### September 2025 - Zebby Social: Group Home Page
 - **Group Home Page**: Full-featured group page with feed, post composer, reactions, and member management
 - **State-Based Access Control**: Different views for non-members (join prompt), pending members (approval message), and approved members (full access)
