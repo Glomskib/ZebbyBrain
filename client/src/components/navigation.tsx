@@ -24,6 +24,8 @@ export default function Navigation() {
   const navItems = [
     { path: "/", label: "Dashboard", testId: "nav-dashboard" },
     { path: "/tracker", label: "Tracker", testId: "nav-tracker" },
+    { path: "/groups", label: "Groups", testId: "nav-groups" },
+    { path: "/circle", label: "Circle", testId: "nav-circle" },
     { path: "/marketplace", label: "Marketplace", testId: "nav-marketplace" },
     { path: "/settings", label: "Settings", testId: "nav-settings" },
   ];

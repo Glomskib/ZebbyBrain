@@ -18,6 +18,7 @@ import NotFound from "@/pages/not-found";
 import SharePage from "@/pages/share";
 import GroupsDirectory from "@/pages/groups-directory";
 import GroupHome from "@/pages/group-home";
+import PersonalCircle from "@/pages/personal-circle";
 
 function Router() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -50,6 +51,7 @@ function Router() {
           <Route path="/tracker" component={SymptomTracker} />
           <Route path="/groups" component={GroupsDirectory} />
           <Route path="/groups/:slug" component={GroupHome} />
+          <Route path="/circle" component={PersonalCircle} />
           <Route path="/settings" component={Settings} />
           <Route path="/import" component={ImportSettings} />
           <Route path="/import/review" component={ImportReviewQueue} />

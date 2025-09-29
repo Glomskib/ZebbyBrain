@@ -6,17 +6,30 @@ Zebby's World is a comprehensive health tracking application specifically design
 
 ## Recent Changes
 
-### September 2025 - Personal Circle (Private Health Sharing) - In Progress
+### September 2025 - Personal Circle (Private Health Sharing)
 - **Database Schema**: 7 tables for private health data sharing (circles, members, scopes, alert rules, logs, tokens, pending alerts)
-- **Backend API Routes**: Complete Circle management API with 10 endpoints
+- **Backend API (13 endpoints)**: Complete Circle management system
   - Circle auto-creation with default settings (symptoms+vitals shared, summary detail, 30 days back)
   - Member invitations with secure 7-day tokens and email-based invites
+  - Member endpoints: accept invite, view owner's health feed, today's snapshot
   - Granular scope controls (shareSymptoms, shareVitals, shareSleep, shareHydration, shareAIReflections)
-  - Alert rules configuration (thresholds, quiet hours, cooldowns, notification channels)
+  - Alert rules configuration (flare threshold, HR delta, low sleep hours, quiet hours, cooldowns)
   - Member management (invite, revoke, update pseudonyms/roles, delete)
-- **Security**: Ownership verification on all operations, Zod validation, isAuthenticated middleware
-- **Privacy-by-Design**: One circle per owner, detail levels (summary/detail), time windows (1-365 days)
-- **Remaining**: Member endpoints (accept invite, view feed), reach out feature, automated alerts, frontend UI
+- **Manual Reach Out**: POST /api/circles/reach-out to notify selected circle members with optional message
+- **Automated Alerts System**: Cron-based alert processor running every 15 minutes
+  - Three trigger types: pain flare (intensity ≥ threshold), heart rate variation (POTS), low sleep hours
+  - 15-minute cancel window before alerts are sent
+  - Quiet hours enforcement (reschedules alerts during quiet period)
+  - Cooldown periods (default 180 min between alerts)
+  - Channel preferences (email on/off)
+- **Frontend UI**: Complete Personal Circle settings page at /circle
+  - Member management with invite dialog
+  - Privacy scope controls (toggle what data to share)
+  - Alert rules configuration (thresholds, quiet hours, channels)
+  - Pending alerts view with cancel capability
+  - Reach Out button on dashboard for quick support requests
+- **Security**: Ownership verification on all operations, Zod validation, isAuthenticated middleware, no-store headers for member data access
+- **Privacy-by-Design**: One circle per owner, detail levels (summary/detail), time windows (1-365 days), non-PHI email subjects
 
 ### September 2025 - Zebby Social: Group Home Page
 - **Group Home Page**: Full-featured group page with feed, post composer, reactions, and member management

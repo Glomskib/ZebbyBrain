@@ -12,6 +12,7 @@ import InsightCards from "@/components/insight-cards";
 import RemindersSection from "@/components/RemindersSection";
 import AchievementsSection from "@/components/AchievementsSection";
 import ShareButton from "@/components/ShareButton";
+import ReachOutButton from "@/components/ReachOutButton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -125,13 +126,16 @@ export default function Dashboard() {
                 <p className="text-white/90 text-lg mb-4">
                   How are you feeling today? I'm here to listen and understand.
                 </p>
-                <Button 
-                  onClick={() => setShowSymptomLogger(true)}
-                  className="bg-white text-primary font-medium hover:bg-white/90"
-                  data-testid="button-log-symptoms"
-                >
-                  Log Today's Symptoms
-                </Button>
+                <div className="flex gap-3">
+                  <Button 
+                    onClick={() => setShowSymptomLogger(true)}
+                    className="bg-white text-primary font-medium hover:bg-white/90"
+                    data-testid="button-log-symptoms"
+                  >
+                    Log Today's Symptoms
+                  </Button>
+                  <ReachOutButton />
+                </div>
               </div>
               <div className="hidden lg:block">
                 <ZebbyAvatar size="large" />
