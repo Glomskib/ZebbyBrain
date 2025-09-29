@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { TrendingUp, TrendingDown, Minus, Heart, Moon, Activity, AlertTriangle, Target, BarChart3 } from "lucide-react";
 import { useState } from "react";
 import { Sparkline } from "@/components/Sparkline";
+import ShareButton from "@/components/ShareButton";
 
 type RangeKey = "7d" | "30d" | "90d";
 
@@ -256,9 +257,33 @@ function InsightCardComponent({ card, index }: { card: InsightCard; index: numbe
           <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${getKindColor(card.kind)}`}>
             {getKindIcon(card.kind)}
           </div>
-          <Badge variant="outline" className="text-xs">
-            {card.period}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <ShareButton
+              contentType="ai_insights"
+              contentData={{
+                title: card.title,
+                summary: card.summary,
+                metric: card.metric,
+                kind: card.kind,
+                period: card.period,
+                nudge: card.nudge,
+                disclaimer: card.disclaimer,
+                sparklineData: card.sparklineData
+              }}
+              contentSnapshot={{
+                title: card.title,
+                summary: card.summary,
+                kind: card.kind,
+                period: card.period
+              }}
+              size="sm"
+              variant="ghost"
+              data-testid={`button-share-insight-${card.id}`}
+            />
+            <Badge variant="outline" className="text-xs">
+              {card.period}
+            </Badge>
+          </div>
         </div>
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {card.title}

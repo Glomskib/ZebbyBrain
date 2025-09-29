@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import ShareButton from "@/components/ShareButton";
 
 interface SymptomChartProps {
   symptoms: Array<{
@@ -96,10 +97,26 @@ export default function SymptomChart({ symptoms }: SymptomChartProps) {
       )}
       
       <div className="mt-6 pt-4 border-t border-border">
-        <div className="text-center">
+        <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground mb-2">
             Based on your last {symptoms.length} symptom log{symptoms.length !== 1 ? 's' : ''}
           </p>
+          <ShareButton
+            contentType="symptom_trends"
+            contentData={{
+              chartData: chartData,
+              totalLogs: symptoms.length,
+              timeRange: "Recent symptoms"
+            }}
+            contentSnapshot={{
+              topSymptoms: chartData.slice(0, 3).map(s => ({ name: s.name, average: s.average })),
+              totalLogs: symptoms.length,
+              timeRange: "Recent symptoms"
+            }}
+            size="sm"
+            variant="outline"
+            data-testid="button-share-symptom-trends"
+          />
         </div>
       </div>
     </div>

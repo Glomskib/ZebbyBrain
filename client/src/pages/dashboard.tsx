@@ -10,6 +10,8 @@ import SymptomChart from "@/components/symptom-chart";
 import SymptomLogger from "@/components/symptom-logger";
 import InsightCards from "@/components/insight-cards";
 import RemindersSection from "@/components/RemindersSection";
+import AchievementsSection from "@/components/AchievementsSection";
+import ShareButton from "@/components/ShareButton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -206,14 +208,47 @@ export default function Dashboard() {
         {/* Health Reminders */}
         <RemindersSection />
 
+        {/* Achievements & Milestones */}
+        <AchievementsSection />
+
         {/* Recent AI Interactions and Symptom Patterns */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <Card>
             <CardContent className="p-6">
-              <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-                <ZebbyAvatar size="small" />
-                Recent Zebby Reflections
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  <ZebbyAvatar size="small" />
+                  Recent Zebby Reflections
+                </h3>
+                {recentInteractions.length > 0 && (
+                  <ShareButton
+                    contentType="ai_insights"
+                    contentData={{
+                      insights: recentInteractions.map((interaction: any) => ({
+                        response: interaction.response,
+                        sentiment: interaction.sentiment,
+                        createdAt: interaction.createdAt,
+                        feltUnderstood: interaction.feltUnderstood
+                      })),
+                      totalCount: recentInteractions.length
+                    }}
+                    contentSnapshot={{
+                      title: "Recent AI Reflections Summary",
+                      insights: recentInteractions.slice(0, 3).map((interaction: any) => ({
+                        response: interaction.response?.substring(0, 100) + '...',
+                        sentiment: interaction.sentiment,
+                        createdAt: interaction.createdAt
+                      })),
+                      totalCount: recentInteractions.length
+                    }}
+                    size="sm"
+                    variant="outline"
+                    data-testid="button-share-ai-reflections"
+                  >
+                    Share Insights
+                  </ShareButton>
+                )}
+              </div>
               
               <div className="space-y-4">
                 {recentInteractions.length > 0 ? (
@@ -233,13 +268,33 @@ export default function Dashboard() {
                           <p className="text-foreground text-sm leading-relaxed" data-testid={`text-ai-reflection-${index}`}>
                             {interaction.response}
                           </p>
-                          <div className="flex gap-2 mt-3">
-                            <span className="symptom-stamp text-white text-xs px-2 py-1 rounded-full">
-                              {interaction.sentiment || 'Supportive'}
-                            </span>
-                            <span className="bg-accent text-accent-foreground text-xs px-2 py-1 rounded-full">
-                              Understood
-                            </span>
+                          <div className="flex items-center justify-between mt-3">
+                            <div className="flex gap-2">
+                              <span className="symptom-stamp text-white text-xs px-2 py-1 rounded-full">
+                                {interaction.sentiment || 'Supportive'}
+                              </span>
+                              <span className="bg-accent text-accent-foreground text-xs px-2 py-1 rounded-full">
+                                Understood
+                              </span>
+                            </div>
+                            <ShareButton
+                              contentType="ai_insights"
+                              contentData={{
+                                response: interaction.response,
+                                sentiment: interaction.sentiment,
+                                createdAt: interaction.createdAt,
+                                feltUnderstood: interaction.feltUnderstood
+                              }}
+                              contentSnapshot={{
+                                title: "AI Reflection",
+                                response: interaction.response?.substring(0, 200) + '...',
+                                sentiment: interaction.sentiment,
+                                createdAt: interaction.createdAt
+                              }}
+                              size="sm"
+                              variant="ghost"
+                              data-testid={`button-share-reflection-${index}`}
+                            />
                           </div>
                           
                           {/* Feeling Understood Feedback */}
