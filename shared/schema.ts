@@ -571,6 +571,7 @@ export const reactions = pgTable("reactions", {
 // Reports for content moderation
 export const groupReports = pgTable("group_reports", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  groupId: varchar("group_id").notNull().references(() => groups.id, { onDelete: 'cascade' }),
   targetType: varchar("target_type").notNull(), // "post" | "comment" | "user"
   targetId: varchar("target_id").notNull(), // ID of the reported item
   reporterId: varchar("reporter_id").notNull().references(() => users.id),
@@ -583,6 +584,7 @@ export const groupReports = pgTable("group_reports", {
   createdAt: timestamp("created_at").defaultNow(),
   resolvedAt: timestamp("resolved_at"),
 }, (table) => ({
+  groupIdIdx: index("group_reports_group_idx").on(table.groupId),
   targetTypeIdx: index("group_reports_target_idx").on(table.targetType, table.targetId),
   statusIdx: index("group_reports_status_idx").on(table.status),
 }));

@@ -71,6 +71,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const commentsRoutes = await import('./routes/comments');
   app.use('/api/comments', commentsRoutes.default);
 
+  // Mount moderation routes with authentication
+  const moderationRoutes = await import('./routes/moderation');
+  app.use('/api/moderation', moderationRoutes.default);
+
   // Configure multer for file uploads
   const upload = multer({ 
     storage: multer.memoryStorage(),
