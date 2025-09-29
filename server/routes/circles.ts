@@ -1078,6 +1078,95 @@ function getEmailTransporter(): nodemailer.Transporter | null {
   });
 }
 
+// POST /api/circles/cancel-pending-alert/:alertId - Cancel a pending alert
+router.post("/cancel-pending-alert/:alertId", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { alertId } = req.params;
+    const userId = req.user.claims.sub;
+
+    // Get the pending alert and verify ownership
+    const [pendingAlert] = await db
+      .select({
+        id: circlePendingAlerts.id,
+        circleId: circlePendingAlerts.circleId,
+        ownerId: circles.ownerId,
+        canceledAt: circlePendingAlerts.canceledAt,
+      })
+      .from(circlePendingAlerts)
+      .innerJoin(circles, eq(circlePendingAlerts.circleId, circles.id))
+      .where(eq(circlePendingAlerts.id, alertId));
+
+    if (!pendingAlert) {
+      return res.status(404).json({ error: "Pending alert not found" });
+    }
+
+    if (pendingAlert.ownerId !== userId) {
+      return res.status(403).json({ error: "You can only cancel your own alerts" });
+    }
+
+    if (pendingAlert.canceledAt) {
+      return res.status(400).json({ error: "Alert already cancelled" });
+    }
+
+    // Cancel the alert
+    await db
+      .update(circlePendingAlerts)
+      .set({ canceledAt: new Date() })
+      .where(eq(circlePendingAlerts.id, alertId));
+
+    res.json({ 
+      success: true,
+      message: "Alert cancelled successfully"
+    });
+  } catch (error: any) {
+    console.error("Error cancelling pending alert:", error);
+    res.status(500).json({ error: "Failed to cancel alert" });
+  }
+});
+
+// GET /api/circles/pending-alerts - Get pending alerts for user's circle
+router.get("/pending-alerts", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userId = req.user.claims.sub;
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.json({ pendingAlerts: [] });
+    }
+
+    // Get pending alerts
+    const pendingAlerts = await db
+      .select({
+        id: circlePendingAlerts.id,
+        triggerReason: circlePendingAlerts.triggerReason,
+        scheduledFor: circlePendingAlerts.scheduledFor,
+        createdAt: circlePendingAlerts.createdAt,
+        canceledAt: circlePendingAlerts.canceledAt,
+      })
+      .from(circlePendingAlerts)
+      .where(eq(circlePendingAlerts.circleId, circle.id))
+      .orderBy(desc(circlePendingAlerts.createdAt));
+
+    res.json({ pendingAlerts });
+  } catch (error: any) {
+    console.error("Error fetching pending alerts:", error);
+    res.status(500).json({ error: "Failed to fetch pending alerts" });
+  }
+});
+
 // POST /api/circles/reach-out - Manual reach out to selected members
 router.post("/reach-out", async (req: any, res) => {
   try {

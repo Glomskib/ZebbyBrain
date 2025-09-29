@@ -1,5 +1,6 @@
 import { precomputeInsightsForActiveUsers } from "./lib/cache";
 import { processReminders } from "./lib/reminders";
+import { processCircleAlerts } from "./lib/circle-alerts";
 
 /**
  * Enhanced cron scheduler for insights precomputation and reminder processing
@@ -111,8 +112,40 @@ export function setupCronJobs() {
     setInterval(processRemindersNow, reminderInterval);
   }
 
+  // Set up circle alert processing (every 15 minutes)
+  function scheduleCircleAlertProcessing() {
+    const alertInterval = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+    console.info(JSON.stringify({
+      evt: "circle_alert_scheduler_started",
+      intervalMinutes: 15,
+      timestamp: new Date().toISOString()
+    }));
+
+    const processCircleAlertsNow = async () => {
+      try {
+        await processCircleAlerts();
+      } catch (error) {
+        console.error(JSON.stringify({
+          evt: "circle_alert_processing_error",
+          error: error instanceof Error ? error.message : "Unknown error",
+          timestamp: new Date().toISOString()
+        }));
+      }
+    };
+
+    // Run immediately after 2 minutes
+    setTimeout(processCircleAlertsNow, 120_000);
+
+    // Then run every 15 minutes
+    setInterval(processCircleAlertsNow, alertInterval);
+  }
+
   // Start the reminder processor
   scheduleReminderProcessing();
+
+  // Start the circle alert processor
+  scheduleCircleAlertProcessing();
 
   // In development, also run once immediately for testing (but don't reschedule)
   if (process.env.NODE_ENV === "development") {
