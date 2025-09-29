@@ -8,6 +8,7 @@ import { requireAuth } from "./middleware/requireAuth";
 import authTestRoutes from "./routes/auth-test";
 import billingRoutes from "./routes/billing";
 import metaRoutes from "./routes/meta";
+import userRoutes from "./routes/user";
 import { generateEmpathicReflection, generatePersonalizedInsight } from "./openai";
 import { generateInsightCards, TIMEFRAMES } from "./analytics";
 import { 
@@ -50,6 +51,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/auth', authTestRoutes);
   app.use('/api/billing', requireAuth, billingRoutes);
   app.use('/api', metaRoutes);
+  app.use('/api/user', isAuthenticated, userRoutes);
   
   // Mount insights routes with authentication
   const insightsRoutes = await import('./routes/insights');

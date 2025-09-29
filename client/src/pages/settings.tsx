@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Crown, Check, X, Loader2, Download, LogIn } from "lucide-react";
 import { ExportSection } from "@/components/ExportSection";
+import { DataRetentionSection } from "@/components/DataRetentionSection";
 
 interface BillingStatus {
   plan: string;
@@ -299,6 +300,9 @@ export default function Settings() {
           <ExportSection />
         </CardContent>
       </Card>
+
+      {/* Data Retention Section */}
+      <DataRetentionSection isAuthenticated={isAuthenticated} />
     </div>
   );
 }

@@ -48,6 +48,12 @@ export const users = pgTable("users", {
   experienceLevel: varchar("experience_level"), // "new_to_eds", "learning_to_manage", "experienced"
   dailyGoals: text("daily_goals").array(), // ["Track symptoms", "Monitor POTS", "Find helpful products", etc.]
   
+  // Data retention settings (in months, -1 for keep forever)
+  symptomLogsRetentionMonths: integer("symptom_logs_retention_months").default(36), // Default 3 years
+  vitalsLogsRetentionMonths: integer("vitals_logs_retention_months").default(36), // Default 3 years
+  sleepLogsRetentionMonths: integer("sleep_logs_retention_months").default(36), // Default 3 years
+  aiInteractionsRetentionMonths: integer("ai_interactions_retention_months").default(24), // Default 2 years
+  
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
