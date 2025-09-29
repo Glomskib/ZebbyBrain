@@ -1,8 +1,10 @@
 import { precomputeInsightsForActiveUsers } from "./lib/cache";
+import { processReminders } from "./lib/reminders";
 
 /**
- * Simple cron scheduler for nightly insights precomputation
- * Runs every day at 2:00 AM to prepare cache for the day ahead
+ * Enhanced cron scheduler for insights precomputation and reminder processing
+ * - Insights: Runs every day at 2:00 AM to prepare cache for the day ahead
+ * - Reminders: Runs every 15 minutes to check for due reminders
  */
 export function setupCronJobs() {
   console.info(JSON.stringify({
@@ -67,8 +69,50 @@ export function setupCronJobs() {
     }, msUntilNext2AM);
   }
 
-  // Start the scheduler
+  // Start the insights scheduler
   scheduleNextRun();
+
+  // Set up reminder processing (every 15 minutes)
+  function scheduleReminderProcessing() {
+    const reminderInterval = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+    console.info(JSON.stringify({
+      evt: "reminder_scheduler_started",
+      intervalMinutes: 15,
+      timestamp: new Date().toISOString()
+    }));
+
+    const processRemindersNow = async () => {
+      try {
+        console.info(JSON.stringify({
+          evt: "reminder_processing_triggered",
+          timestamp: new Date().toISOString()
+        }));
+
+        await processReminders();
+        
+        console.info(JSON.stringify({
+          evt: "reminder_processing_completed",
+          timestamp: new Date().toISOString()
+        }));
+      } catch (error) {
+        console.error(JSON.stringify({
+          evt: "reminder_processing_error",
+          error: error instanceof Error ? error.message : "Unknown error",
+          timestamp: new Date().toISOString()
+        }));
+      }
+    };
+
+    // Run immediately after 1 minute to check for any immediate reminders
+    setTimeout(processRemindersNow, 60_000);
+
+    // Then run every 15 minutes
+    setInterval(processRemindersNow, reminderInterval);
+  }
+
+  // Start the reminder processor
+  scheduleReminderProcessing();
 
   // In development, also run once immediately for testing (but don't reschedule)
   if (process.env.NODE_ENV === "development") {

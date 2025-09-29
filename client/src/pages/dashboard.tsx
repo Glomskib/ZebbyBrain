@@ -9,6 +9,7 @@ import ZebbyAvatar from "@/components/zebby-avatar";
 import SymptomChart from "@/components/symptom-chart";
 import SymptomLogger from "@/components/symptom-logger";
 import InsightCards from "@/components/insight-cards";
+import RemindersSection from "@/components/RemindersSection";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -201,6 +202,9 @@ export default function Dashboard() {
 
         {/* Insight Cards */}
         <InsightCards />
+
+        {/* Health Reminders */}
+        <RemindersSection />
 
         {/* Recent AI Interactions and Symptom Patterns */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

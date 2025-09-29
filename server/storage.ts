@@ -17,6 +17,7 @@ import {
   orderItems,
   productReviews,
   reviewHelpfulness,
+  reminders,
   type User,
   type UpsertUser,
   type SymptomLog,
@@ -50,6 +51,8 @@ import {
   type InsertProductReview,
   type ReviewHelpfulness,
   type InsertReviewHelpfulness,
+  type Reminder,
+  type InsertReminder,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, inArray, gte, lte } from "drizzle-orm";
@@ -144,6 +147,17 @@ export interface IStorage {
   createImportConflict(conflict: Omit<ImportConflict, 'id' | 'createdAt' | 'resolvedAt' | 'resolution'>): Promise<ImportConflict>;
   getUserImportConflicts(userId: string, status?: string): Promise<ImportConflict[]>;
   resolveImportConflict(id: string, resolution: string): Promise<void>;
+  
+  // Reminder operations
+  createReminder(reminder: InsertReminder): Promise<Reminder>;
+  getUserReminders(userId: string): Promise<Reminder[]>;
+  getReminder(id: string): Promise<Reminder | undefined>;
+  updateReminder(id: string, userId: string, updates: Partial<InsertReminder>): Promise<Reminder>;
+  deleteReminder(id: string, userId: string): Promise<void>;
+  toggleReminderEnabled(id: string, userId: string, enabled: boolean): Promise<void>;
+  snoozeReminder(id: string, userId: string, snoozeUntil: Date): Promise<void>;
+  getScheduledReminders(before: Date): Promise<Reminder[]>;
+  updateReminderNextScheduled(id: string, nextScheduledAt: Date, lastSentAt?: Date): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -889,6 +903,91 @@ export class DatabaseStorage implements IStorage {
         resolvedAt: new Date()
       })
       .where(eq(importConflicts.id, id));
+  }
+
+  // Reminder operations
+  async createReminder(reminder: InsertReminder): Promise<Reminder> {
+    const [created] = await db.insert(reminders).values(reminder).returning();
+    return created;
+  }
+
+  async getUserReminders(userId: string): Promise<Reminder[]> {
+    return await db
+      .select()
+      .from(reminders)
+      .where(eq(reminders.userId, userId))
+      .orderBy(desc(reminders.createdAt));
+  }
+
+  async getReminder(id: string): Promise<Reminder | undefined> {
+    const [reminder] = await db.select().from(reminders).where(eq(reminders.id, id));
+    return reminder;
+  }
+
+  async updateReminder(id: string, userId: string, updates: Partial<InsertReminder>): Promise<Reminder> {
+    const [updated] = await db
+      .update(reminders)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(reminders.id, id), eq(reminders.userId, userId)))
+      .returning();
+    return updated;
+  }
+
+  async deleteReminder(id: string, userId: string): Promise<void> {
+    await db
+      .delete(reminders)
+      .where(and(eq(reminders.id, id), eq(reminders.userId, userId)));
+  }
+
+  async toggleReminderEnabled(id: string, userId: string, enabled: boolean): Promise<void> {
+    await db
+      .update(reminders)
+      .set({ isEnabled: enabled, updatedAt: new Date() })
+      .where(and(eq(reminders.id, id), eq(reminders.userId, userId)));
+  }
+
+  async snoozeReminder(id: string, userId: string, snoozeUntil: Date): Promise<void> {
+    await db
+      .update(reminders)
+      .set({ 
+        isSnoozing: true, 
+        snoozeUntil, 
+        updatedAt: new Date() 
+      })
+      .where(and(eq(reminders.id, id), eq(reminders.userId, userId)));
+  }
+
+  async getScheduledReminders(before: Date): Promise<Reminder[]> {
+    return await db
+      .select()
+      .from(reminders)
+      .where(
+        and(
+          eq(reminders.isEnabled, true),
+          or(
+            // Include non-snoozed reminders that are due
+            eq(reminders.isSnoozing, false),
+            // Include snoozed reminders whose snooze time has expired
+            and(
+              eq(reminders.isSnoozing, true),
+              lte(reminders.snoozeUntil, before)
+            )
+          ),
+          lte(reminders.nextScheduledAt, before)
+        )
+      );
+  }
+
+  async updateReminderNextScheduled(id: string, nextScheduledAt: Date, lastSentAt?: Date): Promise<void> {
+    const updates: any = { nextScheduledAt, updatedAt: new Date() };
+    if (lastSentAt) {
+      updates.lastSentAt = lastSentAt;
+    }
+    
+    await db
+      .update(reminders)
+      .set(updates)
+      .where(eq(reminders.id, id));
   }
 }
 

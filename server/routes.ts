@@ -18,6 +18,7 @@ import {
   insertSodiumIntakeLogSchema,
   insertVitalsLogSchema,
   insertSleepLogSchema,
+  insertReminderSchema,
   insertProductReviewSchema,
   products, 
   productCategories, 
@@ -506,6 +507,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching sleep logs:", error);
       res.status(500).json({ message: "Failed to fetch sleep logs" });
+    }
+  });
+
+  // Reminder management routes
+  app.get('/api/reminders', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const reminders = await storage.getUserReminders(userId);
+      res.json(reminders);
+    } catch (error) {
+      console.error("Error fetching reminders:", error);
+      res.status(500).json({ message: "Failed to fetch reminders" });
+    }
+  });
+
+  app.post('/api/reminders', isAuthenticated, async (req: any, res) => {
+    const startTime = Date.now();
+    try {
+      const userId = req.user.claims.sub;
+      
+      // Validate request body using Zod
+      const validatedData = insertReminderSchema.parse({
+        ...req.body,
+        userId,
+      });
+
+      const reminder = await storage.createReminder(validatedData);
+      
+      // Log performance metrics
+      logApiPerformance(req, res, startTime, false);
+      
+      res.json(reminder);
+    } catch (error) {
+      console.error("Error creating reminder:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid reminder data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create reminder" });
+    }
+  });
+
+  app.put('/api/reminders/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const reminderId = req.params.id;
+      
+      // Validate request body (exclude fields that shouldn't be updated directly)
+      const updateSchema = insertReminderSchema.omit({ userId: true }).partial();
+      const validatedData = updateSchema.parse(req.body);
+
+      const updatedReminder = await storage.updateReminder(reminderId, userId, validatedData);
+      res.json(updatedReminder);
+    } catch (error) {
+      console.error("Error updating reminder:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid reminder data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update reminder" });
+    }
+  });
+
+  app.delete('/api/reminders/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const reminderId = req.params.id;
+      
+      await storage.deleteReminder(reminderId, userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting reminder:", error);
+      res.status(500).json({ message: "Failed to delete reminder" });
+    }
+  });
+
+  app.post('/api/reminders/:id/toggle', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const reminderId = req.params.id;
+      const { enabled } = req.body;
+      
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ message: "Enabled field must be a boolean" });
+      }
+      
+      await storage.toggleReminderEnabled(reminderId, userId, enabled);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error toggling reminder:", error);
+      res.status(500).json({ message: "Failed to toggle reminder" });
+    }
+  });
+
+  app.post('/api/reminders/:id/snooze', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const reminderId = req.params.id;
+      const { snoozeUntil } = req.body;
+      
+      if (!snoozeUntil) {
+        return res.status(400).json({ message: "snoozeUntil date is required" });
+      }
+      
+      const snoozeDate = new Date(snoozeUntil);
+      if (isNaN(snoozeDate.getTime())) {
+        return res.status(400).json({ message: "Invalid snoozeUntil date format" });
+      }
+      
+      await storage.snoozeReminder(reminderId, userId, snoozeDate);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error snoozing reminder:", error);
+      res.status(500).json({ message: "Failed to snooze reminder" });
     }
   });
 
