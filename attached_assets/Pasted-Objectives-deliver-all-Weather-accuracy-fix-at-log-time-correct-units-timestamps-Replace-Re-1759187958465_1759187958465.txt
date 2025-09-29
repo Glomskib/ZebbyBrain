@@ -1,0 +1,327 @@
+Objectives (deliver all)
+
+Weather accuracy fix at log time; correct units & timestamps.
+
+Replace “Reflection” with AI Research & Trends (non-medical-advice, actionable insights).
+
+Groups: age brackets (0–9, 10–19, …, 70–79, 80+) + Adult Male and Adult Female groups; access enforced from profile. FB-style posts/comments/reactions.
+
+My Herd: rename Personal Circle → My Herd, link to referral program with rewards points for invited family/friends.
+
+Marketplace ↔ Shopify: integrate storefront API for live products/checkout and fulfillment.
+
+Zebby AI Avatar: persistent button; opens side panel; context-aware on all logs.
+
+Symptom Tracker: add body-part specific logging & filters; per-part trends.
+
+A) Weather & Location — Accurate temp at log time
+
+Changes
+
+Add weather_at_log capture using a single provider with explicit units and timezone.
+
+Store: temp_c, conditions, source, observed_at (ISO), lat, lon.
+
+Do not fetch during export; only at log time. Add retry + fallback.
+
+DB (migration)
+
+Add nullable columns to: symptom_event, vitals_reading, sleep_log, hydration_log:
+
+weatherTempC NUMERIC, weatherText TEXT, weatherObservedAt TIMESTAMP, lat NUMERIC, lon NUMERIC, weatherSource TEXT.
+
+Server
+
+New service weather.ts with one provider (Open-Meteo or NWS). Convert to °C at ingest; show °F in UI via utility.
+
+Env:
+
+WEATHER_PROVIDER=openmeteo
+WEATHER_UNITS=metric
+
+
+Client
+
+On logging, pass lat/lon (with user consent). Server returns stamped weather & persists.
+
+Fix display: show time, temp with unit toggle, and text conditions if present.
+
+Acceptance
+
+Given known coordinates, logged temp matches provider ±1°C; unit toggle works; no export-time network calls.
+
+B) Replace “Reflection” → AI Research & Trends
+
+Goal
+
+Provide useful, non-medical-advice AI content: synthesize user’s combined symptoms, trends, and context into supportive insights (resources, lifestyle tips, discussion prompts). No diagnoses.
+
+Server
+
+New route POST /api/ai/insights:
+
+Input: date range, include flags (symptoms/vitals/sleep/hydration).
+
+Pipeline:
+
+Query last 30/90d stats (reuse insights engine).
+
+Build a facts block (numbers only; no PII).
+
+Call OpenAI with system prompt: supportive EDS companion; “not medical advice”; avoid sensitive identifiers.
+
+Return analysis: string, trendBullets: string[], actionIdeas: string[] (gentle, optional).
+
+Remove/rename old “Reflection” calls; cache last result per user+range for 24h.
+
+Client
+
+Replace Reflection section with “Zebby Findings” (analysis + 3–5 trends + 3 tiny optional steps). Include a “Why you’re seeing this” disclosure.
+
+Acceptance
+
+Produces meaningful, specific insights referencing combined data; tone supportive, non-diagnostic. Caches and respects no-store on transport.
+
+C) Groups (Whoop/FB-style) with Age + Gender Gating
+
+Groups to create (seed)
+
+Age: 0–9, 10–19, 20–29, 30–39, 40–49, 50–59, 60–69, 70–79, 80+.
+
+Adults (18+): Male Only, Female Only.
+
+Access rules
+
+Age groups: membership allowed only if profile.birthDate computes age within bracket.
+
+Male/Female only: require profile.gender to be male/female and age ≥ 18.
+
+DB (migrations)
+
+group(id, slug, name, visibility DEFAULT 'private', kind 'age'|'gender'|'topic', minAge, maxAge, genderReq 'male'|'female'|null, createdAt)
+
+group_membership(id, groupId, userId, role 'member'|'moderator'|'owner', status 'approved'|'pending'|'banned', pseudonym, createdAt, UNIQUE(userId, groupId))
+
+post(id, groupId, authorId, kind 'text'|'poll'|'resource', body, mediaUrl, createdAt, editedAt)
+
+comment(id, postId, authorId, body, parentCommentId, createdAt, editedAt)
+
+reaction(id, postId, userId, emoji, createdAt, UNIQUE(postId, userId, emoji))
+
+API
+
+GET /api/groups (returns only accessible groups per profile)
+
+POST /api/groups/:id/join (server validates age/gender)
+
+GET /api/groups/:id/posts?page=&sort=new|top
+
+POST /api/groups/:id/posts (rate-limit)
+
+POST /api/posts/:id/comments
+
+POST /api/posts/:id/react
+
+POST /api/report (flag content); mod queue exists but basic at MVP.
+
+Client
+
+New Groups section: Directory (only eligible groups), Group page (posts, composer, reactions, comments), Notifications (in-app).
+
+Acceptance
+
+Users can only join groups they’re eligible for; FB-style basic UX works (create post, comment, react); rate limits enforced.
+
+D) My Herd (Circle rename) + Referral & Rewards
+
+Rename
+
+All UI/server copy: “Personal Circle” → “My Herd”.
+
+Referrals
+
+referral_code per user (cuid or short code).
+
+referral_event(userId, referredUserId, firstSeenAt, confirmedAt).
+
+Rewards ledger: rewards_ledger(id, userId, points, reason, createdAt).
+
+Rules (MVP)
+
++100 pts when a referred account confirms email.
+
++250 pts when a referred account logs their first week (7 days of activity).
+
+Member can invite into My Herd flow (email invite) or share code.
+
+UI
+
+Settings → My Herd: members list, invite by email, share code, reward balance, recent activity.
+
+Link to My Herd from referrals tab; family/friends invited become Herd members (viewer) upon acceptance (consent flow intact).
+
+Acceptance
+
+Referral code works → referred user creation logs event → rewards credited after milestones.
+
+Herd access remains scoped & revocable.
+
+E) Marketplace ↔ Shopify (fulfillment)
+
+Integration
+
+Use Shopify Storefront API (public queries) for product lists/details.
+
+Checkout: open Shopify checkout URL; fulfillment handled on Shopify.
+
+Env
+
+SHOPIFY_STORE_DOMAIN=yourstore.myshopify.com
+SHOPIFY_STOREFRONT_TOKEN=shpat_... (Storefront API token)
+
+
+Server
+
+/api/shop/products?category=&cursor= → proxy to Storefront API; cache 10 min server-side; map to app’s product card shape.
+
+/api/shop/product/:id → detail.
+
+Client
+
+Marketplace uses /api/shop/* instead of local DB for inventory; keep your existing categories as filters/tags mapped to Shopify collections/tags.
+
+Product “Buy” → Shopify checkout link.
+
+Acceptance
+
+Products load from Shopify; buy flows redirect to Shopify checkout; local dedupe logic remains for UI.
+
+F) Zebby AI Avatar (persistent, logs-aware)
+
+UI
+
+Add a floating Zebby button (bottom-right). Opens a side panel (chat).
+
+Panel has context toggles: “Use last 7/30/90d”, “Include recent logs”, “Ask about…”
+
+Everywhere users log entries, add “Ask Zebby about this” action that opens panel prefilled with that entry’s context.
+
+Server
+
+POST /api/ai/chat:
+
+System prompt: “Zebby, empathetic EDS companion. Provide supportive, non-medical-advice guidance. Use numeric facts provided; never reveal private identifiers.”
+
+Tools: fetch recent insights snapshot (server-side) + user’s last N entries (summary only).
+
+Rate limit chats; redact PII; log minimal audit.
+
+Acceptance
+
+Avatar can reference trends and the exact entry the user clicked from; no diagnoses; tone consistent.
+
+G) Symptom Tracker → Body-part specific
+
+DB
+
+Add bodyPart enum (e.g., neck, shoulder_left, shoulder_right, elbow_left, …, knee_right, ankle_right, back_upper, back_lower, jaw, abdomen, chest, head).
+
+Optionally add side enum (left, right, bilateral) where relevant.
+
+Client
+
+New body map selector (simple grid or SVG with tappable regions).
+
+Filters on Insights & Logs: by body part; per-part sparkline and flare counts.
+
+Server
+
+Insights aggregation per bodyPart: avg intensity, flare days, trend vs. prior period.
+
+Acceptance
+
+Users can log/select body part; insights show per-part trends; filters stick across pages.
+
+H) Security, Privacy, and Tests (keep strong)
+
+Preserve Helmet/CSP, rate limits, webhook raw order, Cache-Control: no-store on sensitive GETs.
+
+Groups: sanitize markdown (no HTML), image whitelist, profanity/harassment word-list → flag queue.
+
+My Herd: consent screens; audit who accessed what.
+
+Shopify proxy: only allow whitelisted queries; strip secrets from logs.
+
+CI Tests
+
+Weather stamp saved at log time; °C/°F conversion correct.
+
+AI Insights returns analysis referencing combined metrics; caches; no PII.
+
+Group eligibility enforced by profile age/gender; unauthorized join blocked (403).
+
+Posts/comments/reactions rate-limited; sanitizer removes HTML.
+
+My Herd invite → accept → viewer access; referral credit after milestones.
+
+Shopify product list returns; Buy opens external checkout.
+
+Avatar chat rate-limited; references current context (entry id).
+
+Symptom body-part write/read and per-part insight trend endpoints return expected shapes.
+
+Headers present on /api/health; exports remain no-store.
+
+Implementation Notes & Env
+
+New env
+
+WEATHER_PROVIDER=openmeteo
+WEATHER_UNITS=metric
+
+SHOPIFY_STORE_DOMAIN=yourstore.myshopify.com
+SHOPIFY_STOREFRONT_TOKEN=...
+
+ENABLE_GROUPS=true
+ENABLE_HERD=true
+ENABLE_REFERRALS=true
+ENABLE_AVATAR=true
+
+OPENAI_API_KEY=sk-...
+
+
+Migration order
+
+Add weather columns to logs.
+
+Add groups/posts/comments/reactions tables.
+
+Rename Circle → Herd tables/columns; add referral + rewards tables.
+
+Add bodyPart/side columns to symptom_event.
+
+Seed groups (age & adult gender).
+
+Definition of Done
+
+Weather at log time is accurate & visible; Reflection replaced by Zebby Findings.
+
+Age-gated & gender-gated Groups live with posts/comments/reactions.
+
+My Herd live; referrals grant points; viewers see scoped dashboards.
+
+Marketplace fetches from Shopify; checkout handled there.
+
+Zebby Avatar persistent and context-aware; safe responses only.
+
+Symptom tracker supports body parts; per-part insights and filters.
+
+All CI tests green; security headers intact; no PII in logs; performance budgets met.
+
+Agent, execute:
+
+Create migrations, routes, services, and React pages/components as specified.
+
+Wire env usage; update CI with new tests.
+
+Provide a summary of changed files and any deviations at the end.
