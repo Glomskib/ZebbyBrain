@@ -4,6 +4,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db";
 import { computeInsights, type RangeKey } from "../lib/insights";
 import { insightsCache } from "../../shared/schema";
+import { logApiPerformance } from "../lib/cache";
 
 const router = Router();
 
@@ -27,6 +28,7 @@ function parseRange(q?: string): RangeKey {
  * Requires authentication (checked by requireAuth middleware applied in routes.ts)
  */
 router.get("/snapshot", async (req, res) => {
+  const startTime = Date.now();
   try {
     const userId = (req as any).user?.id;
     if (!userId) {
@@ -57,6 +59,7 @@ router.get("/snapshot", async (req, res) => {
       if (ageMs < 5 * 60 * 1000) { // 5 minutes
         // Return cached result with security headers
         res.setHeader("Cache-Control", "no-store");
+        logApiPerformance(req, res, startTime, true); // Cache hit
         return res.json(cache.payload);
       }
     }
@@ -83,6 +86,7 @@ router.get("/snapshot", async (req, res) => {
 
     // Return fresh insights with security headers
     res.setHeader("Cache-Control", "no-store");
+    logApiPerformance(req, res, startTime, false); // Cache miss
     return res.json(payload);
   } catch (error) {
     console.error("Error generating insights:", error);
