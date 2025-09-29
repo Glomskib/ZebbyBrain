@@ -16,6 +16,7 @@ import ImportReviewQueue from "@/pages/ImportReviewQueue";
 import Onboarding from "@/pages/onboarding";
 import NotFound from "@/pages/not-found";
 import SharePage from "@/pages/share";
+import GroupsDirectory from "@/pages/groups-directory";
 
 function Router() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -46,6 +47,7 @@ function Router() {
         <>
           <Route path="/" component={Dashboard} />
           <Route path="/tracker" component={SymptomTracker} />
+          <Route path="/groups" component={GroupsDirectory} />
           <Route path="/settings" component={Settings} />
           <Route path="/import" component={ImportSettings} />
           <Route path="/import/review" component={ImportReviewQueue} />

@@ -75,6 +75,117 @@ async function hasPermission(
   return requiredRoles.includes(membership.role as any);
 }
 
+// GET /api/groups/public - Get all public groups with tags
+router.get("/public", async (req: any, res) => {
+  try {
+    // Get all public groups
+    const publicGroups = await db
+      .select({
+        id: groups.id,
+        slug: groups.slug,
+        name: groups.name,
+        description: groups.description,
+        visibility: groups.visibility,
+        kind: groups.kind,
+        category: groups.category,
+        memberCount: groups.memberCount,
+        postCount: groups.postCount,
+        coverImageUrl: groups.coverImageUrl,
+        createdAt: groups.createdAt,
+      })
+      .from(groups)
+      .where(eq(groups.visibility, 'public'))
+      .orderBy(desc(groups.memberCount));
+
+    // Get tags for all groups
+    const allTags = await db
+      .select()
+      .from(groupTags)
+      .where(inArray(groupTags.groupId, publicGroups.map(g => g.id)));
+
+    // Group tags by groupId
+    const tagsByGroup = new Map<string, string[]>();
+    for (const tag of allTags) {
+      if (!tagsByGroup.has(tag.groupId)) {
+        tagsByGroup.set(tag.groupId, []);
+      }
+      tagsByGroup.get(tag.groupId)!.push(tag.tag);
+    }
+
+    // Add tags to groups
+    const groupsWithTags = publicGroups.map(group => ({
+      ...group,
+      tags: tagsByGroup.get(group.id) || [],
+    }));
+
+    res.json(groupsWithTags);
+  } catch (error) {
+    console.error("Error fetching public groups:", error);
+    res.status(500).json({ message: "Failed to fetch public groups" });
+  }
+});
+
+// GET /api/groups/my-groups - Get user's groups (authenticated)
+router.get("/my-groups", async (req: any, res) => {
+  try {
+    if (!req.user?.claims?.sub) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const userId = req.user.claims.sub;
+
+    // Get user's memberships
+    const memberships = await db
+      .select({
+        id: groupMemberships.id,
+        groupId: groupMemberships.groupId,
+        role: groupMemberships.role,
+        joinStatus: groupMemberships.joinStatus,
+        pseudonym: groupMemberships.pseudonym,
+        joinedAt: groupMemberships.joinedAt,
+        groupName: groups.name,
+        groupSlug: groups.slug,
+        groupDescription: groups.description,
+        groupVisibility: groups.visibility,
+        groupKind: groups.kind,
+        groupCategory: groups.category,
+        groupMemberCount: groups.memberCount,
+        groupPostCount: groups.postCount,
+        groupCoverImageUrl: groups.coverImageUrl,
+      })
+      .from(groupMemberships)
+      .innerJoin(groups, eq(groupMemberships.groupId, groups.id))
+      .where(eq(groupMemberships.userId, userId))
+      .orderBy(desc(groupMemberships.joinedAt));
+
+    // Format response
+    const myGroups = memberships.map(m => ({
+      id: m.groupId,
+      slug: m.groupSlug,
+      name: m.groupName,
+      description: m.groupDescription,
+      visibility: m.groupVisibility,
+      kind: m.groupKind,
+      category: m.groupCategory,
+      memberCount: m.groupMemberCount,
+      postCount: m.groupPostCount,
+      coverImageUrl: m.groupCoverImageUrl,
+      membership: {
+        id: m.id,
+        role: m.role,
+        joinStatus: m.joinStatus,
+        pseudonym: m.pseudonym,
+        joinedAt: m.joinedAt,
+      },
+    }));
+
+    res.json(myGroups);
+  } catch (error) {
+    console.error("Error fetching user's groups:", error);
+    res.status(500).json({ message: "Failed to fetch user's groups" });
+  }
+});
+
 // GET /api/groups - List all groups (with filtering)
 router.get("/", async (req: any, res) => {
   try {
