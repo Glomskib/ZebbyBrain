@@ -45,7 +45,16 @@ function Router() {
         <Route path="/" component={Landing} />
       ) : needsOnboarding ? (
         /* Redirect to onboarding for users who haven't completed it */
-        <Route path="/" component={() => { window.location.href = '/onboarding'; return null; }} />
+        <>
+          <Route path="/" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/circle" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/member-dashboard" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/tracker" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/groups" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/groups/:slug" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/settings" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/import" component={() => { window.location.href = '/onboarding'; return null; }} />
+        </>
       ) : (
         <>
           <Route path="/" component={Dashboard} />
