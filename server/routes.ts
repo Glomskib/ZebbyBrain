@@ -1825,6 +1825,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const highlights = generateHighlights(symptoms, aiInteractions);
 
       // Choose content based on version
+      console.log(`PDF Export: version="${version}", type=${typeof version}, choosing ${version === "2" ? "v2" : "v1"} content`);
       const content: any[] = version === "2" ? generateClinicianPackV2Content() : generateStandardContent();
 
       function generateClinicianPackV2Content() {
