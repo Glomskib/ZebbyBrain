@@ -1,0 +1,569 @@
+import express from "express";
+import { db } from "../db";
+import { z } from "zod";
+import { 
+  circles,
+  circleMembers,
+  circleScopes,
+  circleAlertRules,
+  circleInviteTokens,
+  users,
+  insertCircleSchema,
+  insertCircleMemberSchema,
+  insertCircleScopeSchema,
+  insertCircleAlertRuleSchema,
+  insertCircleInviteTokenSchema,
+  type Circle,
+  type CircleMember,
+  type CircleScope,
+  type CircleAlertRule
+} from "@shared/schema";
+import { eq, and, or, sql, desc } from "drizzle-orm";
+import crypto from "crypto";
+
+const router = express.Router();
+
+// Generate secure invite token
+function generateInviteToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// GET /api/circles/my-circle - Get user's circle with members, scope, and rules
+router.get("/my-circle", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userId = req.user.claims.sub;
+
+    // Get or create circle
+    let [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      // Auto-create circle on first access
+      [circle] = await db
+        .insert(circles)
+        .values({ ownerId: userId, name: "My Circle" })
+        .returning();
+
+      // Create default scope
+      await db.insert(circleScopes).values({
+        circleId: circle.id,
+        shareSymptoms: true,
+        shareVitals: true,
+        shareSleep: false,
+        shareHydration: false,
+        shareAIReflections: false,
+        detailLevel: "summary",
+        daysBack: 30,
+      });
+
+      // Create default alert rules (inactive)
+      await db.insert(circleAlertRules).values({
+        circleId: circle.id,
+        active: false,
+        cooldownMin: 180,
+        channelEmail: true,
+        channelSMS: false,
+        notifyGuardianFirst: true,
+      });
+    }
+
+    // Get members
+    const members = await db
+      .select({
+        id: circleMembers.id,
+        circleId: circleMembers.circleId,
+        userId: circleMembers.userId,
+        email: circleMembers.email,
+        role: circleMembers.role,
+        status: circleMembers.status,
+        pseudonym: circleMembers.pseudonym,
+        createdAt: circleMembers.createdAt,
+        userFirstName: users.firstName,
+        userLastName: users.lastName,
+        userProfileImageUrl: users.profileImageUrl,
+      })
+      .from(circleMembers)
+      .leftJoin(users, eq(circleMembers.userId, users.id))
+      .where(eq(circleMembers.circleId, circle.id))
+      .orderBy(desc(circleMembers.createdAt));
+
+    // Get scope
+    const [scope] = await db
+      .select()
+      .from(circleScopes)
+      .where(eq(circleScopes.circleId, circle.id));
+
+    // Get alert rules
+    const [alertRule] = await db
+      .select()
+      .from(circleAlertRules)
+      .where(eq(circleAlertRules.circleId, circle.id));
+
+    res.json({
+      circle,
+      members,
+      scope,
+      alertRule,
+    });
+  } catch (error: any) {
+    console.error("Error fetching circle:", error);
+    res.status(500).json({ error: "Failed to fetch circle" });
+  }
+});
+
+// POST /api/circles/invite - Invite a member to the circle
+router.post("/invite", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const schema = z.object({
+      email: z.string().email(),
+      role: z.enum(["member", "guardian"]).default("member"),
+      pseudonym: z.string().optional(),
+    });
+
+    const { email, role, pseudonym } = schema.parse(req.body);
+    const userId = req.user.claims.sub;
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found. Initialize circle first." });
+    }
+
+    // Check if already invited
+    const [existing] = await db
+      .select()
+      .from(circleMembers)
+      .where(
+        and(
+          eq(circleMembers.circleId, circle.id),
+          eq(circleMembers.email, email)
+        )
+      );
+
+    if (existing) {
+      return res.status(400).json({ error: "This email is already invited to your circle" });
+    }
+
+    // Create member record (pending status)
+    const [member] = await db
+      .insert(circleMembers)
+      .values({
+        circleId: circle.id,
+        email,
+        role,
+        pseudonym,
+        status: "pending",
+      })
+      .returning();
+
+    // Generate invite token
+    const token = generateInviteToken();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    await db.insert(circleInviteTokens).values({
+      circleId: circle.id,
+      email,
+      token,
+      expiresAt,
+    });
+
+    // TODO: Send invite email with token link
+
+    res.json({
+      member,
+      inviteUrl: `/circle/accept-invite?token=${token}`,
+    });
+  } catch (error: any) {
+    console.error("Error inviting member:", error);
+    if (error.name === "ZodError") {
+      return res.status(400).json({ error: "Invalid request data", details: error.errors });
+    }
+    res.status(500).json({ error: "Failed to invite member" });
+  }
+});
+
+// GET /api/circles/members - Get all members of user's circle
+router.get("/members", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userId = req.user.claims.sub;
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.json({ members: [] });
+    }
+
+    // Get members with user data
+    const members = await db
+      .select({
+        id: circleMembers.id,
+        circleId: circleMembers.circleId,
+        userId: circleMembers.userId,
+        email: circleMembers.email,
+        role: circleMembers.role,
+        status: circleMembers.status,
+        pseudonym: circleMembers.pseudonym,
+        createdAt: circleMembers.createdAt,
+        userFirstName: users.firstName,
+        userLastName: users.lastName,
+        userProfileImageUrl: users.profileImageUrl,
+      })
+      .from(circleMembers)
+      .leftJoin(users, eq(circleMembers.userId, users.id))
+      .where(eq(circleMembers.circleId, circle.id))
+      .orderBy(desc(circleMembers.createdAt));
+
+    res.json({ members });
+  } catch (error: any) {
+    console.error("Error fetching members:", error);
+    res.status(500).json({ error: "Failed to fetch members" });
+  }
+});
+
+// PATCH /api/circles/members/:memberId/revoke - Revoke member access
+router.patch("/members/:memberId/revoke", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { memberId } = req.params;
+    const userId = req.user.claims.sub;
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found" });
+    }
+
+    // Get member to verify it belongs to this circle
+    const [member] = await db
+      .select()
+      .from(circleMembers)
+      .where(
+        and(
+          eq(circleMembers.id, memberId),
+          eq(circleMembers.circleId, circle.id)
+        )
+      );
+
+    if (!member) {
+      return res.status(404).json({ error: "Member not found" });
+    }
+
+    // Update status to revoked
+    const [updated] = await db
+      .update(circleMembers)
+      .set({ status: "revoked" })
+      .where(eq(circleMembers.id, memberId))
+      .returning();
+
+    res.json({ member: updated });
+  } catch (error: any) {
+    console.error("Error revoking member:", error);
+    res.status(500).json({ error: "Failed to revoke member" });
+  }
+});
+
+// PATCH /api/circles/members/:memberId - Update member details (pseudonym, role)
+router.patch("/members/:memberId", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { memberId } = req.params;
+    const userId = req.user.claims.sub;
+
+    const schema = z.object({
+      pseudonym: z.string().optional(),
+      role: z.enum(["member", "guardian"]).optional(),
+    });
+
+    const updates = schema.parse(req.body);
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found" });
+    }
+
+    // Verify member belongs to this circle
+    const [member] = await db
+      .select()
+      .from(circleMembers)
+      .where(
+        and(
+          eq(circleMembers.id, memberId),
+          eq(circleMembers.circleId, circle.id)
+        )
+      );
+
+    if (!member) {
+      return res.status(404).json({ error: "Member not found" });
+    }
+
+    // Update member
+    const [updated] = await db
+      .update(circleMembers)
+      .set(updates)
+      .where(eq(circleMembers.id, memberId))
+      .returning();
+
+    res.json({ member: updated });
+  } catch (error: any) {
+    console.error("Error updating member:", error);
+    if (error.name === "ZodError") {
+      return res.status(400).json({ error: "Invalid request data", details: error.errors });
+    }
+    res.status(500).json({ error: "Failed to update member" });
+  }
+});
+
+// GET /api/circles/scope - Get circle sharing scope
+router.get("/scope", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userId = req.user.claims.sub;
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found" });
+    }
+
+    // Get scope
+    const [scope] = await db
+      .select()
+      .from(circleScopes)
+      .where(eq(circleScopes.circleId, circle.id));
+
+    res.json({ scope });
+  } catch (error: any) {
+    console.error("Error fetching scope:", error);
+    res.status(500).json({ error: "Failed to fetch scope" });
+  }
+});
+
+// PATCH /api/circles/scope - Update circle sharing scope
+router.patch("/scope", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const schema = z.object({
+      shareSymptoms: z.boolean().optional(),
+      shareVitals: z.boolean().optional(),
+      shareSleep: z.boolean().optional(),
+      shareHydration: z.boolean().optional(),
+      shareAIReflections: z.boolean().optional(),
+      detailLevel: z.enum(["summary", "detail"]).optional(),
+      daysBack: z.number().int().min(1).max(365).optional(),
+    });
+
+    const updates = schema.parse(req.body);
+    const userId = req.user.claims.sub;
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found" });
+    }
+
+    // Update scope
+    const [scope] = await db
+      .update(circleScopes)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(circleScopes.circleId, circle.id))
+      .returning();
+
+    res.json({ scope });
+  } catch (error: any) {
+    console.error("Error updating scope:", error);
+    if (error.name === "ZodError") {
+      return res.status(400).json({ error: "Invalid request data", details: error.errors });
+    }
+    res.status(500).json({ error: "Failed to update scope" });
+  }
+});
+
+// GET /api/circles/alert-rules - Get circle alert rules
+router.get("/alert-rules", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userId = req.user.claims.sub;
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found" });
+    }
+
+    // Get alert rules
+    const [alertRule] = await db
+      .select()
+      .from(circleAlertRules)
+      .where(eq(circleAlertRules.circleId, circle.id));
+
+    res.json({ alertRule });
+  } catch (error: any) {
+    console.error("Error fetching alert rules:", error);
+    res.status(500).json({ error: "Failed to fetch alert rules" });
+  }
+});
+
+// PATCH /api/circles/alert-rules - Update circle alert rules
+router.patch("/alert-rules", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const schema = z.object({
+      active: z.boolean().optional(),
+      quietStart: z.string().optional().nullable(),
+      quietEnd: z.string().optional().nullable(),
+      cooldownMin: z.number().int().min(0).optional(),
+      flareThreshold: z.number().int().min(1).max(10).optional().nullable(),
+      hrDeltaBpm: z.number().int().min(0).optional().nullable(),
+      lowSleepHours: z.number().min(0).max(24).optional().nullable(),
+      channelEmail: z.boolean().optional(),
+      channelSMS: z.boolean().optional(),
+      notifyGuardianFirst: z.boolean().optional(),
+    });
+
+    const parsed = schema.parse(req.body);
+    
+    // Convert lowSleepHours to string for decimal field
+    const updates = {
+      ...parsed,
+      lowSleepHours: parsed.lowSleepHours !== undefined && parsed.lowSleepHours !== null 
+        ? parsed.lowSleepHours.toString() 
+        : parsed.lowSleepHours,
+    };
+    const userId = req.user.claims.sub;
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found" });
+    }
+
+    // Update alert rules
+    const [alertRule] = await db
+      .update(circleAlertRules)
+      .set(updates)
+      .where(eq(circleAlertRules.circleId, circle.id))
+      .returning();
+
+    res.json({ alertRule });
+  } catch (error: any) {
+    console.error("Error updating alert rules:", error);
+    if (error.name === "ZodError") {
+      return res.status(400).json({ error: "Invalid request data", details: error.errors });
+    }
+    res.status(500).json({ error: "Failed to update alert rules" });
+  }
+});
+
+// DELETE /api/circles/members/:memberId - Delete member from circle
+router.delete("/members/:memberId", async (req: any, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { memberId } = req.params;
+    const userId = req.user.claims.sub;
+
+    // Get user's circle
+    const [circle] = await db
+      .select()
+      .from(circles)
+      .where(eq(circles.ownerId, userId));
+
+    if (!circle) {
+      return res.status(404).json({ error: "Circle not found" });
+    }
+
+    // Verify member belongs to this circle
+    const [member] = await db
+      .select()
+      .from(circleMembers)
+      .where(
+        and(
+          eq(circleMembers.id, memberId),
+          eq(circleMembers.circleId, circle.id)
+        )
+      );
+
+    if (!member) {
+      return res.status(404).json({ error: "Member not found" });
+    }
+
+    // Delete member
+    await db
+      .delete(circleMembers)
+      .where(eq(circleMembers.id, memberId));
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Error deleting member:", error);
+    res.status(500).json({ error: "Failed to delete member" });
+  }
+});
+
+export default router;
