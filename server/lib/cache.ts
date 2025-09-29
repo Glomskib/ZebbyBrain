@@ -67,7 +67,7 @@ export async function getActiveUsers(): Promise<string[]> {
       db
         .selectDistinct({ userId: sleepLogs.userId })
         .from(sleepLogs)
-        .where(gte(sleepLogs.timestamp, sevenDaysAgo))
+        .where(gte(sleepLogs.bedtime, sevenDaysAgo))
     ]);
 
     // Merge and deduplicate user IDs
