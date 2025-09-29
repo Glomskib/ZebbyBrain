@@ -1,0 +1,325 @@
+What we’re building
+
+Personal Circle: Invite trusted people (family, friends, caregivers) to view a limited, read-only dashboard of your data you explicitly share (scoped + revocable). Roles: Owner (you) and Circle Member (viewer), optional Guardian (can receive urgent alerts).
+
+Let Someone Know: One-tap status share (manual).
+
+Reach Out for Help: Automated, opt-in alerts when symptoms cross thresholds (with cool-downs, quiet hours, and cancel window).
+
+Privacy by design: Nothing is shared unless the owner opts in per scope; members need verified accounts; logs show who saw what & when.
+
+Data model (Prisma/Drizzle style; adapt names)
+model Circle {
+  id            String   @id @default(cuid())
+  ownerId       String   @index
+  name          String   @default("My Circle")
+  createdAt     DateTime @default(now())
+}
+
+model CircleMember {
+  id            String   @id @default(cuid())
+  circleId      String   @index
+  userId        String?  // null until invite accepted
+  email         String   // invite target; must verify to see data
+  role          String   @default("member") // "member" | "guardian"
+  status        String   @default("pending") // "pending" | "active" | "revoked"
+  pseudonym     String?  // owner-visible label like "Mom"
+  createdAt     DateTime @default(now())
+
+  @@unique([circleId, email])
+}
+
+model CircleScope {
+  id            String   @id @default(cuid())
+  circleId      String   @index
+  // granular sharing choices
+  shareSymptoms Boolean  @default(true)
+  shareVitals   Boolean  @default(true)
+  shareSleep    Boolean  @default(false)
+  shareHydration Boolean @default(false)
+  shareAIReflections Boolean @default(false)
+  // how much detail
+  detailLevel   String   @default("summary") // "summary" | "detail"
+  // time window of shared history (e.g., last 30/90 days)
+  daysBack      Int      @default(30)
+  updatedAt     DateTime @updatedAt
+}
+
+model CircleAlertRule {
+  id            String   @id @default(cuid())
+  circleId      String   @index
+  // trigger config (owner-chosen)
+  active        Boolean  @default(false)
+  quietStart    String?  // "22:00" local
+  quietEnd      String?  // "07:00" local
+  cooldownMin   Int      @default(180) // minimum minutes between alerts
+  // example triggers (extendable)
+  flareThreshold Int?    // e.g., pain >= 8/10
+  hrDeltaBpm    Int?     // standing - supine >= N
+  lowSleepHours Float?   // last-night sleep < N
+  // channel preferences
+  channelEmail  Boolean  @default(true)
+  channelSMS    Boolean  @default(false) // require SMS provider config
+  notifyGuardianFirst Boolean @default(true)
+  createdAt     DateTime @default(now())
+}
+
+model CircleAlertLog {
+  id            String   @id @default(cuid())
+  circleId      String   @index
+  ruleId        String?
+  sentAt        DateTime @default(now())
+  channel       String   // "email" | "sms" | "inapp"
+  toMemberId    String?
+  summary       String   // short, non-PHI subject/line
+  payloadHash   String   // hash of content for audit; not raw PHI
+}
+
+model CircleInviteToken {
+  id            String   @id @default(cuid())
+  circleId      String   @index
+  email         String
+  token         String   @unique
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+}
+
+API surface (Express; auth required)
+
+Owner endpoints
+
+POST /api/circle → create (1 circle per owner by default)
+
+GET /api/circle → get circle, members, scope, rules
+
+POST /api/circle/invite → { email, role } → creates token + sends invite
+
+POST /api/circle/member/:id/revoke → remove access
+
+PUT /api/circle/scope → update CircleScope
+
+PUT /api/circle/rules → update CircleAlertRule
+
+POST /api/circle/reach-out → manual “Let someone know” ping
+
+POST /api/circle/test-alert → send test to self (owner only)
+
+Member endpoints (viewer)
+
+POST /api/circle/accept-invite → { token } → links member account & activates
+
+GET /api/circle/feed → returns scoped summary data (respect daysBack, detailLevel)
+
+GET /api/circle/today → compact “How I’m Doing” snapshot (no free text unless scope allows)
+
+Housekeeping
+
+GET /api/circle/audit (owner only) → last 30 access events (who, when, what)
+
+Rate limits: read 60/min, write 10/min per user; alerts are separately throttled.
+
+Sharing & scope rules
+
+No public links. Members must verify email and login to view.
+
+Owner can toggle what to share and how much detail.
+Examples:
+
+Summary: daily averages, flare count, HR Δ trend, sleep hours; no notes/AI text.
+
+Detail: includes individual entries and AI reflection summaries (still non-diagnostic).
+
+DaysBack window limits history (default 30 days).
+
+Every GET returns Cache-Control: no-store.
+
+Reach Out & automated alerts
+
+Manual “Let someone know”
+
+Owner taps Reach Out → picks recipients (all members or guardians only), optional short message.
+
+Sends email (and SMS if enabled). Subject lines are generic: “A check-in from Zebby”.
+
+Automated alerts (opt-in)
+
+Trigger evaluation runs via existing cron loop (e.g., every 15 min).
+
+Sample logic (pseudo):
+
+If latest symptom intensity ≥ flareThreshold → candidate.
+
+If (avg standing − supine HR) ≥ hrDeltaBpm across last day → candidate.
+
+If last night sleep < lowSleepHours → candidate.
+
+Before sending:
+
+Respect quiet hours (unless owner enabled override).
+
+Enforce cooldown (min X minutes since last alert).
+
+Provide 10-minute cancel window to the owner: push/email “We plan to notify your circle; cancel?”
+If not canceled, send.
+
+Alert content (non-PHI subject; body includes only data allowed by scope):
+
+“Zebby check-in: today looks tougher than usual. [Owner Name/Pseudonym] opted in to share this summary.”
+
+Include friendly context + next steps (supportive, not medical advice).
+
+Provide one-click “I’m checking in” for a member to acknowledge.
+
+Safety
+
+Never include addresses, GPS, or raw notes by default.
+
+Crisis language → show “If this is an emergency…” banner to owner. No 911 auto-call.
+
+UI flows
+
+Settings → Personal Circle
+
+Members: list (email, role, status), invite, revoke, resend invite.
+
+What to share: switches for Symptoms/Vitals/Sleep/Hydration/AI; Detail: Summary vs Detail; History window: 7/30/90d.
+
+When to alert: threshold sliders (pain ≥ X), HR Δ, sleep; quiet hours; cooldown; channels; Test Alert.
+
+Home
+
+Reach Out button (primary).
+
+If an automated alert is queued: “We’ll notify your circle in 10:00 — Cancel” bar with countdown.
+
+Member dashboard (viewer)
+
+“How they’re doing” snapshot (period selector):
+
+Today: avg intensity, flares, HR Δ, sleep hours; trend arrows; gentle copy.
+
+Respect scope: if AI off, hide it.
+
+Accessibility & tone
+
+Soft, supportive copy; aria-live for countdown; large tappable actions; clear disclaimers.
+
+Notifications
+
+Email first (already used for billing): add templates for Reach Out and Alert.
+
+Optional SMS later (Twilio/other) behind ENABLE_SMS=false by default.
+
+PWA push (optional): only generic text, never PHI.
+
+Acceptance criteria
+
+Owner can invite, revoke, set scopes, and set rules.
+
+Member must accept invite to view; private, scoped data only; no-store responses.
+
+“Reach Out” sends within seconds; appears in audit log.
+
+Automated alerts: fire only when thresholds + cooldown + quiet hours allow; cancel window works.
+
+CI tests:
+
+Member cannot fetch data if revoked (403).
+
+Scope respected (AI text hidden when off).
+
+Cooldown enforced; quiet hours respected.
+
+Invite token expires; cannot reuse.
+
+Copy-paste Replit Agent Prompt
+
+Title: Zebby — Personal Circle & Reach Out (Private Sharing + Alerts)
+Goal: Implement a private “Personal Circle” with scoped sharing, manual “Reach Out,” and opt-in automated alerts (with quiet hours, cooldowns, and cancel window). No public links; account-based access only.
+
+Tasks
+
+DB migrations: add Circle, CircleMember, CircleScope, CircleAlertRule, CircleAlertLog, CircleInviteToken as defined above; add indexes; set 1 circle per owner by default (enforce in service layer).
+
+Owner APIs:
+
+GET/POST /api/circle, POST /api/circle/invite, POST /api/circle/member/:id/revoke, PUT /api/circle/scope, PUT /api/circle/rules, POST /api/circle/reach-out, POST /api/circle/test-alert.
+
+Validate inputs via Zod; require auth; rate limit write: 10/min.
+
+Member APIs:
+
+POST /api/circle/accept-invite { token } (verifies email → activates).
+
+GET /api/circle/feed (returns scoped summary for last daysBack).
+
+GET /api/circle/today (compact snapshot).
+
+Add Cache-Control: no-store to all circle GETs.
+
+Invite & email:
+
+Create CircleInviteToken (random, exp 7 days).
+
+Send email with CTA → accept screen.
+
+On acceptance, link to member’s userId; set status active.
+
+Reach Out (manual):
+
+Owner UI button → modal to pick recipients (all/guardians/custom).
+
+Server sends email (and SMS if ENABLE_SMS=true), logs CircleAlertLog.
+
+Subject generic (“A check-in from Zebby”); body uses scope to include or omit AI notes.
+
+Automated alerts:
+
+Cron task (15-min tick): evaluate rules using latest data.
+
+Honor quiet hours, cooldown, notifyGuardianFirst.
+
+Create a pending alert with 10-minute cancel window; notify owner (email/in-app banner).
+
+If not canceled, send to chosen members; log CircleAlertLog.
+
+Rate limit per circle (max 2 per day) to prevent spam.
+
+UI:
+
+Settings → Personal Circle page (members list, invite, revoke, scopes, rules).
+
+Home: “Reach Out” button + cancel countdown bar when pending.
+
+Member Dashboard: read-only summary respecting scope (Symptoms/Vitals/Sleep/Hydration/AI), last daysBack.
+
+Use existing Zebby tiles/buttons; add aria-live for countdown.
+
+Security & Privacy:
+
+All endpoints require auth; check ownership per circle.
+
+Member endpoints require active membership; enforce scope server-side.
+
+Responses no-store; logs redact PHI; email templates avoid PHI in subject lines.
+
+CI tests: revoked access returns 403; scope toggles hide AI; cooldown and quiet hours verified.
+
+Config/env:
+
+ENABLE_CIRCLE=true
+CIRCLE_INVITE_TTL_DAYS=7
+CIRCLE_ALERT_COOLDOWN_MIN_DEFAULT=180
+EMAIL_FROM="Zebby <no-reply@zebbysworld.com>"
+ENABLE_SMS=false
+
+
+Definition of Done:
+
+Owner invites & configures circle; member accepts; member sees scoped dashboard.
+
+Manual Reach Out works; automated alerts honor thresholds, quiet hours, cooldown, and cancel window.
+
+Audit log lists last 30 sends.
+
+All tests green; security headers unchanged.
