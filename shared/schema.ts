@@ -54,6 +54,10 @@ export const users = pgTable("users", {
   sleepLogsRetentionMonths: integer("sleep_logs_retention_months").default(36), // Default 3 years
   aiInteractionsRetentionMonths: integer("ai_interactions_retention_months").default(24), // Default 2 years
   
+  // Account deletion (soft delete with 7-day recovery)
+  deletedAt: timestamp("deleted_at"), // null = active, timestamp = soft deleted
+  deletionReason: text("deletion_reason"), // Optional reason for deletion
+  
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -320,6 +324,44 @@ export const insightsCache = pgTable("insights_cache", {
   userRangeIdx: uniqueIndex("insights_cache_user_range_idx").on(table.userId, table.rangeKey),
 }));
 
+// Reminders system for medication, hydration, posture, and custom reminders
+export const reminders = pgTable("reminders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  type: varchar("type").notNull(), // "medication", "hydration", "posture", "custom"
+  label: varchar("label").notNull(), // User-friendly name for the reminder
+  description: text("description"), // Optional detailed description
+  
+  // Scheduling configuration
+  timeOfDay: varchar("time_of_day"), // "09:00", "14:30" - 24h format
+  timezone: varchar("timezone").default("UTC"), // User's timezone
+  cronExpression: varchar("cron_expression"), // For complex schedules
+  frequency: varchar("frequency").default("daily"), // "daily", "weekly", "custom"
+  weekDays: text("week_days").array(), // ["monday", "tuesday"] for weekly reminders
+  
+  // Delivery settings
+  channelEmail: boolean("channel_email").default(true),
+  channelInApp: boolean("channel_in_app").default(true),
+  
+  // State management
+  isEnabled: boolean("is_enabled").default(true),
+  isSnoozing: boolean("is_snoozing").default(false),
+  snoozeUntil: timestamp("snooze_until"), // When snooze expires
+  nextScheduledAt: timestamp("next_scheduled_at"), // Next firing time
+  lastSentAt: timestamp("last_sent_at"), // Last successful send
+  
+  // Medication-specific fields
+  medicationName: varchar("medication_name"), // For med reminders
+  dosage: varchar("dosage"), // "2 tablets", "5mg"
+  instructions: text("instructions"), // "Take with food"
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userEnabledIdx: index("reminders_user_enabled_idx").on(table.userId, table.isEnabled),
+  nextScheduledIdx: index("reminders_next_scheduled_idx").on(table.nextScheduledAt),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   symptomLogs: many(symptomLogs),
@@ -334,6 +376,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   waterIntakeLogs: many(waterIntakeLogs),
   sodiumIntakeLogs: many(sodiumIntakeLogs),
   insightsCache: many(insightsCache),
+  reminders: many(reminders),
 }));
 
 export const symptomLogsRelations = relations(symptomLogs, ({ one, many }) => ({
@@ -465,6 +508,13 @@ export const insightsCacheRelations = relations(insightsCache, ({ one }) => ({
   }),
 }));
 
+export const remindersRelations = relations(reminders, ({ one }) => ({
+  user: one(users, {
+    fields: [reminders.userId],
+    references: [users.id],
+  }),
+}));
+
 // Schema types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -556,6 +606,17 @@ export type InsertDataImportSource = z.infer<typeof insertDataImportSourceSchema
 export type DataImportSource = typeof dataImportSources.$inferSelect;
 
 export type ImportConflict = typeof importConflicts.$inferSelect;
+
+// Reminders schemas
+export const insertReminderSchema = createInsertSchema(reminders).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  nextScheduledAt: true,
+  lastSentAt: true,
+});
+export type InsertReminder = z.infer<typeof insertReminderSchema>;
+export type Reminder = typeof reminders.$inferSelect;
 
 // Cart and Order types
 export const insertCartItemSchema = createInsertSchema(cartItems).omit({

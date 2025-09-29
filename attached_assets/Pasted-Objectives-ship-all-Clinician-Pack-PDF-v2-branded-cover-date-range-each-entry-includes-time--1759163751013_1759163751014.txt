@@ -1,0 +1,270 @@
+Objectives (ship all)
+
+Clinician Pack PDF v2 — branded cover, date range, each entry includes time + weather + HR + water stamps, AI analysis summary, and trends charts.
+
+In-app trends charts — sparklines for pain, HR Δ (standing→supine), sleep hours; embed those images into the PDF.
+
+Reminders — meds, hydration, posture, and custom reminders (users can add their own).
+
+Sharing — export-only (user manages files/printing); no hosted share links right now.
+
+Data controls — Backup/Restore + Delete account; retention: keep all, but at 2 years auto-export to user then server-side delete.
+
+PWA now — installable app (manifest + icons + service worker with strict no-store for PHI), offline read-only shell.
+
+Marketplace — add sort + paging and SEO for category pages.
+
+Custom domain — move to https://www.zebbysworld.com
+ with proper CSP/headers and email sender for reminders.
+
+A) Clinician Pack PDF v2
+
+Build
+
+Add cover page: logo/mascot, patient name (optional), date range selected, generation timestamp, clinic-friendly “Informational only—not medical advice.”
+
+Entry details: For symptoms, vitals, sleep, hydration:
+
+Show time (local), weather (from stored log if available), HR at log time (if present), water intake to-date (if present).
+
+AI analysis block: Include the latest AI reflection summary for the selected range (“Zebby’s gentle reflection”), capped ~120 words; do not include raw prompts/PII.
+
+Trends page: Insert small charts:
+
+Weekly pain sparkline (avg/day).
+
+HR Δ sparkline (daily mean standing – supine).
+
+Sleep hours sparkline (daily).
+
+Footer stays: “Zebby • Not medical advice • page X/Y”.
+
+Implementation notes
+
+Reuse existing export route (/api/exports/pdf). Add a new layout builder for v2 ?v=2.
+
+Render sparklines client-side to PNG data URLs or server-side tiny PNGs; embed in pdfmake.
+
+If weather isn’t already logged with entries: add nullable fields to logs (weatherSummary, tempC, conditionsIcon); do not call external APIs at export time.
+
+Acceptance
+
+PDF < 5 MB for 90 days of data; A4/Letter ready; no clipped text.
+
+Each entry row shows time; when present: weather/HR/water stamps.
+
+Includes AI analysis block (non-diagnostic tone).
+
+Trends page shows 3 charts; legible in grayscale prints.
+
+Tests
+
+No data → PDF builds with friendly empty states.
+
+Heavy data (5k rows) → under memory/time budget and still <5 MB.
+
+B) In-app trends charts
+
+Build
+
+In InsightCards add minimal sparklines (no heavy deps): pain, HR Δ, sleep.
+
+Provide a small export util that returns data URLs for PDF embedding.
+
+Acceptance
+
+Charts render < 50ms after snapshot fetch.
+
+Tabbing through cards is accessible; aria-labels announce selected range.
+
+C) Reminders (meds, hydration, posture, custom)
+
+Build
+
+DB: reminder table: { id, userId, type: 'med'|'hydration'|'posture'|'custom', label, cronExpr|timeOfDay, tz, channel:'email'|'inapp', enabled, createdAt }.
+
+UI: Settings → Reminders page to add/edit/pause/snooze.
+
+Scheduler: use a small in-app cron (guarded by ENABLE_CRON=true). Ensure idempotent send per reminder per window.
+
+Delivery: start with email (use your provider env vars). If not configured, show in-app banners only.
+
+Acceptance
+
+Add/pause/disable works; next event scheduled correctly for user’s time zone.
+
+Sends are rate-limited, logged with no PII. Snooze adds +X minutes once.
+
+Unit test: a reminder fires once per window; pausing stops sends.
+
+Env
+
+ENABLE_CRON=true
+EMAIL_FROM="Zebby <no-reply@zebbysworld.com>"
+EMAIL_PROVIDER_API_KEY=...
+
+D) Sharing
+
+Decision: export-only (manual sharing by user).
+
+Update copy in Export UI: “You manage files/printing. Zebby does not host shared links.”
+
+Keep a placeholder feature flag for future read-only links, but do not expose now.
+
+Acceptance
+
+No public share URLs; only file downloads.
+
+E) Data controls & retention
+
+Build
+
+Settings → Data:
+
+Backup (encrypted zip of user rows) + Restore (import zip).
+
+Delete account with 7-day undo (soft delete + purge worker).
+
+Retention policy:
+
+Default: keep everything.
+
+At 2 years age, create an auto-export (CSV+PDF bundle) and server-delete those rows after successful export delivery; let user opt-out in Settings.
+
+Acceptance
+
+Backup/Restore roundtrip succeeds; integrity verified (row counts).
+
+Delete shows countdown; cancel restores access.
+
+Retention job runs in dry-run mode until explicitly enabled in env.
+
+Env
+
+ENABLE_RETENTION_JOBS=false
+RETENTION_YEARS=2
+
+F) PWA now
+
+Build
+
+Add web app manifest (name, theme color, icons).
+
+Add service worker:
+
+Do NOT cache PHI/PII or protected API routes.
+
+Cache-first only for static assets, shell, and anonymous pages.
+
+Offline read-only fallback for Home + Insights snapshot (last cached), stripping PII.
+
+Add “Install Zebby” prompt in Settings.
+
+Acceptance
+
+Lighthouse: PWA installable.
+
+Offline: minimal shell loads; no protected endpoints are cached; exports remain network-only.
+
+CSP & headers unchanged; service worker scope limited.
+
+G) Marketplace: sort/paging + SEO
+
+Build
+
+API: /api/products?categoryId=&sort=priceAsc|priceDesc|newest&page=1&limit=24.
+
+UI: sort dropdown; pager; ensure dedupe & null image fallbacks.
+
+SEO:
+
+Add JSON-LD to category pages (ItemList with Product).
+
+Ensure titles/meta per category.
+
+Acceptance
+
+Sorting & paging compose with filters; no duplicates.
+
+Lighthouse SEO score passes on category page.
+
+H) Custom domain: https://www.zebbysworld.com
+
+Build
+
+Point A/AAAA or CNAME to Replit app per Replit docs.
+
+TLS on; update CSP to include your domain.
+
+Update email sender domain (SPF/DKIM) for reminders.
+
+Host /.well-known/security.txt, Privacy Policy, Terms, Support.
+
+Acceptance
+
+Site loads via www.zebbysworld.com
+ with HSTS, correct CSP, cookies secure.
+
+Email domain authenticated (SPF/DKIM/DMARC pass).
+
+Cross-cutting constraints (must keep)
+
+Security: Maintain Helmet/CSP, rate limits, webhook order (raw before json), idempotency in billing, export Cache-Control: no-store.
+
+Privacy: AI analysis in PDF is short, supportive, non-diagnostic; never include raw prompts.
+
+Accessibility: Keyboardable, visible focus, aria-live on updates.
+
+Performance: /api/insights/snapshot p95 < 400ms with cache; PDF < 5 MB; JS bundle budget unchanged.
+
+Tests to add (CI)
+
+PDF v2
+
+With & without data: cover + trends + AI block appear; file < 5 MB.
+
+Charts
+
+Snapshot returns sparkline data arrays; PNG generation succeeds.
+
+Reminders
+
+Scheduler respects timezone and idempotency; pause/snooze logic passes.
+
+PWA
+
+Service worker does not cache /api/* protected endpoints.
+
+Marketplace
+
+Sorting/paging work; JSON-LD validates.
+
+Domain
+
+Health check over custom domain returns security headers.
+
+Deliverables
+
+Code for PDF v2 (cover, entry stamps, AI block, trends page).
+
+InsightCards with sparklines + PDF embedding util.
+
+Reminders DB, scheduler, email delivery, UI.
+
+Settings → Data (Backup/Restore/Delete with 7-day undo) + retention job (dry-run by default).
+
+PWA manifest + service worker with safe caching policy.
+
+Marketplace sort/paging + category JSON-LD.
+
+Domain config notes + policies deployed.
+
+Notes for Agent
+
+Reuse existing theme tokens and “tile/btn/badge” classes.
+
+Avoid new heavy chart libs; tiny inline generator or lightweight library only.
+
+Store weather/HR/water stamps with entries at log time (no live external calls during export).
+
+Keep all enterprise security measures intact and CI green.
