@@ -6,6 +6,16 @@ Zebby's World is a comprehensive health tracking application specifically design
 
 ## Recent Changes
 
+### September 2025 - Zebby Social: Group Home Page
+- **Group Home Page**: Full-featured group page with feed, post composer, reactions, and member management
+- **State-Based Access Control**: Different views for non-members (join prompt), pending members (approval message), and approved members (full access)
+- **Post Composer**: Create text posts with real-time validation and success feedback
+- **Interactive Feed**: View posts with reactions, comments, polls, and author pseudonyms
+- **Pseudonym Editor**: Dialog for members to set/update their privacy-protecting pseudonym
+- **Comprehensive Cache Invalidation**: All mutations properly refresh related queries across navigation contexts
+- **Content Tabs**: Feed (posts), About (group info), Members (placeholder)
+- **Moderator Tools**: Settings access for group owners and moderators
+
 ### September 2025 - Zebby Social: Groups Directory MVP
 - **Groups Directory Frontend**: Discover page with search, category filtering, and three tabs (Discover/Suggested/Trending)
 - **Membership Status Handling**: Proper differentiation between approved/pending/no membership states
