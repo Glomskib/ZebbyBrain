@@ -175,7 +175,7 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
       console.log(`  Final intensity: ${domIntensity}`);
       
       return {
-        name: symptom.name,
+        symptomName: symptom.name,
         intensity: domIntensity,
         notes: domNotes,
       };

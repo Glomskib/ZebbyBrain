@@ -31,6 +31,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { z } from "zod";
+import crypto from "crypto";
 import Stripe from "stripe";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { Parser } from "json2csv";
@@ -203,7 +204,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         weatherCondition: weatherData?.condition || null,
         weatherLocation: weatherData?.location || null,
         // Legacy fields for backward compatibility
-        symptoms: symptomEntries.map((entry: any) => entry.name),
+        symptoms: symptomEntries.map((entry: any) => entry.symptomName),
         intensity: Math.round(symptomEntries.reduce((sum: number, entry: any) => sum + entry.intensity, 0) / symptomEntries.length)
       };
 
@@ -213,10 +214,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Creating symptom entries with data:', JSON.stringify(symptomEntries, null, 2));
       const createdEntries = [];
       for (const entry of symptomEntries) {
-        console.log(`Creating symptom entry: ${entry.name} with intensity ${entry.intensity}`);
+        console.log(`Creating symptom entry: ${entry.symptomName} with intensity ${entry.intensity}`);
         const symptomEntry = await storage.createSymptomEntry({
           symptomLogId: symptomLog.id,
-          symptomName: entry.name,
+          symptomName: entry.symptomName,
           intensity: entry.intensity,
           notes: entry.notes || null
         });
@@ -225,14 +226,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Generate analytical AI reflection asynchronously
-      const symptomSummary = symptomEntries.map((entry: any) => `${entry.name} (${entry.intensity}/10)`).join(", ");
+      const symptomSummary = symptomEntries.map((entry: any) => `${entry.symptomName} (${entry.intensity}/10)`).join(", ");
       
       // Import the new analytical function
       const { generateAnalyticalReflection } = await import('./openai');
       
       generateAnalyticalReflection(
         symptomEntries.map((entry: any) => ({
-          name: entry.name,
+          name: entry.symptomName,
           intensity: entry.intensity,
           notes: entry.notes
         })),
@@ -2371,14 +2372,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Get public shared content (no auth required, but password may be required)
   app.get('/api/sharing/public/:id', async (req, res) => {
+    console.log(`[DEBUG] GET /api/sharing/public/${req.params.id} - Starting request`);
     try {
       const { id } = req.params;
       const { password } = req.query; // Accept password as query parameter
-      const viewerIpHash = req.ip ? require('crypto').createHash('sha256').update(req.ip).digest('hex') : undefined;
+      console.log(`[DEBUG] Request params: id=${id}, password=${password ? '[PROVIDED]' : '[NONE]'}`);
       
+      const viewerIpHash = req.ip ? crypto.createHash('sha256').update(req.ip).digest('hex') : undefined;
+      console.log(`[DEBUG] Viewer IP hash: ${viewerIpHash ? '[GENERATED]' : '[NONE]'}`);
+      
+      console.log(`[DEBUG] Calling storage.getPublicSharedContent...`);
       const sharedContent = await storage.getPublicSharedContent(id, password as string, viewerIpHash);
+      console.log(`[DEBUG] Storage returned: ${sharedContent ? 'CONTENT_FOUND' : 'NO_CONTENT'}`);
       
       if (!sharedContent) {
+        console.log(`[DEBUG] Returning 404 - content not found`);
         return res.status(404).json({ 
           message: "Shared content not found, no longer available, or invalid password provided" 
         });
@@ -2386,12 +2394,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check expiration
       if (sharedContent.expiresAt && new Date() > sharedContent.expiresAt) {
+        console.log(`[DEBUG] Returning 410 - content expired`);
         return res.status(410).json({ message: "This shared content has expired" });
       }
 
+      console.log(`[DEBUG] Returning 200 - success`);
       res.json(sharedContent);
     } catch (error) {
-      console.error("Error fetching public shared content:", error);
+      console.error("[ERROR] Error fetching public shared content:", error);
+      console.error("[ERROR] Stack trace:", error.stack);
       res.status(500).json({ message: "Failed to fetch shared content" });
     }
   });
@@ -2401,7 +2412,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const { password } = req.body;
-      const viewerIpHash = req.ip ? require('crypto').createHash('sha256').update(req.ip).digest('hex') : undefined;
+      const viewerIpHash = req.ip ? crypto.createHash('sha256').update(req.ip).digest('hex') : undefined;
       
       const sharedContent = await storage.getPublicSharedContent(id, password, viewerIpHash);
       

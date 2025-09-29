@@ -119,6 +119,8 @@ export default function ShareDialog({
           contentSnapshot,
           dateRangeStart: dateRangeStart?.toISOString(),
           dateRangeEnd: dateRangeEnd?.toISOString(),
+          // Fix: Send undefined for empty optional datetime fields instead of empty strings
+          expiresAt: data.expiresAt && data.expiresAt.trim() !== "" ? data.expiresAt : undefined,
         }),
       });
 
