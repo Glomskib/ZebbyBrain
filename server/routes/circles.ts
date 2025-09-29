@@ -191,11 +191,61 @@ router.post("/invite", async (req: any, res) => {
       expiresAt,
     });
 
-    // TODO: Send invite email with token link
+    // Send invite email
+    const transporter = getEmailTransporter();
+    let emailSent = false;
+    
+    if (transporter) {
+      try {
+        const inviteUrl = `${process.env.REPLIT_DOMAINS?.split(',')[0] || 'http://localhost:5000'}/circle/accept-invite?token=${token}`;
+        const ownerName = `${(req.user as any).firstName || ''} ${(req.user as any).lastName || ''}`.trim() || email;
+        
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: email,
+          subject: `You've been invited to join a Personal Circle`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #6366f1;">You've been invited to a Personal Circle</h2>
+              <p><strong>${ownerName}</strong> has invited you to join their Personal Circle on Zebby's World.</p>
+              
+              <p>Personal Circle allows you to:</p>
+              <ul>
+                <li>View their health updates and symptom logs</li>
+                <li>Stay informed about their wellbeing</li>
+                <li>Receive alerts when they need support</li>
+              </ul>
+              
+              <p>Your role: <strong>${role}</strong></p>
+              
+              <div style="margin: 30px 0;">
+                <a href="${inviteUrl}" style="background-color: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                  Accept Invitation
+                </a>
+              </div>
+              
+              <p style="color: #666; font-size: 14px;">
+                This invitation will expire in 7 days. If you didn't expect this invitation, you can safely ignore this email.
+              </p>
+              
+              <p style="color: #999; font-size: 12px; margin-top: 30px;">
+                © Zebby's World - Supporting people with EDS and rare conditions
+              </p>
+            </div>
+          `
+        });
+        
+        emailSent = true;
+      } catch (emailError: any) {
+        console.error("Failed to send invite email:", emailError);
+        // Continue even if email fails - user can still be invited via the URL
+      }
+    }
 
     res.json({
       member,
       inviteUrl: `/circle/accept-invite?token=${token}`,
+      emailSent,
     });
   } catch (error: any) {
     console.error("Error inviting member:", error);
