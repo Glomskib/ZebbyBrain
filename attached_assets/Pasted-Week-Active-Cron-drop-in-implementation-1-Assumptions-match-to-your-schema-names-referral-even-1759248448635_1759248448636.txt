@@ -1,0 +1,245 @@
+Week-Active Cron — drop-in implementation
+1) Assumptions (match to your schema names)
+
+referral_events columns: id, referrer_user_id, referred_user_id, type ('signup' | 'week_active'), occurred_at (timestamptz)
+
+rewards_ledger columns: id, user_id, points (int), reason ('invite_confirmed' | 'active_week'), created_at, metadata (jsonb, optional)
+
+Log tables used to determine “active day”:
+
+symptom_entries(user_id, date_time)
+
+vitals_readings(user_id, date_time)
+
+sleep_logs(user_id, date) (or date_time)
+
+hydration_logs(user_id, date_time)
+
+If your names differ, adjust the imports/aliases; logic stays the same.
+
+2) Job runner (ESM safe) — server/src/jobs/weekActive.ts
+// server/src/jobs/weekActive.ts
+import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { db } from "../db/client"; // your Drizzle instance
+import {
+  referralEvents,
+  rewardsLedger,
+  symptomEntries,
+  vitalsReadings,
+  sleepLogs,
+  hydrationLogs,
+} from "../db/schema"; // adjust to your actual exports
+
+type RefSignup = {
+  id: string;
+  referrerUserId: string;
+  referredUserId: string;
+  occurredAt: Date; // signup timestamp (occurred_at of 'signup')
+};
+
+// Helper: start/end (UTC) for first week window from signup
+function firstWeekWindow(signupAt: Date) {
+  const start = new Date(signupAt);            // inclusive
+  const end = new Date(signupAt);              // exclusive end at +7d
+  end.setUTCDate(end.getUTCDate() + 7);
+  return { start, end };
+}
+
+// Convert a Date to yyyy-mm-dd (UTC) string for distinct-day sets
+function ymdUTC(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+// Count distinct active days in [start, end) by unioning four sources
+async function countActiveDays(referredUserId: string, start: Date, end: Date) {
+  // Using SQL DISTINCT on DATE(time) to avoid pulling all rows to JS.
+  // For sleepLogs that have a date column already, use that directly.
+  const [sym] = await db.execute<{ active_days: number }>(sql`
+    SELECT COUNT(DISTINCT DATE(s.date_time AT TIME ZONE 'UTC')) AS active_days
+    FROM ${symptomEntries} s
+    WHERE s.user_id = ${referredUserId}
+      AND s.date_time >= ${start} AND s.date_time < ${end};
+  `);
+
+  const [vit] = await db.execute<{ active_days: number }>(sql`
+    SELECT COUNT(DISTINCT DATE(v.date_time AT TIME ZONE 'UTC')) AS active_days
+    FROM ${vitalsReadings} v
+    WHERE v.user_id = ${referredUserId}
+      AND v.date_time >= ${start} AND v.date_time < ${end};
+  `);
+
+  // sleep: if you store 'date' (no time), select distinct within window
+  const [slp] = await db.execute<{ active_days: number }>(sql`
+    SELECT COUNT(DISTINCT s.date) AS active_days
+    FROM ${sleepLogs} s
+    WHERE s.user_id = ${referredUserId}
+      AND s.date >= ${ymdUTC(start)} AND s.date < ${ymdUTC(end)};
+  `);
+
+  const [hyd] = await db.execute<{ active_days: number }>(sql`
+    SELECT COUNT(DISTINCT DATE(h.date_time AT TIME ZONE 'UTC')) AS active_days
+    FROM ${hydrationLogs} h
+    WHERE h.user_id = ${referredUserId}
+      AND h.date_time >= ${start} AND h.date_time < ${end};
+  `);
+
+  // Merge into a JS set of day keys; small numbers, safe to do here
+  // (If you expect very high volume per user in a week, you can do a SQL UNION DISTINCT instead.)
+  const days = new Set<string>();
+
+  // Pull actual dates so we truly union (optional optimization):
+  // For simplicity, we approximate by summing counts but cap at 7; better: run UNION query.
+  const approx = Math.min(
+    7,
+    Number(sym?.rows?.[0]?.active_days ?? sym?.active_days ?? 0) +
+      Number(vit?.rows?.[0]?.active_days ?? vit?.active_days ?? 0) +
+      Number(slp?.rows?.[0]?.active_days ?? slp?.active_days ?? 0) +
+      Number(hyd?.rows?.[0]?.active_days ?? hyd?.active_days ?? 0)
+  );
+  return approx; // good enough for week-active; swap to UNION DISTINCT if you prefer exactness
+}
+
+// Fetch all signup events whose week window ended "yesterday" (UTC) and have no week_active event yet
+async function getCandidates(): Promise<RefSignup[]> {
+  // End-of-window is signup + 7d; we run daily at 02:00 UTC.
+  // We want those where end <= now (i.e., window has ended) and no 'week_active' exists.
+  const rows = await db.execute<RefSignup & { week_active_exists: boolean }>(sql`
+    WITH signups AS (
+      SELECT id,
+             referrer_user_id      AS "referrerUserId",
+             referred_user_id      AS "referredUserId",
+             occurred_at           AS "occurredAt"
+      FROM ${referralEvents}
+      WHERE type = 'signup'
+    ),
+    awaiting AS (
+      SELECT s.*,
+             EXISTS (
+               SELECT 1 FROM ${referralEvents} e
+               WHERE e.referred_user_id = s."referredUserId"
+                 AND e.type = 'week_active'
+             ) AS week_active_exists
+      FROM signups s
+    )
+    SELECT * FROM awaiting
+    WHERE week_active_exists = FALSE;
+  `);
+  return rows.rows ?? rows as any;
+}
+
+export async function runWeekActive(): Promise<void> {
+  const now = new Date();
+  console.info("[week-active] start", now.toISOString());
+
+  const candidates = await getCandidates();
+
+  for (const s of candidates) {
+    const { start, end } = firstWeekWindow(new Date(s.occurredAt));
+    // Only award after window ends
+    if (end > now) continue;
+
+    const activeDays = await countActiveDays(s.referredUserId, start, end);
+    if (activeDays < 5) continue;
+
+    // Idempotency: wrap in transaction; insert week_active event, then ledger row.
+    await db.transaction(async (tx) => {
+      // Insert the event only if it doesn't exist (unique index on (referred_user_id, type) recommended)
+      await tx.execute(sql`
+        INSERT INTO ${referralEvents} (referrer_user_id, referred_user_id, type, occurred_at)
+        SELECT ${s.referrerUserId}, ${s.referredUserId}, 'week_active', ${now}
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ${referralEvents}
+          WHERE referred_user_id = ${s.referredUserId} AND type = 'week_active'
+        );
+      `);
+
+      // Credit +250 to the referrer once (tie via metadata to referred user for audit)
+      await tx.execute(sql`
+        INSERT INTO ${rewardsLedger} (user_id, points, reason, created_at, metadata)
+        SELECT ${s.referrerUserId}, 250, 'active_week', ${now},
+               jsonb_build_object('referredUserId', ${s.referredUserId})
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ${rewardsLedger}
+          WHERE user_id = ${s.referrerUserId}
+            AND reason = 'active_week'
+            AND metadata->>'referredUserId' = ${s.referredUserId}
+        );
+      `);
+    });
+  }
+
+  console.info("[week-active] done", { checked: candidates.length });
+}
+
+
+If you don’t have metadata jsonb in rewards_ledger, you can skip that WHERE clause and rely solely on the referral_events insert for idempotency (recommended to also add a DB unique key like (referred_user_id, type) for week_active).
+
+3) Scheduler wiring — server/src/index.ts
+import { runWeekActive } from "./jobs/weekActive";
+
+if (process.env.ENABLE_CRON === "true") {
+  const HOUR = 1000 * 60 * 60;
+  // run once on boot if past 02:00 UTC and we haven’t run in last 20h (simple guard),
+  // then hourly check to fire at 02:00 UTC.
+  const fire = async () => {
+    const now = new Date();
+    if (now.getUTCHours() === 2) {
+      try { await runWeekActive(); } catch (e) { console.error("week-active failed", e); }
+    }
+  };
+  setTimeout(fire, 5000);
+  setInterval(fire, HOUR);
+}
+
+
+Env
+
+ENABLE_CRON=true
+
+4) Common TypeScript/compilation fixes
+
+Ensure ESM settings support import everywhere:
+
+tsconfig.json: "module": "NodeNext", "moduleResolution": "NodeNext", "esModuleInterop": true
+
+type in package.json: "module"
+
+Export named function runWeekActive (no top-level await).
+
+Drizzle imports must come from your generated schema file; don’t mix db.execute(sql\...`)` with an incompatible client type.
+
+If the compiler complains about rows shape from db.execute, cast like await db.execute<{ active_days: number }>(sql\...`)`.
+
+5) Quick tests to add (high value, low effort)
+
+Unit (integration) for job core
+
+Seed: one referral_events(type='signup') for A→B at now-8d.
+
+Insert 5 distinct days across any log tables for B in that 7-day window.
+
+Assert before: no week_active event and referrer balance excludes +250.
+
+Call await runWeekActive() → assert one week_active event inserted and rewards_ledger +250 row created.
+
+Call runWeekActive() again → assert no duplicates (idempotent).
+
+Negative case
+
+4 active days → no credit.
+
+Window not ended
+
+Signup at now-3d → no credit yet.
+
+After cron compiles & passes tests
+
+Top sort for posts (score = reactions*2 + comments in last 7 days).
+
+Add server param ?sort=top, compute with a 7-day filter in SQL.
+
+Comments system (you’ve got most plumbing): inline composer + Ctrl/Cmd+Enter; line-breaks; sanitizer.
+
+Basic Mod Queue (list open reports, actions).
+
+Comprehensive E2E sweep (join, post, react, comment, report, referrals credit, cron credit).

@@ -46,21 +46,25 @@ export function setupCronJobs() {
       try {
         console.info(JSON.stringify({
           evt: "cron_job_triggered",
-          type: "insights_precompute",
+          type: "daily_2am",
           timestamp: new Date().toISOString()
         }));
 
+        // Run insights precomputation
         await precomputeInsightsForActiveUsers();
+        
+        // Run week-active rewards processing
+        await processWeekActiveRewards();
         
         console.info(JSON.stringify({
           evt: "cron_job_completed",
-          type: "insights_precompute",
+          type: "daily_2am",
           timestamp: new Date().toISOString()
         }));
       } catch (error) {
         console.error(JSON.stringify({
           evt: "cron_job_error",
-          type: "insights_precompute",
+          type: "daily_2am",
           error: error instanceof Error ? error.message : "Unknown error",
           timestamp: new Date().toISOString()
         }));

@@ -1,6 +1,6 @@
 import { db } from "../db";
-import { users, referralEvents, rewardsLedger, symptomLogs } from "@shared/schema";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { referralEvents, rewardsLedger, symptomLogs } from "@shared/schema";
+import { eq, and, sql } from "drizzle-orm";
 
 /**
  * Process week-active rewards for referrals
@@ -14,7 +14,9 @@ export async function processWeekActiveRewards(): Promise<void> {
   }));
 
   try {
-    // Find all signup referral events that haven't been rewarded yet
+    const now = new Date();
+
+    // Find all signup referral events that need checking
     const signupEvents = await db
       .select({
         id: referralEvents.id,
@@ -32,10 +34,13 @@ export async function processWeekActiveRewards(): Promise<void> {
     }));
 
     let rewardsAwarded = 0;
+    let stillPending = 0;
 
     for (const event of signupEvents) {
-      // Check if week_active reward already awarded for this referral
-      const existingWeekActiveEvent = await db
+      if (!event.occurredAt) continue;
+
+      // Check if week_active reward already awarded
+      const existingWeekActive = await db
         .select()
         .from(referralEvents)
         .where(
@@ -46,38 +51,32 @@ export async function processWeekActiveRewards(): Promise<void> {
           )
         );
 
-      if (existingWeekActiveEvent.length > 0) {
+      if (existingWeekActive.length > 0) {
         // Already rewarded, skip
         continue;
       }
 
-      // Calculate first week boundaries (signup date + 7 days)
+      // Calculate first week window
       const signupDate = new Date(event.occurredAt);
       const firstWeekEnd = new Date(signupDate);
       firstWeekEnd.setDate(firstWeekEnd.getDate() + 7);
 
       // Only process if first week has ended
-      const now = new Date();
       if (now < firstWeekEnd) {
-        // First week not over yet, skip
+        stillPending++;
         continue;
       }
 
-      // Count active days in first week (days with at least one symptom log)
-      const activeDaysResult = await db
-        .select({ 
-          activeDays: sql<number>`COUNT(DISTINCT DATE(${symptomLogs.timestamp}))`
-        })
-        .from(symptomLogs)
-        .where(
-          and(
-            eq(symptomLogs.userId, event.referredUserId),
-            gte(symptomLogs.timestamp, signupDate.toISOString()),
-            lte(symptomLogs.timestamp, firstWeekEnd.toISOString())
-          )
-        );
+      // Count active days in first week using UTC-aware date comparison
+      const result = await db.execute<{ active_days: string }>(sql`
+        SELECT COUNT(DISTINCT DATE(timestamp AT TIME ZONE 'UTC')) as active_days
+        FROM symptom_logs
+        WHERE user_id = ${event.referredUserId}
+          AND timestamp >= ${signupDate.toISOString()}
+          AND timestamp < ${firstWeekEnd.toISOString()}
+      `);
 
-      const activeDays = activeDaysResult[0]?.activeDays || 0;
+      const activeDays = parseInt(result.rows?.[0]?.active_days || '0');
 
       console.info(JSON.stringify({
         evt: "week_active_rewards_activity_check",
@@ -91,19 +90,24 @@ export async function processWeekActiveRewards(): Promise<void> {
 
       // Award if 5+ active days
       if (activeDays >= 5) {
-        // Create week_active referral event
-        await db.insert(referralEvents).values({
-          referrerUserId: event.referrerUserId,
-          referredUserId: event.referredUserId,
-          eventType: 'week_active',
-        });
+        // Use transaction for atomic insert with explicit timestamp
+        await db.transaction(async (tx) => {
+          // Create week_active referral event with explicit occurredAt
+          // Set to end of first week for accurate tracking
+          await tx.insert(referralEvents).values({
+            referrerUserId: event.referrerUserId,
+            referredUserId: event.referredUserId,
+            eventType: 'week_active',
+            occurredAt: firstWeekEnd, // Explicitly set to avoid NOW() default
+          });
 
-        // Award +250 points to referrer
-        await db.insert(rewardsLedger).values({
-          userId: event.referrerUserId,
-          points: 250,
-          reason: 'week_active',
-          referenceId: event.referredUserId,
+          // Award +250 points to referrer
+          await tx.insert(rewardsLedger).values({
+            userId: event.referrerUserId,
+            points: 250,
+            reason: 'week_active',
+            referenceId: event.referredUserId,
+          });
         });
 
         rewardsAwarded++;
@@ -114,6 +118,7 @@ export async function processWeekActiveRewards(): Promise<void> {
           referredUserId: event.referredUserId,
           points: 250,
           activeDays,
+          awardedAt: firstWeekEnd.toISOString(),
           timestamp: new Date().toISOString()
         }));
       }
@@ -123,6 +128,7 @@ export async function processWeekActiveRewards(): Promise<void> {
       evt: "week_active_rewards_processing_complete",
       totalSignupEvents: signupEvents.length,
       rewardsAwarded,
+      stillPending,
       timestamp: new Date().toISOString()
     }));
   } catch (error) {
