@@ -378,6 +378,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Wave 3 - Multi-Entry: Get symptoms grouped by day with timezone support
+  app.get('/api/symptoms/grouped', isAuthenticated, async (req: any, res) => {
+    try {
+      const { zonedTimeToUtc } = await import('date-fns-tz');
+      
+      const userId = req.user.claims.sub;
+      const tz = (req.query.tz as string) || 'UTC'; // Default to UTC if not provided
+      const limit = parseInt(req.query.limit as string) || 50;
+
+      // Validate timezone
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: tz });
+      } catch (error) {
+        return res.status(400).json({ message: `Invalid timezone: ${tz}` });
+      }
+
+      // Parse and normalize from/to dates using the user's timezone
+      let from: Date | null = null;
+      let to: Date | null = null;
+
+      if (req.query.from) {
+        const fromStr = req.query.from as string;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fromStr)) {
+          return res.status(400).json({ message: `Invalid date format for 'from'. Expected YYYY-MM-DD, got: ${fromStr}` });
+        }
+        // Convert start of day in user's timezone to UTC
+        from = zonedTimeToUtc(`${fromStr}T00:00:00`, tz);
+      }
+
+      if (req.query.to) {
+        const toStr = req.query.to as string;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(toStr)) {
+          return res.status(400).json({ message: `Invalid date format for 'to'. Expected YYYY-MM-DD, got: ${toStr}` });
+        }
+        // Convert end of day in user's timezone to UTC
+        to = zonedTimeToUtc(`${toStr}T23:59:59.999`, tz);
+      }
+
+      const grouped = await storage.getUserSymptomEntriesGrouped(userId, { from, to, tz, limit });
+      res.json(grouped);
+    } catch (error) {
+      console.error("Error fetching grouped symptom entries:", error);
+      res.status(500).json({ message: "Failed to fetch grouped symptom entries" });
+    }
+  });
+
   app.get('/api/symptoms/:id', isAuthenticated, async (req: any, res) => {
     try {
       const withEntries = req.query.withEntries === 'true';

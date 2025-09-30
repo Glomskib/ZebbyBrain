@@ -103,6 +103,13 @@ export interface IStorage {
   getSymptomLog(id: string): Promise<SymptomLog | undefined>;
   getSymptomLogWithEntries(id: string): Promise<(SymptomLog & { symptomEntries: SymptomEntry[] }) | undefined>;
   updateSymptomLogReflection(id: string, reflection: string): Promise<void>;
+  // Wave 3 - Multi-Entry: Get symptom entries grouped by day
+  getUserSymptomEntriesGrouped(userId: string, options: {
+    from?: Date | null;
+    to?: Date | null;
+    tz?: string;
+    limit?: number;
+  }): Promise<{ date: string; count: number; entries: SymptomEntry[] }[]>;
   
   // Water and sodium tracking
   createWaterIntakeLog(log: InsertWaterIntakeLog): Promise<WaterIntakeLog>;
@@ -411,6 +418,57 @@ export class DatabaseStorage implements IStorage {
     const sodiumMg = sodiumResults.reduce((total, log) => total + log.amountMg, 0);
 
     return { waterMl, sodiumMg };
+  }
+
+  // Wave 3 - Multi-Entry: Get symptom entries grouped by day
+  async getUserSymptomEntriesGrouped(
+    userId: string,
+    options: { from?: Date | null; to?: Date | null; tz?: string; limit?: number }
+  ): Promise<{ date: string; count: number; entries: SymptomEntry[] }[]> {
+    const { from, to, tz = 'UTC', limit = 50 } = options;
+
+    // Build the query conditions
+    const conditions = [eq(symptomEntries.userId, userId)];
+    if (from) {
+      conditions.push(gte(symptomEntries.occurredAt, from));
+    }
+    if (to) {
+      conditions.push(lte(symptomEntries.occurredAt, to));
+    }
+
+    // Get all entries in the range, ordered by occurred_at desc
+    const entries = await db
+      .select()
+      .from(symptomEntries)
+      .where(and(...conditions))
+      .orderBy(desc(symptomEntries.occurredAt))
+      .limit(limit);
+
+    // Group entries by day in the user's timezone
+    const grouped = new Map<string, SymptomEntry[]>();
+    
+    for (const entry of entries) {
+      if (!entry.occurredAt) continue;
+      
+      // Convert to user's timezone and extract date
+      const entryDate = new Date(entry.occurredAt);
+      // Simple timezone offset handling (for more complex timezones, you'd use a library like date-fns-tz)
+      const dateStr = entryDate.toLocaleDateString('en-CA', { timeZone: tz }); // en-CA gives YYYY-MM-DD format
+      
+      if (!grouped.has(dateStr)) {
+        grouped.set(dateStr, []);
+      }
+      grouped.get(dateStr)!.push(entry);
+    }
+
+    // Convert map to array and format response
+    return Array.from(grouped.entries())
+      .map(([date, entries]) => ({
+        date,
+        count: entries.length,
+        entries,
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date)); // Sort by date desc
   }
 
   async updateSymptomLogReflection(id: string, reflection: string): Promise<void> {
