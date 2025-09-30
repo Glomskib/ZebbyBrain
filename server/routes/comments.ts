@@ -448,7 +448,22 @@ router.get("/:postId/reactions", async (req: any, res) => {
       .where(eq(reactions.postId, postId))
       .groupBy(reactions.emoji);
 
-    res.json(reactionsData);
+    // Get user's reactions if authenticated
+    let userReactions: string[] = [];
+    if (req.user?.claims?.sub) {
+      const userReactionsData = await db
+        .select({ emoji: reactions.emoji })
+        .from(reactions)
+        .where(
+          and(
+            eq(reactions.postId, postId),
+            eq(reactions.userId, req.user.claims.sub)
+          )
+        );
+      userReactions = userReactionsData.map(r => r.emoji);
+    }
+
+    res.json({ reactions: reactionsData, userReactions });
   } catch (error) {
     console.error("Error fetching reactions:", error);
     res.status(500).json({ message: "Failed to fetch reactions" });

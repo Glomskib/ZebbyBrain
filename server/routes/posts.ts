@@ -214,13 +214,15 @@ router.post("/", postRateLimit, async (req: any, res) => {
     const userId = req.user.claims.sub;
 
     // Validate request body
-    const schema = insertPostSchema.extend({
-      poll: z.object({
-        question: z.string(),
-        options: z.array(z.string()).min(2).max(10),
-        closesAt: z.string().datetime().optional(),
-      }).optional(),
-    });
+    const schema = insertPostSchema
+      .omit({ authorId: true }) // Backend adds authorId from session
+      .extend({
+        poll: z.object({
+          question: z.string(),
+          options: z.array(z.string()).min(2).max(10),
+          closesAt: z.string().datetime().optional(),
+        }).optional(),
+      });
 
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
