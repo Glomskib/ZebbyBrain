@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Lock, Globe, Search, Heart, TrendingUp, Sparkles } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Users, Lock, Globe, Search, Heart, TrendingUp, Sparkles, AlertCircle } from "lucide-react";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -19,6 +20,38 @@ interface Group {
   category: string | null;
   tags: string[];
   createdAt: Date;
+  eligibility?: {
+    canAccess: boolean;
+    reason?: string;
+  };
+}
+
+// Format tags for display
+function formatTag(tag: string): string {
+  const tagLower = tag.toLowerCase();
+  
+  // Age ranges
+  if (tagLower === 'age-18-25') return 'Ages 18-25';
+  if (tagLower === 'age-26-35') return 'Ages 26-35';
+  if (tagLower === 'age-36-50') return 'Ages 36-50';
+  if (tagLower === 'age-51-plus') return 'Ages 51+';
+  
+  // Gender/Identity
+  if (tagLower === 'women') return 'Women';
+  if (tagLower === 'men') return 'Men';
+  if (tagLower === 'lgbtq') return 'LGBTQ+';
+  if (tagLower === 'non-binary') return 'Non-binary';
+  if (tagLower === 'transgender') return 'Transgender';
+  
+  // Conditions
+  if (tagLower === 'heds') return 'hEDS';
+  if (tagLower === 'pots') return 'POTS';
+  if (tagLower === 'mcas') return 'MCAS';
+  if (tagLower === 'veds') return 'vEDS';
+  if (tagLower === 'ceds') return 'cEDS';
+  
+  // Default: capitalize first letter
+  return tag.charAt(0).toUpperCase() + tag.slice(1);
 }
 
 export default function GroupsDirectory() {
@@ -232,6 +265,8 @@ export default function GroupsDirectory() {
 function GroupCard({ group, membership }: { group: Group; membership?: { joinStatus: string; role: string } }) {
   const isApprovedMember = membership?.joinStatus === 'approved';
   const isPendingMember = membership?.joinStatus === 'pending';
+  const hasEligibilityIssue = group.eligibility && !group.eligibility.canAccess;
+  
   return (
     <Card className="hover:shadow-lg transition-shadow" data-testid={`card-group-${group.id}`}>
       <CardHeader>
@@ -256,6 +291,27 @@ function GroupCard({ group, membership }: { group: Group; membership?: { joinSta
           <span data-testid={`text-member-count-${group.id}`}>{group.memberCount} members</span>
         </div>
 
+        {/* Display tags */}
+        {group.tags && group.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {group.tags.slice(0, 4).map((tag, idx) => (
+              <Badge 
+                key={idx} 
+                variant="outline" 
+                className="text-xs"
+                data-testid={`badge-tag-${tag}-${group.id}`}
+              >
+                {formatTag(tag)}
+              </Badge>
+            ))}
+            {group.tags.length > 4 && (
+              <Badge variant="outline" className="text-xs">
+                +{group.tags.length - 4} more
+              </Badge>
+            )}
+          </div>
+        )}
+
         {group.category && (
           <Badge variant="secondary" className="mt-2 w-fit" data-testid={`badge-category-${group.id}`}>
             {group.category}
@@ -263,7 +319,23 @@ function GroupCard({ group, membership }: { group: Group; membership?: { joinSta
         )}
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="space-y-3">
+        {/* Eligibility warning */}
+        {hasEligibilityIssue && (
+          <Alert variant="destructive" data-testid={`alert-eligibility-${group.id}`}>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {group.eligibility?.reason || "You don't meet the requirements to join this group."}{" "}
+              <Link href="/settings">
+                <a className="underline font-medium" data-testid={`link-complete-profile-${group.id}`}>
+                  Complete your profile
+                </a>
+              </Link>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Action button */}
         {isApprovedMember ? (
           <Link href={`/groups/${group.slug}`}>
             <Button className="w-full" data-testid={`button-view-group-${group.id}`}>
@@ -276,8 +348,17 @@ function GroupCard({ group, membership }: { group: Group; membership?: { joinSta
           </Button>
         ) : (
           <Link href={`/groups/${group.slug}`}>
-            <Button variant="outline" className="w-full" data-testid={`button-join-group-${group.id}`}>
-              {group.visibility === "private" ? "Request to Join" : "Join Group"}
+            <Button 
+              variant="outline" 
+              className="w-full" 
+              data-testid={`button-join-group-${group.id}`}
+              disabled={hasEligibilityIssue}
+            >
+              {hasEligibilityIssue 
+                ? "Complete Profile to Join" 
+                : group.visibility === "private" 
+                ? "Request to Join" 
+                : "Join Group"}
             </Button>
           </Link>
         )}

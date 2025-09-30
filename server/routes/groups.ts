@@ -85,7 +85,7 @@ async function hasPermission(
   return requiredRoles.includes(membership.role as any);
 }
 
-// GET /api/groups/public - Get all public groups with tags
+// GET /api/groups/public - Get all public groups with tags and eligibility info
 router.get("/public", async (req: any, res) => {
   try {
     setNoStoreHeaders(res);
@@ -122,11 +122,54 @@ router.get("/public", async (req: any, res) => {
       tagsByGroup.get(tag.groupId)!.push(tag.tag);
     }
 
-    // Add tags to groups
-    const groupsWithTags = publicGroups.map(group => ({
-      ...group,
-      tags: tagsByGroup.get(group.id) || [],
-    }));
+    // Check eligibility for authenticated users
+    let userProfile: User | undefined;
+    if (req.user?.claims?.sub) {
+      const [profile] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, req.user.claims.sub));
+      userProfile = profile;
+    }
+
+    // Add tags and eligibility to groups
+    const groupsWithTags = publicGroups.map(group => {
+      const groupTags = tagsByGroup.get(group.id) || [];
+      let eligibility: { canAccess: boolean; reason?: string } = {
+        canAccess: true,
+      };
+
+      // Check eligibility only for groups with access-control tags and authenticated users
+      if (userProfile && groupTags.length > 0) {
+        // Public groups don't require access checks per the join logic,
+        // but we still want to show hints if user wouldn't meet private group criteria
+        const accessControlTags = groupTags.filter(t => {
+          const tagLower = t.toLowerCase();
+          return (
+            tagLower.startsWith('age-') || // Age ranges
+            ['women', 'men'].includes(tagLower) || // Gender
+            ['lgbtq', 'transgender', 'non-binary', 'queer'].includes(tagLower) || // Identity
+            ['heds', 'pots', 'mcas', 'veds', 'ceds'].includes(tagLower) // Diagnosis
+          );
+        });
+        if (accessControlTags.length > 0) {
+          // Create a minimal group object that matches the Group type
+          const groupForCheck: Group = {
+            ...group,
+            rules: null,
+            createdBy: '', // Not needed for access check
+            updatedAt: null,
+          };
+          eligibility = canAccessGroup(userProfile, groupForCheck, groupTags);
+        }
+      }
+
+      return {
+        ...group,
+        tags: groupTags,
+        eligibility,
+      };
+    });
 
     res.json(groupsWithTags);
   } catch (error) {

@@ -1,0 +1,171 @@
+What to tackle next (in order)
+
+Groups Directory & Group Page polish
+
+Directory grid with eligibility messaging (age/gender/diagnosis hints if blocked)
+
+“Top” sort (last 7 days: reactions*2 + comments)
+
+Reaction bar + idempotent toggles
+
+Comments thread (1-level), inline composer, and empty states
+
+Referrals & Rewards UI (Settings)
+
+Show referral code + copy
+
+Balance + history list
+
+Week-Active Cron
+
+Daily job: +250 points when referred user logs on ≥5 days in first 7
+
+Basic Mod Queue
+
+List reports; actions: mark reviewed / remove (soft delete)
+
+Replit Agent Prompt — “Zebby • Wave-2 UI & Cron Finish”
+
+Feature flags (Secrets / .env):
+
+FF_GROUPS=true
+FF_REFERRALS=true
+FF_REWARDS=true
+
+1) Groups Directory & Group Page polish
+
+Directory page
+
+Route: /groups
+
+Fetch GET /api/groups (already built).
+
+Card content: name, tags (age/gender/diagnosis), brief desc, Join/Leave.
+
+If blocked by access control, show “Complete your Profile to join (age/gender/diagnosis)” with a link.
+
+Group page
+
+Keep your new PostComposer on top.
+
+Add ReactionBar on each post (❤️ 👍 🙏). POST /api/posts/:id/react, idempotent per emoji.
+
+Inline Comment composer (textarea + Ctrl/Cmd+Enter). GET/POST /api/posts/:id/comments.
+
+Sorting switcher: new | top. top = score over last 7 days (reactions*2 + comments).
+
+Empty states and loading skeletons.
+
+Accessibility
+
+Focus rings, aria-live on feed updates, keyboard submit for comments.
+
+Acceptance
+
+Join eligible group → can post/react/comment.
+
+Ineligible groups show friendly gating message.
+
+“Top” sort changes ordering; toggling an emoji doesn’t create duplicates.
+
+2) Referrals & Rewards UI (Settings → My Herd & Rewards)
+
+Page: /settings/herd-rewards
+
+Section “Your referral code”: GET /api/referrals/code → Copy button.
+
+Section “Points”: GET /api/rewards/balance large number, and /api/rewards/history?limit=20 list with reason + timestamp.
+
+Brief copy: “+100 when a friend signs up; +250 when they’re active 5 days in week one.”
+
+Acceptance
+
+Code persists across reloads; history paginates; balances match ledger.
+
+3) Week-Active Cron
+
+Job file: server/src/jobs/weekActive.ts
+
+Daily at 02:00 UTC (guarded by ENABLE_CRON=true).
+
+For referred users whose first 7 days ended yesterday:
+
+Count distinct days with any log (symptom/vitals/sleep/hydration).
+
+If ≥5 and not yet rewarded → insert rewards_ledger +250 & referral_events 'week_active'.
+
+Scheduler wiring (if not present):
+
+if (process.env.ENABLE_CRON === "true") {
+  const HOUR = 1000 * 60 * 60;
+  setInterval(() => {
+    const now = new Date();
+    if (now.getUTCHours() === 2) runWeekActive().catch(console.error);
+  }, HOUR);
+}
+
+
+Env
+
+ENABLE_CRON=true
+
+
+Acceptance
+
+Manual invocation (test helper) grants +250 exactly once; balance reflects sum of ledger.
+
+4) Mod Queue (MVP)
+
+Route: /admin/mod/reports (guard behind admin check or feature flag)
+
+List open reports (post/comment), reason, timestamp.
+
+Actions: Mark reviewed; Remove content (soft delete). Show toast.
+
+No PII shown; link to original group/post when available.
+
+Acceptance
+
+Action updates status and hides removed content in feeds.
+
+5) Tests (must pass)
+
+Access & rate limits
+
+Under-age user → 403 on adult group join
+
+Gender mismatch → 403 on gendered group
+
+Posts >6/h → 429; Comments >20/h → 429; Reactions >60/h → 429
+
+Reactions
+
+Toggle same emoji twice → remains single reaction (idempotent)
+
+Comments
+
+Ctrl/Cmd+Enter submits; HTML stripped; line breaks preserved in render
+
+Referrals/Rewards
+
+/api/referrals/code returns stable 6-char code
+
+Signup credit +100 written once (unique index respected)
+
+Simulated week-active → +250 once; balance == ledger sum
+
+Security
+
+All group/referral/reward endpoints: auth required + Cache-Control: no-store
+
+Quick smoke checklist after deploy
+
+Directory lists only eligible groups; join/leave works.
+
+Posting → feed updates; reaction toggles; comments submit with keyboard.
+
+Settings → Herd & Rewards shows code, balance, and history.
+
+Run runWeekActive() locally → points +250 show in balance/history.
+
+Header checks: CSP present; API responses no-store.
