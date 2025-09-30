@@ -209,7 +209,7 @@ export default function Dashboard() {
 
         {/* Wave 1: AI Research & Trends - Zebby Findings */}
         <div className="mb-8">
-          <ZebbyFindings range="30d" />
+          <ZebbyFindings />
         </div>
 
         {/* Insight Cards */}
