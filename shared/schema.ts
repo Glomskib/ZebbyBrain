@@ -100,18 +100,34 @@ export const symptomLogs = pgTable("symptom_logs", {
   userTimeIdx: index("symptom_logs_user_time_idx").on(table.userId, table.timestamp.desc()),
 }));
 
-// Individual symptom entries within a logging session
+// Individual symptom entries - now independent with precise timestamps (Wave 3 - Multi-Entry)
 export const symptomEntries = pgTable("symptom_entries", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  symptomLogId: varchar("symptom_log_id").notNull().references(() => symptomLogs.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").notNull().references(() => users.id), // Denormalized for direct queries
+  symptomLogId: varchar("symptom_log_id").notNull().references(() => symptomLogs.id, { onDelete: 'cascade' }), // Legacy parent log
   symptomName: varchar("symptom_name").notNull(), // "Joint Pain", "Fatigue", etc.
   intensity: integer("intensity").notNull(), // 1-10 scale for this specific symptom
   notes: text("notes"), // Specific notes for this symptom
   // Wave 1C - Body-part specific tracking (FF_BODY_PARTS)
   bodyPart: varchar("body_part"), // "neck", "shoulder_left", "knee_right", "back_upper", "jaw", "abdomen", etc.
   side: varchar("side"), // "left", "right", "bilateral", null for non-paired parts
+  // Wave 3 - Multi-Entry: precise timestamp when symptom occurred (allows multiple entries per day)
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  // Wave 3 - Per-entry weather data
+  weatherTempC: decimal("weather_temp_c", { precision: 5, scale: 2 }), // Temperature in Celsius
+  weatherText: text("weather_text"), // Detailed weather condition text
+  weatherObservedAt: timestamp("weather_observed_at", { withTimezone: true }), // When weather was captured
+  lat: decimal("lat", { precision: 10, scale: 7 }), // Latitude where logged
+  lon: decimal("lon", { precision: 10, scale: 7 }), // Longitude where logged
+  weatherSource: varchar("weather_source"), // Source: 'open-meteo', 'openweather', etc.
+  // Wave 3 - Per-entry vitals/context
+  waterIntakeCurrentMl: integer("water_intake_current_ml"), // Current day water intake in ml
+  heartRateBpm: integer("heart_rate_bpm"), // Heart rate at time of logging
+  sodiumIntakeCurrentMg: integer("sodium_intake_current_mg"), // Current day sodium intake in mg
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  userOccurredIdx: index("idx_symptom_entries_user_occurred").on(table.userId, table.occurredAt.desc()),
+}));
 
 // Water intake tracking
 export const waterIntakeLogs = pgTable("water_intake_logs", {
@@ -1195,7 +1211,10 @@ export type SymptomLog = typeof symptomLogs.$inferSelect;
 
 export const insertSymptomEntrySchema = createInsertSchema(symptomEntries).omit({
   id: true,
+  userId: true, // Set from auth context
   createdAt: true,
+}).extend({
+  occurredAt: z.string().datetime().transform((str) => new Date(str)).optional(), // Defaults to now() if not provided
 });
 export type InsertSymptomEntry = z.infer<typeof insertSymptomEntrySchema>;
 export type SymptomEntry = typeof symptomEntries.$inferSelect;

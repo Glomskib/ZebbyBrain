@@ -1,0 +1,234 @@
+Zebby • Multi-Entry Symptoms + Flexible AI Lookbacks”
+Goals
+
+Remove any “one log per day” behavior: allow many entries per day with precise timestamps.
+
+Extend AI insights to support lookback chips: 7, 14, 30, 60, 90, 180, 365 days, plus today, last_symptom, and up_to_now.
+
+Show per-entry time (local tz) everywhere; group by day only for display.
+
+Keep all existing security/privacy guarantees and feature flags.
+
+0) Assumptions
+
+Table is symptom_entries (adjust if different).
+
+Current bug likely from:
+
+a unique constraint on (user_id, date) or
+
+an “upsert by day” in the repository or
+
+UI normalizing to midnight and overwriting.
+
+We will:
+
+Make occurred_at TIMESTAMPTZ NOT NULL DEFAULT now() canonical.
+
+Remove any day-based upsert/uniques.
+
+Provide grouping in reads only.
+
+1) DB Migration (idempotent SQL)
+
+Create migration 004_multi_entry_symptoms.sql:
+
+-- 1) Ensure we have an occurred_at timestamp
+ALTER TABLE symptom_entries
+  ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ;
+
+-- 2) Backfill occurred_at from existing columns if null
+-- Prefer date_time if you have it, else use date at midnight UTC
+UPDATE symptom_entries
+SET occurred_at = COALESCE(occurred_at, date_time, (date::timestamptz))
+WHERE occurred_at IS NULL;
+
+-- 3) Disallow null going forward, default to now()
+ALTER TABLE symptom_entries
+  ALTER COLUMN occurred_at SET NOT NULL,
+  ALTER COLUMN occurred_at SET DEFAULT now();
+
+-- 4) Drop “one per day” uniqueness if present
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE indexname = 'ux_symptom_entries_user_date'
+  ) THEN
+    EXECUTE 'DROP INDEX ux_symptom_entries_user_date';
+  END IF;
+END$$;
+
+-- 5) Helpful index for time-ordered queries
+CREATE INDEX IF NOT EXISTS idx_symptom_user_time
+  ON symptom_entries (user_id, occurred_at DESC);
+
+-- 6) (Optional) If you have a "date" column only used for grouping, keep it for convenience.
+-- But make "occurred_at" the source of truth going forward.
+
+
+Run your migration runner. Restart the repl.
+
+2) Storage layer fixes (server)
+
+Create operations: always INSERT with occurred_at (default “now”, allow override).
+
+Never upsert by date. Remove any ON CONFLICT (user_id, date) DO UPDATE.
+
+Weather stamps already wired—attach per entry at creation time.
+
+Repository pseudocode (TypeScript/Drizzle-style):
+
+// createSymptomEntry.ts
+await db.insert(symptomEntries).values({
+  userId,
+  intensity,
+  bodyPart, side,
+  notes, // if applicable
+  occurredAt: payload.occurredAt ?? new Date(),
+  weatherTempC, weatherText, weatherObservedAt, lat, lon, weatherSource,
+});
+
+3) Read APIs (grouping by day for display)
+
+Add/adjust endpoints:
+
+GET /api/symptoms?from=&to=&limit=&cursor= → returns entries ordered by occurred_at DESC.
+
+GET /api/symptoms/grouped?from=&to=&tz=America/Chicago → groups entries by day in user tz, e.g.:
+
+{
+  "days": [
+    {
+      "date": "2025-09-30",
+      "count": 3,
+      "entries": [
+        { "id":"...", "occurredAt":"2025-09-30T20:15:00Z", "intensity":7, "bodyPart":"knee_right", ... },
+        { "id":"...", "occurredAt":"2025-09-30T17:05:00Z", "intensity":5, ... },
+        { "id":"...", "occurredAt":"2025-09-30T09:43:00Z", "intensity":3, ... }
+      ]
+    }
+  ],
+  "nextCursor": null
+}
+
+
+Implementation tip: group using DATE(occurred_at AT TIME ZONE <tz>).
+
+4) Client UI changes
+
+Symptom logger:
+
+Show a time field (defaults to “now”). Allow adding multiple entries same day.
+
+Button “Add another entry” stays after save.
+
+Timeline/Insights:
+
+Group entries by local day, but list individual cards with local time badges (e.g., “8:15 PM”).
+
+Sorting: newest first.
+
+5) AI Insights: flexible lookbacks + “live” modes
+
+Extend /api/ai/insights to accept:
+
+type Window =
+  | "7d" | "14d" | "30d" | "60d" | "90d" | "180d" | "365d"
+  | "today"           // midnight local → now
+  | "up_to_now"       // from account creation → now
+  | "last_symptom";   // from last symptom occurred_at → now
+
+POST /api/ai/insights
+{ "window": "30d" }  // default "30d"
+
+
+Server logic:
+
+function resolveRange(userId, window, tz) {
+  const now = new Date();
+  switch(window) {
+    case "today":  return { from: startOfTodayInTZ(tz), to: now };
+    case "up_to_now": return { from: accountCreatedAt(userId), to: now };
+    case "last_symptom": {
+      const last = latestSymptomOccurredAt(userId);
+      return { from: last ?? now, to: now }; // if none, fall back gracefully
+    }
+    default: { // “Xd”
+      const days = parseInt(window.replace("d",""), 10);
+      const from = new Date(now); from.setDate(from.getDate() - days);
+      return { from, to: now };
+    }
+  }
+}
+
+
+Caching:
+
+Cache per (userId, window) for 6h.
+
+Do not cache last_symptom (it’s “live”).
+
+Always set Cache-Control: no-store on responses.
+
+Prompting:
+
+Use your existing facts builder, but honor the from/to above to compute:
+
+pain avg, flare days, HR delta mean, sleep avg, hydration trend, entry frequency (per-day rate).
+
+Return fields:
+
+analysis, trendBullets[], actionIdeas[], plus window, from, to, and summary counts (e.g., entries, flareDays).
+
+Client:
+
+Add lookback chips: 7d · 14d · 30d · 60d · 90d · 180d · 365d · Today · Since last symptom · Up to now
+
+Clicking a chip re-calls /api/ai/insights with window=.
+
+6) Exports/PDF
+
+Ensure exports use per-entry granularity (already supported with occurred_at), and group only for layout.
+
+Include time + weather/HR/water stamps per entry.
+
+7) Tests (must pass)
+
+DB & storage
+
+Create 3 entries same day → all persist; index orders by occurred_at DESC.
+
+No upsert collisions; unique(day) index is gone.
+
+API reads
+
+/api/symptoms returns distinct entries with times.
+
+/api/symptoms/grouped?tz=America/Chicago groups by local day accurately around midnight boundaries.
+
+AI insights
+
+Each window returns; “today” uses local tz; “last_symptom” starts at last entry time; “up_to_now” spans entire history.
+
+no-store header present; last_symptom is not cached.
+
+UI
+
+Logger allows multiple entries without full-page refresh.
+
+Timeline shows time badges and multiple entries per day.
+
+Lookback chips switch insights and reflect new bullets/summary counts.
+
+8) Safety, performance, and UX notes
+
+Timezone: store all times in UTC; convert in UI and in grouping SQL using user tz.
+
+Pagination: for heavy users, paginate GET /api/symptoms with limit=50&cursor=....
+
+Rate limits: keep your existing write/read limits.
+
+Accessibility: time input labeled; entries announce “Saved at 8:15 PM”.
+
+No PII in logs; stick with your redaction.
