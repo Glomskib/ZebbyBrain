@@ -58,6 +58,9 @@ export const users = pgTable("users", {
   deletedAt: timestamp("deleted_at"), // null = active, timestamp = soft deleted
   deletionReason: text("deletion_reason"), // Optional reason for deletion
   
+  // Wave 2 - Referrals
+  referralCode: varchar("referral_code").unique(), // Unique referral code for inviting others
+  
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -630,6 +633,36 @@ export const groupNotifications = pgTable("group_notifications", {
 }));
 
 // ============ END GROUPS/ROOMS SOCIAL FEATURE ============
+
+// ============ REFERRALS & REWARDS SYSTEM ============
+
+// Referral events - track when users refer others and when referred users become active
+export const referralEvents = pgTable("referral_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  referrerUserId: varchar("referrer_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }), // Who referred
+  referredUserId: varchar("referred_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }), // Who was referred
+  eventType: varchar("event_type").notNull(), // "signup" | "week_active"
+  occurredAt: timestamp("occurred_at").defaultNow(),
+}, (table) => ({
+  referrerIdx: index("referral_events_referrer_idx").on(table.referrerUserId),
+  referredIdx: index("referral_events_referred_idx").on(table.referredUserId),
+  typeIdx: index("referral_events_type_idx").on(table.eventType),
+}));
+
+// Rewards ledger - track points earned by users for various actions
+export const rewardsLedger = pgTable("rewards_ledger", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  points: integer("points").notNull(), // Positive for earned, negative for spent
+  reason: varchar("reason").notNull(), // "invite_confirmed" | "active_week" | "referral_bonus" | "streak_bonus"
+  referenceId: varchar("reference_id"), // ID of related event (referral_event_id, etc.)
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userCreatedIdx: index("rewards_ledger_user_created_idx").on(table.userId, table.createdAt.desc()),
+  reasonIdx: index("rewards_ledger_reason_idx").on(table.reason),
+}));
+
+// ============ END REFERRALS & REWARDS SYSTEM ============
 
 // ============ PERSONAL CIRCLE (PRIVATE SHARING) ============
 
@@ -1488,3 +1521,18 @@ export const insertCirclePendingAlertSchema = createInsertSchema(circlePendingAl
 });
 export type InsertCirclePendingAlert = z.infer<typeof insertCirclePendingAlertSchema>;
 export type CirclePendingAlert = typeof circlePendingAlerts.$inferSelect;
+
+// Referrals & Rewards schemas
+export const insertReferralEventSchema = createInsertSchema(referralEvents).omit({
+  id: true,
+  occurredAt: true,
+});
+export type InsertReferralEvent = z.infer<typeof insertReferralEventSchema>;
+export type ReferralEvent = typeof referralEvents.$inferSelect;
+
+export const insertRewardsLedgerSchema = createInsertSchema(rewardsLedger).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertRewardsLedger = z.infer<typeof insertRewardsLedgerSchema>;
+export type RewardsLedger = typeof rewardsLedger.$inferSelect;
