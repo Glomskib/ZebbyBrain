@@ -2,135 +2,7 @@
 
 ## Overview
 
-Zebby's World is a comprehensive health tracking application specifically designed for people with Ehlers-Danlos Syndrome (EDS) and other rare conditions. The platform combines symptom tracking, AI-powered empathetic responses, community features, and a curated product marketplace. Built as a full-stack web application, Zebby aims to provide validation and understanding for users who often feel dismissed by traditional healthcare systems.
-
-## Recent Changes
-
-### September 2025 - Wave 1 Features (AI Trends, Body Parts, Avatar, Shopify) - ✅ UI INTEGRATION COMPLETE
-- **AI Research & Trends**: Replaced legacy reflection with AI-powered insights
-  - Backend: `server/services/insightStats.ts` aggregates 30d/90d numeric stats (pain avg, flare days, HR, sleep, hydration trends)
-  - API: POST `/api/ai/insights` with 24h caching and GPT-4o-mini for non-medical advice
-  - UI: `ZebbyFindings.tsx` component displays analysis, trend bullets, and optional action ideas
-  - **Integrated**: Mounted on Dashboard below quick stats with 30-day range
-  - Feature flag: `FF_AI_TRENDS`
-- **Body-Part Specific Tracking**: Enhanced symptom logging with anatomical precision
-  - UI: `BodyPartSelector.tsx` with 19 body parts (head, jaw, neck, shoulders, elbows, wrists, back, chest, abdomen, hips, knees, ankles)
-  - Side selection for paired parts (left/right/bilateral)
-  - Filter component for insights page to view trends by body part
-  - Database: `body_part` and `side` columns in `symptom_entries` table
-  - **Integrated**: Added to symptom logging form with null-safe type handling for optional body part selection
-  - Feature flag: `FF_BODY_PARTS`
-- **Zebby Avatar Persistent Chat**: Floating AI companion for on-demand support
-  - Backend: POST `/api/ai/chat` with context-aware responses using user stats
-  - UI: `ZebbyChat.tsx` as floating chat panel (bottom-right zebra button)
-  - GPT-4o-mini with system prompt emphasizing empathy and non-medical advice
-  - Rate limited to 10 requests/minute
-  - **Integrated**: Mounted globally in App root via AppContent wrapper, only visible when authenticated
-  - Feature flag: `FF_AVATAR`
-- **Shopify Marketplace Integration**: Read-only product catalog
-  - Backend: GraphQL proxy to Shopify Storefront API
-  - API: GET `/api/shopify/products` and `/api/shopify/product/:handle`
-  - Supports collections, pagination, and product details
-  - Environment: `SHOPIFY_STORE_DOMAIN` and `SHOPIFY_STOREFRONT_TOKEN`
-  - Feature flag: `FF_SHOPIFY`
-- **Database Migration**: Robust SQL-based migration system
-  - Migration runner: `server/migrations/run-migrations.ts` with ESM support
-  - Automatically detects and runs all `.sql` files in sorted order
-  - Handles PL/pgSQL blocks with arbitrary dollar-quoting tags ($tag$, $$, etc.)
-  - Multi-line comment stripping and idempotent migrations
-  - Wave 1 migration: `001_wave1_weather_bodyparts.sql` adds weather and body-part columns
-
-### September 2025 - Personal Circle (Private Health Sharing)
-- **Database Schema**: 7 tables for private health data sharing (circles, members, scopes, alert rules, logs, tokens, pending alerts)
-- **Backend API (13 endpoints)**: Complete Circle management system
-  - Circle auto-creation with default settings (symptoms+vitals shared, summary detail, 30 days back)
-  - Member invitations with secure 7-day tokens and email-based invites
-  - Member endpoints: accept invite, view owner's health feed, today's snapshot
-  - Granular scope controls (shareSymptoms, shareVitals, shareSleep, shareHydration, shareAIReflections)
-  - Alert rules configuration (flare threshold, HR delta, low sleep hours, quiet hours, cooldowns)
-  - Member management (invite, revoke, update pseudonyms/roles, delete)
-- **Manual Reach Out**: POST /api/circles/reach-out to notify selected circle members with optional message
-- **Automated Alerts System**: Cron-based alert processor running every 15 minutes
-  - Three trigger types: pain flare (intensity ≥ threshold), heart rate variation (POTS), low sleep hours
-  - 15-minute cancel window before alerts are sent
-  - Quiet hours enforcement (reschedules alerts during quiet period)
-  - Cooldown periods (default 180 min between alerts)
-  - Channel preferences (email on/off)
-- **Frontend UI**: Complete Personal Circle settings page at /circle
-  - Member management with invite dialog
-  - Privacy scope controls (toggle what data to share)
-  - Alert rules configuration (thresholds, quiet hours, channels)
-  - Pending alerts view with cancel capability
-  - Reach Out button on dashboard for quick support requests
-- **Security**: Ownership verification on all operations, Zod validation, isAuthenticated middleware, no-store headers for member data access
-- **Privacy-by-Design**: One circle per owner, detail levels (summary/detail), time windows (1-365 days), non-PHI email subjects
-
-### September 2025 - Zebby Social: Group Home Page
-- **Group Home Page**: Full-featured group page with feed, post composer, reactions, and member management
-- **State-Based Access Control**: Different views for non-members (join prompt), pending members (approval message), and approved members (full access)
-- **Post Composer**: Create text posts with real-time validation and success feedback
-- **Interactive Feed**: View posts with reactions, comments, polls, and author pseudonyms
-- **Pseudonym Editor**: Dialog for members to set/update their privacy-protecting pseudonym
-- **Comprehensive Cache Invalidation**: All mutations properly refresh related queries across navigation contexts
-- **Content Tabs**: Feed (posts), About (group info), Members (placeholder)
-- **Moderator Tools**: Settings access for group owners and moderators
-
-### September 2025 - Zebby Social: Groups Directory MVP
-- **Groups Directory Frontend**: Discover page with search, category filtering, and three tabs (Discover/Suggested/Trending)
-- **Membership Status Handling**: Proper differentiation between approved/pending/no membership states
-- **Smart Group Cards**: Display name, description, member count, category, visibility with appropriate Join/View/Pending buttons
-- **Slug-Based Routing**: All navigation uses group slugs (`/groups/{slug}`) matching backend APIs
-- **Public Groups API**: GET /api/groups/public with tags array for group discovery
-- **My Groups API**: GET /api/groups/my-groups with membership details for user's groups
-
-### September 2025 - EDS-Focused Onboarding System
-- **Complete 6-step onboarding flow** for new EDS/rare condition patients
-- **Extended user schema** with EDS-specific profile fields (type, diagnosis year, symptoms, goals)
-- **Smart routing system** ensuring onboarding completion before dashboard access
-- **Enhanced product reviews** with EDS symptom-specific rating scales
-- **Robust authentication** with proper database conflict handling and foreign key preservation
-
-### September 2025 - Wave 2: Groups + Referrals/Rewards Backend - ✅ BACKEND COMPLETE
-- **Wave-2 Database Schema**: Extended system with profile fields and rewards
-  - Added `referral_code` column to users table (unique, for invite links)
-  - Created `referral_events` table tracking signup and week_active events
-  - Created `rewards_ledger` table for points earned/spent tracking
-  - Added `birthYear`, `gender`, `identity` to users table for access control
-  - Migration: `002_wave2_referrals_rewards.sql` and `003_wave2_profile_access_fields.sql`
-- **Access Control System**: Age/gender/diagnosis-gated group access
-  - Service: `server/services/groupAccess.ts` with comprehensive matching logic
-  - Age ranges: 18-25, 26-35, 36-50, 51+
-  - Gender/identity: women, men, LGBTQ+, nonbinary support
-  - Diagnosis matching: hEDS, POTS, MCAS tag detection
-  - Integrated into groups join endpoint with descriptive error messages
-- **Rate Limiting Middleware**: Protection against spam and abuse
-  - Posts: 6 per hour per user (`server/middleware/rateLimits.ts`)
-  - Comments: 20 per hour per user
-  - Reactions: 60 per hour per user
-  - Reports: 10 per hour per user
-  - IPv6-safe keyGenerator using user ID or 'anonymous' fallback
-- **Referrals API**: Viral growth system (`server/routes/referrals.ts`)
-  - GET `/api/referrals/code` - Generate unique 6-char referral code
-  - POST `/api/referrals/apply` - Apply code, awards +100 points to referrer
-  - Nanoid-based code generation, signup event tracking
-- **Rewards API**: Points and gamification (`server/routes/rewards.ts`)
-  - GET `/api/rewards/balance` - Sum of ledger entries for current user
-  - GET `/api/rewards/history` - Last 20 transactions with metadata
-  - Ledger-based tracking (earned/spent), supports referral and week-active events
-- **Reports API**: Content moderation (`server/routes/reports.ts`)
-  - POST `/api/report` - Report posts/comments with reason codes
-  - Rate limited to 10/hour, creates moderation queue entries
-  - Supports spam, harassment, misinformation, inappropriate, off-topic reasons
-- **Text Sanitization**: Security utilities (`server/lib/sanitize.ts`)
-  - HTML stripping, URL linkification, line break conversion
-  - Used in posts/comments to prevent XSS and format content
-- **Groups Seeding**: 10 starter community groups via `seed-groups.ts`
-  - 4 age-bracket groups: Young Zebras (18-25), Zebras in Bloom (26-35), Seasoned Stripes (36-50), Wise Zebras (51+)
-  - 3 gender/identity groups: Zebra Sisters (women), Zebra Brothers (men), Rainbow Zebras (LGBTQ+)
-  - 3 diagnosis-specific groups: hEDS Herd, POTS Squad, MCAS Warriors
-  - Each group tagged for discovery (age ranges, conditions, topics)
-- **Feature Flags**: `FF_GROUPS=true`, `FF_REFERRALS=true`, `FF_REWARDS=true`
-- **Next Steps**: Frontend UI for Groups Directory, Referrals/Rewards settings, week-active cron job
+Zebby's World is a comprehensive health tracking application for individuals with Ehlers-Danlos Syndrome (EDS) and other rare conditions. It provides symptom tracking, AI-powered empathetic responses, community features, and a curated product marketplace. The platform aims to validate and support users often overlooked by traditional healthcare systems, fostering understanding and community. Key capabilities include personalized health insights, secure private health sharing, and social groups for peer support.
 
 ## User Preferences
 
@@ -138,72 +10,69 @@ Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-### Frontend Architecture
-- **React with TypeScript**: Modern React application using functional components and hooks
-- **Styling**: Tailwind CSS with shadcn/ui component library for consistent design
-- **Routing**: Wouter for lightweight client-side routing
-- **State Management**: TanStack Query for server state management and caching
-- **Build Tool**: Vite for fast development and optimized production builds
+### UI/UX Decisions
+- **Design System**: Tailwind CSS with shadcn/ui for a consistent and accessible user interface.
+- **Iconography**: Lucide Icons for clear and uniform visual elements.
+- **Routing**: Wouter for lightweight client-side navigation.
 
-### Backend Architecture
-- **Express.js Server**: RESTful API with TypeScript
-- **Database Layer**: PostgreSQL with Drizzle ORM for type-safe database operations
-- **Authentication**: Replit-based OIDC authentication with session management
-- **AI Integration**: OpenAI GPT-5 for generating empathetic responses and insights
+### Technical Implementations
+- **Frontend**: React with TypeScript, leveraging functional components and hooks.
+- **Backend**: Express.js with TypeScript for a RESTful API.
+- **Database**: PostgreSQL with Drizzle ORM for type-safe operations, hosted on Neon.
+- **Authentication**: Replit-based OIDC authentication with PostgreSQL-backed session management.
+- **AI Integration**: OpenAI GPT-4o-mini and GPT-5 for empathetic responses, personalized insights, and an AI companion.
+- **Build & Development**: Vite for fast development and optimized production builds, ESBuild for bundling, PostCSS for CSS processing.
 
-### Data Storage Solutions
-- **Primary Database**: PostgreSQL via Neon serverless
-- **Session Storage**: PostgreSQL-backed session store using connect-pg-simple
-- **Schema Management**: Drizzle migrations with shared schema definitions
+### Feature Specifications
+- **EDS-Focused Onboarding**: A 6-step flow personalizing the user experience with EDS-specific fields.
+- **Symptom Tracking**: Detailed multi-symptom logging, including body-part specific tracking and intensity scales.
+- **AI Companion (Zebby Avatar)**: A persistent, floating AI chat assistant providing empathetic support and context-aware responses.
+- **AI Insights & Trends**: AI-powered analysis of health data (pain, flares, HR, sleep, hydration) to provide trends and non-medical advice.
+- **Personal Circle**: Private health data sharing system with granular controls, secure invitations, and automated alert rules for designated members.
+- **Zebby Social (Groups)**: Community groups with a directory, state-based access control, post composer, interactive feed, and moderation tools. Includes age, gender, and diagnosis-gated access.
+- **Referrals & Rewards**: System for viral growth, including unique referral codes, point-based rewards for referrals and activity, and a rewards ledger.
+- **Marketplace Integration**: Read-only Shopify integration for curated products, including EDS-specific product reviews.
+- **Content Moderation**: Reporting system for posts and comments with rate limiting.
+- **Security**: Robust authentication, Zod validation, rate limiting middleware, and text sanitization (HTML stripping, XSS prevention).
 
-### Key Data Models
-- **Users**: Enhanced profile with EDS-specific fields (EDS type, diagnosis year, primary symptoms, experience level, daily goals) and onboarding completion tracking
-- **Symptom Logs**: Timestamped symptom entries with AI-generated reflections
-- **AI Interactions**: Conversation history and empathetic responses
-- **Products**: Marketplace items with categories and user favorites
-- **Product Reviews**: EDS-specialized review system with symptom-specific ratings
-
-### Authentication and Authorization
-- **OIDC Integration**: Replit-based authentication for secure user login with robust user upsert handling
-- **Session Management**: Server-side sessions with PostgreSQL storage
-- **Route Protection**: Middleware-based authentication checks on protected endpoints plus smart onboarding flow routing
-- **Onboarding Guards**: Automatic routing ensuring new users complete onboarding while preventing completed users from re-accessing setup flow
-
-### Core Features
-- **EDS-Focused Onboarding**: Comprehensive 6-step onboarding flow for new users with EDS education, profile personalization, symptom selection, and goal setting
-- **Symptom Tracking**: Multi-symptom logging with intensity scales and notes
-- **AI Companion**: Zebby the AI companion provides empathetic responses to symptom logs
-- **Data Visualization**: Charts showing symptom patterns and trends
-- **Marketplace Integration**: Curated products for EDS/rare condition management with specialized review system
-- **User Dashboard**: Centralized view of recent activity and AI insights
-- **Zebby Social**: Community groups feature with Groups Directory for discovering and joining condition-specific support groups
+### System Design Choices
+- **Data Models**: Enhanced user profiles, detailed symptom logs, AI interaction history, product catalogs, and specialized product reviews.
+- **Access Control**: Middleware-based route protection, ownership verification, and detailed access control for social groups based on user profile data.
+- **Database Migrations**: SQL-based migration system for robust schema evolution.
+- **Caching**: 24-hour caching for AI insights and efficient data retrieval.
+- **Testing**: Comprehensive Playwright E2E test suite (though not runnable in Replit due to browser dependencies).
 
 ## External Dependencies
 
 ### Database Services
-- **Neon PostgreSQL**: Serverless PostgreSQL database hosting
-- **Drizzle ORM**: Type-safe database operations and migrations
+- **Neon PostgreSQL**: Serverless PostgreSQL hosting.
+- **Drizzle ORM**: Type-safe ORM for database interactions.
 
 ### AI Services
-- **OpenAI GPT-5**: Natural language processing for empathetic responses and personalized insights
+- **OpenAI GPT-4o-mini / GPT-5**: Used for natural language processing, empathetic responses, and personalized health insights.
 
 ### Authentication
-- **Replit Auth**: OIDC-based authentication system
-- **Express Session**: Session management with PostgreSQL backing
+- **Replit Auth**: OIDC-based authentication.
+- **Express Session**: Session management.
+- **Connect-pg-simple**: PostgreSQL-backed session store.
 
 ### Frontend Libraries
-- **Radix UI**: Accessible component primitives for the design system
-- **TanStack Query**: Data fetching and caching layer
-- **Date-fns**: Date manipulation utilities
-- **Wouter**: Lightweight routing solution
+- **React**: UI library.
+- **TypeScript**: Language for type safety.
+- **Wouter**: Client-side routing.
+- **TanStack Query**: Data fetching and caching.
+- **Date-fns**: Date manipulation.
+- **Radix UI**: Accessible component primitives.
+
+### UI/Styling
+- **Tailwind CSS**: Utility-first CSS framework.
+- **shadcn/ui**: Component library.
+- **Lucide Icons**: Icon library.
 
 ### Development Tools
-- **TypeScript**: Type safety across the full stack
-- **ESBuild**: Fast bundling for production builds
-- **PostCSS**: CSS processing with Tailwind
-- **Vite**: Development server and build tool
+- **Vite**: Build tool and development server.
+- **ESBuild**: Bundler.
+- **PostCSS**: CSS pre-processor.
 
-### UI Components
-- **shadcn/ui**: Pre-built accessible components
-- **Tailwind CSS**: Utility-first CSS framework
-- **Lucide Icons**: Consistent iconography
+### Integrations
+- **Shopify Storefront API**: For marketplace product data.
