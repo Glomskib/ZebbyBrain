@@ -1,6 +1,7 @@
 import { precomputeInsightsForActiveUsers } from "./lib/cache";
 import { processReminders } from "./lib/reminders";
 import { processCircleAlerts } from "./lib/circle-alerts";
+import { processWeekActiveRewards } from "./lib/week-active-rewards";
 
 /**
  * Enhanced cron scheduler for insights precomputation and reminder processing
