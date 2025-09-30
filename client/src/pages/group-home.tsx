@@ -33,6 +33,8 @@ import {
   BarChart3,
   AlertCircle,
   Edit,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -78,6 +80,20 @@ interface Post {
     userVote?: string;
   };
   userReaction?: string;
+}
+
+interface Comment {
+  id: string;
+  postId: string;
+  authorId: string;
+  body: string;
+  parentCommentId: string | null;
+  isRemoved: boolean;
+  createdAt: string;
+  editedAt: string | null;
+  authorFirstName: string;
+  authorLastName: string;
+  authorPseudonym: string | null;
 }
 
 export default function GroupHome() {
@@ -518,6 +534,8 @@ function PostComposer({ groupId, slug }: { groupId: string; slug: string }) {
 function PostCard({ post, groupSlug }: { post: Post; groupSlug: string }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const [showComments, setShowComments] = useState(false);
+  const [commentText, setCommentText] = useState("");
 
   const allowedEmojis = ["❤️", "👍", "🙏", "💪", "🎉"];
 
@@ -536,6 +554,19 @@ function PostCard({ post, groupSlug }: { post: Post; groupSlug: string }) {
     },
   });
 
+  // Fetch comments for this post
+  const { data: comments } = useQuery<Comment[]>({
+    queryKey: [`/api/comments`, post.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/comments?postId=${post.id}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch comments");
+      return res.json();
+    },
+    enabled: showComments,
+  });
+
   const reactMutation = useMutation({
     mutationFn: async (emoji: string) => {
       return await apiRequest("POST", `/api/comments/${post.id}/reactions`, {
@@ -545,6 +576,31 @@ function PostCard({ post, groupSlug }: { post: Post; groupSlug: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/comments/${post.id}/reactions`] });
       queryClient.invalidateQueries({ queryKey: [`/api/posts?groupId=${post.groupId}`] });
+    },
+  });
+
+  const createCommentMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", `/api/comments`, {
+        postId: post.id,
+        body: commentText,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/comments`, post.id] });
+      queryClient.invalidateQueries({ queryKey: [`/api/posts?groupId=${post.groupId}`] });
+      setCommentText("");
+      toast({
+        title: "Success",
+        description: "Comment posted successfully!",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to post comment. Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -639,17 +695,81 @@ function PostCard({ post, groupSlug }: { post: Post; groupSlug: string }) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setLocation(`/groups/${groupSlug}/posts/${post.id}`)}
-            data-testid={`button-comments-${post.id}`}
+            onClick={() => setShowComments(!showComments)}
+            data-testid={`button-toggle-comments-${post.id}`}
           >
-            <MessageSquare className="w-4 h-4 mr-1" />
-            {post.commentCount}
+            {showComments ? (
+              <ChevronUp className="w-4 h-4 mr-1" />
+            ) : (
+              <ChevronDown className="w-4 h-4 mr-1" />
+            )}
+            {post.commentCount} {post.commentCount === 1 ? "Comment" : "Comments"}
           </Button>
           <Button variant="ghost" size="sm" data-testid={`button-share-${post.id}`}>
             <Share2 className="w-4 h-4 mr-1" />
             Share
           </Button>
         </div>
+
+        {/* Comments Section */}
+        {showComments && (
+          <div className="space-y-4 mt-4 border-t pt-4">
+            {/* Comment Composer */}
+            <div className="space-y-2">
+              <Textarea
+                placeholder="Write a comment..."
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                rows={2}
+                data-testid={`textarea-comment-${post.id}`}
+              />
+              <Button
+                onClick={() => createCommentMutation.mutate()}
+                disabled={!commentText.trim() || createCommentMutation.isPending}
+                size="sm"
+                data-testid={`button-submit-comment-${post.id}`}
+              >
+                {createCommentMutation.isPending ? "Posting..." : "Post Comment"}
+              </Button>
+            </div>
+
+            {/* Comments List */}
+            <div className="space-y-3">
+              {comments === undefined ? (
+                <div className="text-center text-muted-foreground py-4">
+                  Loading comments...
+                </div>
+              ) : comments.length === 0 ? (
+                <div className="text-center text-muted-foreground py-4">
+                  No comments yet. Be the first to comment!
+                </div>
+              ) : (
+                comments.map((comment) => (
+                  <div
+                    key={comment.id}
+                    className="border-l-2 border-muted pl-4 space-y-1"
+                    data-testid={`comment-${comment.id}`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="font-medium text-sm" data-testid={`text-comment-author-${comment.id}`}>
+                          {comment.authorPseudonym || `${comment.authorFirstName} ${comment.authorLastName}`}
+                        </span>
+                        <span className="text-xs text-muted-foreground ml-2">
+                          {new Date(comment.createdAt).toLocaleDateString()} at{" "}
+                          {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-sm whitespace-pre-wrap" data-testid={`text-comment-body-${comment.id}`}>
+                      {comment.body}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
