@@ -1,0 +1,206 @@
+Zebby • Post Composer Enhancements (Keyboard, Helper Text, Drafts, Counter, A11y)”
+Goals
+
+Upgrade the group post composer with:
+
+Keyboard shortcuts:
+
+Ctrl/Cmd+Enter → submit
+
+Shift+Enter → newline
+
+Esc → clear & blur
+
+Helper text: gentle guidelines (no medical advice, be kind, no PHI)
+
+Draft autosave per group (localStorage key: zebby_draft_g:<groupId>)
+
+Character counter with soft limit (e.g., 1,000) and warning at 900+
+
+Rate-limit UX: detect 429 and show toast “You’ve hit the posting limit; try again later.”
+
+Accessibility: labels, aria-live="polite" for submit status, focus handling
+
+Tests for shortcuts, draft restore, counter, and 429 handling
+
+Files to create/update
+1) client/src/components/groups/PostComposer.tsx
+import { useEffect, useMemo, useRef, useState } from "react";
+
+const MAX = 1000;
+const WARN_AT = 900;
+
+export default function PostComposer({
+  groupId,
+  onPosted,
+}: { groupId: string; onPosted: () => void }) {
+  const key = useMemo(() => `zebby_draft_g:${groupId}`, [groupId]);
+  const [val, setVal] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // restore draft
+  useEffect(() => {
+    const saved = localStorage.getItem(key);
+    if (saved) setVal(saved);
+  }, [key]);
+
+  // autosave draft
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (val?.trim().length) localStorage.setItem(key, val);
+      else localStorage.removeItem(key);
+    }, 300);
+    return () => clearTimeout(id);
+  }, [key, val]);
+
+  async function submit() {
+    if (submitting) return;
+    setErr(null);
+    const body = val.trim();
+    if (!body) return;
+    if (body.length > MAX) {
+      setErr(`Too long by ${body.length - MAX} characters.`);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const token = localStorage.getItem("zebby_token") || "";
+      const r = await fetch(`/api/groups/${groupId}/posts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ body }),
+      });
+      if (r.status === 429) {
+        setErr("You’ve hit the posting limit; please try again later.");
+        return;
+      }
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setErr(j?.error || "Could not post. Please try again.");
+        return;
+      }
+      setVal("");
+      localStorage.removeItem(key);
+      onPosted();
+      // return focus to textarea for quick follow-up posts
+      requestAnimationFrame(() => taRef.current?.focus());
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Ctrl/Cmd+Enter -> submit
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      submit();
+      return;
+    }
+    // Esc -> clear & blur
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setVal("");
+      setErr(null);
+      taRef.current?.blur();
+    }
+    // Shift+Enter handled by browser as newline, so nothing to do.
+  }
+
+  const chars = val.length;
+  const over = chars > MAX;
+  const warn = chars >= WARN_AT && !over;
+
+  return (
+    <div className="tile p-3">
+      <label htmlFor="post-body" className="block font-semibold mb-1">Share something with your herd</label>
+      <textarea
+        id="post-body"
+        ref={taRef}
+        className="w-full border rounded p-2 min-h-[96px]"
+        placeholder="Share a win, ask a question, or offer a tip…"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={onKeyDown}
+        aria-describedby="composer-help composer-count composer-status"
+        disabled={submitting}
+      />
+      <div id="composer-help" className="text-xs opacity-70 mt-1">
+        Be kind. No medical advice or diagnoses. Avoid sharing personal identifiers.
+      </div>
+      <div className="mt-2 flex items-center justify-between">
+        <div
+          id="composer-count"
+          className={`text-xs ${warn ? "text-amber-600" : ""} ${over ? "text-red-600 font-semibold" : ""}`}
+          aria-live="polite"
+        >
+          {chars}/{MAX}{over ? ` (over by ${chars - MAX})` : warn ? " ( nearing limit )" : ""}
+        </div>
+        <div className="flex gap-2">
+          <button className="btn" type="button" onClick={() => setVal("")} disabled={submitting || !val}>
+            Clear (Esc)
+          </button>
+          <button className="btn btn-primary" type="button" onClick={submit} disabled={submitting || !val || over}>
+            {submitting ? "Posting…" : "Post (Ctrl/⌘+Enter)"}
+          </button>
+        </div>
+      </div>
+      <div id="composer-status" className="text-sm mt-2" aria-live="polite">
+        {err ? <span className="text-red-600">{err}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+2) Wire composer into Group Page
+
+Import and render above the feed in client/src/pages/GroupPage.tsx.
+
+Pass onPosted={() => refetchPosts()} (whatever your fetch hook is).
+
+Ensure GroupPage hides composer if user is not a member.
+
+3) Server: return explicit 429 on post rate-limit
+
+If not already, make the rate-limit middleware set Retry-After and JSON:
+
+res.status(429).set("Retry-After","3600").json({ error: "rate_limited" });
+
+
+Keep Cache-Control: no-store.
+
+4) Tests
+
+Create client/__tests__/PostComposer.test.tsx:
+
+Renders helper text and counter.
+
+Ctrl/Cmd+Enter triggers submit (mock fetch).
+
+Esc clears + blurs.
+
+Draft restores from localStorage for a given groupId.
+
+Rejects >1000 characters (shows error).
+
+Handles 429 by showing rate-limit message.
+
+Create server/tests/postRateLimit.test.ts:
+
+After 6 posts in an hour for a user, the 7th returns 429 and JSON error.
+
+Acceptance
+
+Keyboard shortcuts work on macOS/Windows.
+
+Draft persists per group and clears on successful post.
+
+Counter warns at 900+, blocks >1000.
+
+429 shows friendly message; no crashes.
+
+a11y: labels present, aria-live announces status & counter updates.

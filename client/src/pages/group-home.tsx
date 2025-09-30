@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import PostComposer from "@/components/groups/PostComposer";
 
 interface Group {
   id: string;
@@ -379,7 +380,13 @@ export default function GroupHome() {
 
           <TabsContent value="feed" className="space-y-6">
             {/* Post Composer */}
-            <PostComposer groupId={group.id} slug={slug!} />
+            <PostComposer 
+              groupId={group.id}
+              onPosted={() => {
+                queryClient.invalidateQueries({ queryKey: [`/api/posts?groupId=${group.id}`] });
+                queryClient.invalidateQueries({ queryKey: [`/api/groups/${slug}`] });
+              }}
+            />
 
             {/* Posts Feed */}
             {postsLoading ? (
@@ -476,60 +483,6 @@ export default function GroupHome() {
         </Card>
       ) : null}
     </div>
-  );
-}
-
-function PostComposer({ groupId, slug }: { groupId: string; slug: string }) {
-  const [content, setContent] = useState("");
-  const { toast } = useToast();
-
-  const createPostMutation = useMutation({
-    mutationFn: async () => {
-      return await apiRequest("POST", `/api/posts`, {
-        groupId,
-        body: content,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/posts?groupId=${groupId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/groups/${slug}`] });
-      setContent("");
-      toast({
-        title: "Success",
-        description: "Post created successfully!",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to create post. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Create a Post</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <Textarea
-          placeholder="Share your thoughts, experiences, or questions..."
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={4}
-          data-testid="textarea-post-content"
-        />
-        <Button
-          onClick={() => createPostMutation.mutate()}
-          disabled={!content.trim() || createPostMutation.isPending}
-          data-testid="button-create-post"
-        >
-          Post
-        </Button>
-      </CardContent>
-    </Card>
   );
 }
 

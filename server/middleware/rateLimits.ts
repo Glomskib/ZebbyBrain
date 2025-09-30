@@ -8,6 +8,12 @@ export const postRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: any) => req.user?.claims?.sub || 'anonymous',
+  handler: (req, res) => {
+    res.status(429).set('Retry-After', '3600').json({
+      error: 'rate_limited',
+      message: 'Too many posts created. Please try again later.',
+    });
+  },
 });
 
 // Comments: 20 per hour (per user)
@@ -18,6 +24,12 @@ export const commentRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: any) => req.user?.claims?.sub || 'anonymous',
+  handler: (req, res) => {
+    res.status(429).set('Retry-After', '3600').json({
+      error: 'rate_limited',
+      message: 'Too many comments created. Please try again later.',
+    });
+  },
 });
 
 // Reactions: 60 per hour (per user)
@@ -28,6 +40,12 @@ export const reactionRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: any) => req.user?.claims?.sub || 'anonymous',
+  handler: (req, res) => {
+    res.status(429).set('Retry-After', '3600').json({
+      error: 'rate_limited',
+      message: 'Too many reactions. Please try again later.',
+    });
+  },
 });
 
 // Reports: 10 per hour (per user)
@@ -38,4 +56,10 @@ export const reportRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: any) => req.user?.claims?.sub || 'anonymous',
+  handler: (req, res) => {
+    res.status(429).set('Retry-After', '3600').json({
+      error: 'rate_limited',
+      message: 'Too many reports submitted. Please try again later.',
+    });
+  },
 });
