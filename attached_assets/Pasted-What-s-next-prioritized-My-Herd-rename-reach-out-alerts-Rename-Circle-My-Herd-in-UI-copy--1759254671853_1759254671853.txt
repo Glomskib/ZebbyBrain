@@ -1,0 +1,160 @@
+What’s next (prioritized)
+
+My Herd (rename + reach-out alerts)
+
+Rename Circle → My Herd in UI copy.
+
+Add manual “Reach Out” (one-tap status ping to herd).
+
+Add automated alerts (opt-in; thresholds, quiet hours, cooldown, 10-min cancel window).
+
+Audit log of notifications sent.
+
+Reminders (meds, hydration, posture, custom)
+
+Time-zone aware, idempotent sends, snooze.
+
+Email or in-app banner if email not configured.
+
+Clinician Pack PDF v2
+
+Branded cover + date range.
+
+Each entry shows time + weather/HR/water stamps (if present).
+
+“Zebby Findings” summary (non-diagnostic) + sparklines (pain, HR Δ, sleep).
+
+< 5MB, prints cleanly.
+
+PWA installability
+
+Manifest + icons, service worker that doesn’t cache /api/*.
+
+“Install Zebby” prompt in Settings.
+
+Account management & data trust
+
+Delete account (7-day undo + purge worker).
+
+Backup/Restore zip (encrypted) for user data.
+
+(Optional flag) 2-year export-and-purge policy (off at launch).
+
+Launch polish
+
+Privacy/Terms/Guidelines pages linked in footer.
+
+Email domain authenticated (SPF/DKIM/DMARC).
+
+Basic analytics (non-PII), error monitoring, daily DB backup script.
+
+Accessibility pass (focus, labels, contrast), Lighthouse PWA ✓.
+
+Copy-paste Replit Agent Prompt — “Zebby • Wave-3 Go-Live (Herd + Alerts, Reminders, PDF v2, PWA, Account Controls)”
+
+Feature flags (add to Secrets if missing):
+
+FF_HERD=true
+FF_REMINDERS=true
+FF_PDF_V2=true
+FF_PWA=true
+FF_DELETE_ACCOUNT=true
+FF_BACKUP_RESTORE=true
+
+
+Env (new/confirm):
+
+EMAIL_FROM="Zebby <no-reply@zebbysworld.com>"
+EMAIL_PROVIDER_API_KEY=...      # or keep in-app banners only
+ENABLE_CRON=true
+APP_URL=https://www.zebbysworld.com
+
+Tasks
+1) My Herd: rename + “Reach Out” + automated alerts
+
+Rename “Personal Circle” copy → My Herd (routes may stay).
+
+POST /api/herd/reach-out: manual ping to chosen herd members (email + in-app).
+
+Alert rules (per user): pain ≥ X, HR Δ ≥ Y, sleep < Z; quiet hours; cooldown; notify guardians first.
+
+Scheduler (15-min tick): evaluate → create pending alert with 10-min cancel; if not canceled, send; log to audit.
+
+Acceptance: manual ping sends; automated alerts respect quiet hours/cooldown; cancel works; audit log lists last 30 sends.
+
+2) Reminders MVP
+
+DB reminder: { id, userId, type:'med'|'hydration'|'posture'|'custom', label, time/cron, tz, enabled }.
+
+Settings → Reminders UI: create/pause/snooze; preview next fire time.
+
+Cron sender (idempotent per window).
+
+Acceptance: timezone-correct, snooze adds +X mins once, rate-limited, no PII in logs.
+
+3) Clinician Pack PDF v2
+
+Export GET /api/exports/pdf?v=2&from=&to=
+
+Pages: cover → entries with time + weather/HR/water stamps → Zebby Findings → 3 sparklines (PNG data URLs).
+
+Acceptance: <5MB for 90 days; graceful empty states; no network calls during export.
+
+4) PWA
+
+manifest.webmanifest + icons; service worker caches static only; exclude /api/* and exports.
+
+Settings CTA: “Install Zebby”.
+
+Acceptance: Lighthouse “Installable”; offline shell loads; protected endpoints never cached.
+
+5) Account controls
+
+Backup: user-scoped encrypted zip of rows; Restore path (schema-safe).
+
+Delete Account: soft delete + 7-day undo; purge worker.
+
+(Flagged) Retention job for 2-year export-and-purge (default off).
+
+Acceptance: backup/restore round-trip; delete shows countdown; undo works.
+
+6) Legal & a11y polish
+
+Add/verify pages: Privacy, Terms, Community Guidelines, Support; link in footer & Settings.
+
+Accessibility: visible focus, labels, aria-live for async updates; color contrast AA.
+
+7) Tests (add to CI)
+
+Herd alerts: manual send OK; automated → pending→send; cancel prevents send; quiet hours/cooldown honored.
+
+Reminders: fires once per window; snooze; disabled stops sends.
+
+PDF v2: renders with/without data; includes stamps; <5MB.
+
+PWA: service worker doesn’t cache /api/*.
+
+Delete/Restore: state transitions correct.
+
+Rollout checklist (same day)
+
+Flip FF_PWA, FF_PDF_V2, FF_REMINDERS, FF_HERD to true in staging.
+
+Run smoke:
+
+Herd manual ping + pending alert cancel;
+
+Create two reminders; both fire once;
+
+Export PDF v2 with real logs; size <5MB;
+
+Install PWA on mobile; offline shell loads;
+
+Backup → delete → undo → restore works.
+
+Point www.zebbysworld.com
+ to prod; verify TLS + headers.
+
+Send a real email from app → Gmail “Authenticated” (SPF/DKIM/DMARC pass).
+
+Enable same flags in prod for a small beta cohort.
