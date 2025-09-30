@@ -91,6 +91,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const shopifyRoutes = await import('./routes/shopify');
   app.use('/api/shopify', shopifyRoutes.default);
 
+  // Mount Referrals routes (Wave 2)
+  const referralsRoutes = await import('./routes/referrals');
+  app.use('/api/referrals', isAuthenticated, referralsRoutes.default);
+
+  // Mount Rewards routes (Wave 2)
+  const rewardsRoutes = await import('./routes/rewards');
+  app.use('/api/rewards', isAuthenticated, rewardsRoutes.default);
+
+  // Mount Reports routes (Wave 2)
+  const reportsRoutes = await import('./routes/reports');
+  app.use('/api/report', isAuthenticated, reportsRoutes.default);
+
   // Configure multer for file uploads
   const upload = multer({ 
     storage: multer.memoryStorage(),

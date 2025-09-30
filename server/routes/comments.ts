@@ -1,6 +1,7 @@
 import express from "express";
 import { db } from "../db";
 import { z } from "zod";
+import { commentRateLimit, reactionRateLimit } from "../middleware/rateLimits";
 import { 
   groupComments,
   reactions,
@@ -118,7 +119,7 @@ router.get("/", async (req: any, res) => {
 });
 
 // POST /api/comments - Create new comment
-router.post("/", async (req: any, res) => {
+router.post("/", commentRateLimit, async (req: any, res) => {
   try {
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
@@ -320,7 +321,7 @@ router.delete("/:commentId", async (req: any, res) => {
 });
 
 // POST /api/comments/:postId/reactions - Toggle reaction on post
-router.post("/:postId/reactions", async (req: any, res) => {
+router.post("/:postId/reactions", reactionRateLimit, async (req: any, res) => {
   try {
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });

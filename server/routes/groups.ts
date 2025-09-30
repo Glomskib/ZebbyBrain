@@ -21,6 +21,7 @@ import {
   type User
 } from "@shared/schema";
 import { eq, and, or, sql, desc, inArray } from "drizzle-orm";
+import { canAccessGroup } from "../services/groupAccess";
 
 const router = express.Router();
 
@@ -87,7 +88,6 @@ router.get("/public", async (req: any, res) => {
         description: groups.description,
         visibility: groups.visibility,
         kind: groups.kind,
-        category: groups.category,
         memberCount: groups.memberCount,
         postCount: groups.postCount,
         coverImageUrl: groups.coverImageUrl,
@@ -142,13 +142,12 @@ router.get("/my-groups", async (req: any, res) => {
         role: groupMemberships.role,
         joinStatus: groupMemberships.joinStatus,
         pseudonym: groupMemberships.pseudonym,
-        joinedAt: groupMemberships.joinedAt,
+        joinedAt: groupMemberships.createdAt,
         groupName: groups.name,
         groupSlug: groups.slug,
         groupDescription: groups.description,
         groupVisibility: groups.visibility,
         groupKind: groups.kind,
-        groupCategory: groups.category,
         groupMemberCount: groups.memberCount,
         groupPostCount: groups.postCount,
         groupCoverImageUrl: groups.coverImageUrl,
@@ -166,7 +165,6 @@ router.get("/my-groups", async (req: any, res) => {
       description: m.groupDescription,
       visibility: m.groupVisibility,
       kind: m.groupKind,
-      category: m.groupCategory,
       memberCount: m.groupMemberCount,
       postCount: m.groupPostCount,
       coverImageUrl: m.groupCoverImageUrl,
@@ -378,6 +376,33 @@ router.post("/:groupId/join", async (req: any, res) => {
     // Check if user is banned
     if (await isUserBanned(userId, groupId)) {
       return res.status(403).json({ message: "You are banned from this group" });
+    }
+
+    // Check access control for gated groups
+    // Load user profile
+    const [userProfile] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId));
+    
+    if (!userProfile) {
+      return res.status(404).json({ message: "User profile not found" });
+    }
+
+    // Load group tags
+    const groupTagRecords = await db
+      .select()
+      .from(groupTags)
+      .where(eq(groupTags.groupId, groupId));
+    
+    const tags = groupTagRecords.map(t => t.tag);
+
+    // Check access
+    const accessCheck = await canAccessGroup(userProfile, group, tags);
+    if (!accessCheck.canAccess) {
+      return res.status(403).json({ 
+        message: accessCheck.reason || "You don't meet the requirements to join this group" 
+      });
     }
 
     // Check if user is already a member

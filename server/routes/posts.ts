@@ -1,6 +1,7 @@
 import express from "express";
 import { db } from "../db";
 import { z } from "zod";
+import { postRateLimit } from "../middleware/rateLimits";
 import { 
   posts,
   postPolls,
@@ -204,7 +205,7 @@ router.get("/:postId", async (req: any, res) => {
 });
 
 // POST /api/posts - Create new post
-router.post("/", async (req: any, res) => {
+router.post("/", postRateLimit, async (req: any, res) => {
   try {
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
