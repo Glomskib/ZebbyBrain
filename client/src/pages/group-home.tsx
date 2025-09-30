@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Users,
   Lock,
@@ -35,6 +36,7 @@ import {
   Edit,
   ChevronDown,
   ChevronUp,
+  Flag,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -388,7 +390,7 @@ export default function GroupHome() {
             ) : posts && posts.length > 0 ? (
               <div className="space-y-4">
                 {posts.map((post) => (
-                  <PostCard key={post.id} post={post} groupSlug={slug!} />
+                  <PostCard key={post.id} post={post} groupSlug={slug!} groupId={group.id} />
                 ))}
               </div>
             ) : (
@@ -531,13 +533,24 @@ function PostComposer({ groupId, slug }: { groupId: string; slug: string }) {
   );
 }
 
-function PostCard({ post, groupSlug }: { post: Post; groupSlug: string }) {
+function PostCard({ post, groupSlug, groupId }: { post: Post; groupSlug: string; groupId: string }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportNotes, setReportNotes] = useState("");
+  const [reportCommentId, setReportCommentId] = useState<string | null>(null);
 
   const allowedEmojis = ["❤️", "👍", "🙏", "💪", "🎉"];
+  const reportReasons = [
+    { value: "spam", label: "Spam or advertising" },
+    { value: "harassment", label: "Harassment or bullying" },
+    { value: "misinformation", label: "Misinformation or false claims" },
+    { value: "inappropriate", label: "Inappropriate content" },
+    { value: "off-topic", label: "Off-topic or irrelevant" },
+  ];
 
   // Fetch reactions data for this post
   const { data: reactionsData } = useQuery<{
@@ -604,6 +617,35 @@ function PostCard({ post, groupSlug }: { post: Post; groupSlug: string }) {
     },
   });
 
+  const reportMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", `/api/report`, {
+        groupId,
+        targetType: reportCommentId ? "comment" : "post",
+        targetId: reportCommentId || post.id,
+        reasonCode: reportReason,
+        notes: reportNotes.trim() || undefined,
+      });
+    },
+    onSuccess: () => {
+      setReportDialogOpen(false);
+      setReportReason("");
+      setReportNotes("");
+      setReportCommentId(null);
+      toast({
+        title: "Report submitted",
+        description: "Thank you for helping keep our community safe.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to submit report. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Get count for a specific emoji
   const getEmojiCount = (emoji: string) => {
     const reaction = reactionsData?.reactions.find((r) => r.emoji === emoji);
@@ -627,6 +669,18 @@ function PostCard({ post, groupSlug }: { post: Post; groupSlug: string }) {
               {new Date(post.createdAt).toLocaleDateString()}
             </CardDescription>
           </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setReportCommentId(null);
+              setReportDialogOpen(true);
+            }}
+            className="h-8 text-muted-foreground hover:text-destructive"
+            data-testid={`button-report-post-${post.id}`}
+          >
+            <Flag className="w-4 h-4" />
+          </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -751,7 +805,7 @@ function PostCard({ post, groupSlug }: { post: Post; groupSlug: string }) {
                     data-testid={`comment-${comment.id}`}
                   >
                     <div className="flex items-start justify-between">
-                      <div>
+                      <div className="flex-1">
                         <span className="font-medium text-sm" data-testid={`text-comment-author-${comment.id}`}>
                           {comment.authorPseudonym || `${comment.authorFirstName} ${comment.authorLastName}`}
                         </span>
@@ -760,6 +814,18 @@ function PostCard({ post, groupSlug }: { post: Post; groupSlug: string }) {
                           {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setReportCommentId(comment.id);
+                          setReportDialogOpen(true);
+                        }}
+                        className="h-6 px-2 text-muted-foreground hover:text-destructive"
+                        data-testid={`button-report-comment-${comment.id}`}
+                      >
+                        <Flag className="w-3 h-3" />
+                      </Button>
                     </div>
                     <p className="text-sm whitespace-pre-wrap" data-testid={`text-comment-body-${comment.id}`}>
                       {comment.body}
@@ -771,6 +837,75 @@ function PostCard({ post, groupSlug }: { post: Post; groupSlug: string }) {
           </div>
         )}
       </CardContent>
+
+      {/* Report Dialog */}
+      <Dialog open={reportDialogOpen} onOpenChange={(open) => {
+        setReportDialogOpen(open);
+        if (!open) {
+          setReportCommentId(null);
+          setReportReason("");
+          setReportNotes("");
+        }
+      }}>
+        <DialogContent data-testid={`dialog-report-${reportCommentId ? 'comment' : 'post'}-${reportCommentId || post.id}`}>
+          <DialogHeader>
+            <DialogTitle>Report {reportCommentId ? "Comment" : "Post"}</DialogTitle>
+            <DialogDescription>
+              Help us keep the community safe by reporting content that violates our guidelines.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-3">
+              <Label>Reason for report</Label>
+              <RadioGroup value={reportReason} onValueChange={setReportReason}>
+                {reportReasons.map((reason) => (
+                  <div key={reason.value} className="flex items-center space-x-2">
+                    <RadioGroupItem
+                      value={reason.value}
+                      id={`reason-${reason.value}-${post.id}`}
+                      data-testid={`radio-report-${reason.value}-${post.id}`}
+                    />
+                    <Label
+                      htmlFor={`reason-${reason.value}-${post.id}`}
+                      className="font-normal cursor-pointer"
+                    >
+                      {reason.label}
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="report-notes">Additional details (optional)</Label>
+              <Textarea
+                id="report-notes"
+                placeholder="Provide any additional context..."
+                value={reportNotes}
+                onChange={(e) => setReportNotes(e.target.value)}
+                rows={3}
+                data-testid={`textarea-report-notes-${post.id}`}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setReportDialogOpen(false)}
+              data-testid={`button-cancel-report-${post.id}`}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => reportMutation.mutate()}
+              disabled={!reportReason || reportMutation.isPending}
+              variant="destructive"
+              data-testid={`button-submit-report-${reportCommentId || post.id}`}
+            >
+              {reportMutation.isPending ? "Submitting..." : "Submit Report"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
