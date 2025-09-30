@@ -1,0 +1,150 @@
+What I’d do next (small, high-impact)
+
+Quick QA on multi-entry & lookbacks (30–45 min)
+
+Create 3+ entries across the same day → verify all display with distinct timestamps and weather stamps.
+
+Edge times: log at 11:55 PM and 12:05 AM (your local TZ) → grouped into different days correctly.
+
+Try every lookback chip (Today / 7 / 14 / 30 / 60 / 90 / 180 / 365 / Last symptom / Up to now) → AI returns, “no-store” header present, “Last symptom” isn’t cached.
+
+Pagination sanity: if you have >50 entries, the list still performs.
+
+Lock in E2E for the new behavior
+
+Add tests for: multiple same-day entries, timezone day-boundary grouping, and every lookback chip returning data.
+
+Ship two lean Wave-3 features that users will feel immediately
+
+My Herd — Manual “Reach Out” (one-tap status ping to selected herd members, with a 10-minute cancel window and an audit log).
+
+Clinician PDF v2 (branded cover + date range, per-entry time/weather/HR/water stamps, “Zebby Findings” summary, three tiny trend sparklines; <5 MB).
+
+If that sounds good, paste this to Replit and run it.
+
+Replit Agent Prompt — “Zebby • Herd Reach-Out + Clinician PDF v2 (lean) + E2E updates”
+Goals
+
+Add My Herd → Reach Out (manual, consent-respecting, cancelable) with audit trail.
+
+Add PDF v2 export using your new per-entry timestamps & stamps + findings.
+
+Extend E2E to cover multi-entry + lookback chips.
+
+Keep security posture (no PII in logs, Cache-Control: no-store).
+
+Feature flags (Secrets)
+FF_HERD=true
+FF_PDF_V2=true
+
+1) My Herd — Manual Reach-Out
+
+DB (migrations)
+
+herd_alert (id, user_id, recipient_user_id, status 'pending'|'sent'|'canceled', created_at, sent_at, canceled_at, message TEXT, window_expires_at TIMESTAMPTZ)
+
+Index (recipient_user_id, status).
+
+API
+
+POST /api/herd/reach-out → body: { recipients: string[], message?: string }
+
+Creates pending rows; sets window_expires_at = now()+10m.
+
+Returns a cancel_token.
+
+POST /api/herd/cancel → { cancelToken } → sets all matching pending to canceled.
+
+Background tick every minute:
+
+Sends email/in-app to recipients for pending rows whose window_expires_at <= now().
+
+Marks as sent; writes minimal audit (no PHI in logs).
+
+All responses: Cache-Control: no-store. Rate-limit reach-outs (e.g., 3/hour).
+
+UI
+
+Reach Out button (Home + My Herd page).
+
+Dialog: select herd members (checkbox list), optional short message.
+
+After submit: show “Alert pending — you can cancel within 10 minutes” with a cancel button and countdown.
+
+Toast on send/cancel; link to recent alerts (audit list).
+
+Acceptance
+
+Pending visible with countdown; cancel prevents messages; sent items appear in audit; rate limit enforced.
+
+2) Clinician PDF v2
+
+Endpoint
+
+GET /api/exports/pdf?v=2&from=&to=&tz=America/Chicago
+
+Server-side renders:
+
+Cover (logo, patient name optional/initials, date range).
+
+Zebby Findings (current lookback summary; non-diagnostic).
+
+Trends: 3 sparklines (pain, HRΔ, sleep) embedded as PNG data-URIs (no external calls).
+
+Entries: grouped by local day; each entry shows local time, intensity, body part/side, weather/HR/water if present, and any short note.
+
+Size budget <5 MB; Cache-Control: no-store.
+
+Implementation notes
+
+Reuse your existing insights stats for the findings block.
+
+Generate sparklines with a lightweight node canvas or a tiny chart lib that can render server-side; rasterize to PNG in-memory.
+
+Ensure fonts are embedded/standard; print-friendly layout.
+
+Acceptance
+
+Works with zero/low/high data; prints cleanly; stays under 5 MB for 90 days of entries.
+
+3) E2E additions (Playwright)
+
+Multi-entry & grouping
+
+Create 3 entries on the same day; verify all appear with distinct times.
+
+Create entries straddling local midnight; ensure they render on different days.
+
+Lookback chips
+
+Click each chip; verify insights change and no errors.
+
+Ensure “Last symptom” isn’t cached by logging a new entry and re-requesting.
+
+Reach-Out flow
+
+Trigger reach-out; confirm pending banner & countdown; cancel → no send recorded.
+
+Trigger reach-out and let the minute tick run; confirm audit shows “sent”.
+
+PDF v2
+
+Download export; verify content sections exist (cover, findings, trends, entries) and file size <5 MB.
+
+4) Security & ops
+
+Rate-limit reach-out API; redact message text in logs.
+
+Emails: send from no-reply@zebbysworld.com with authenticated domain (SPF/DKIM/DMARC).
+
+Add Settings → Legal links (Privacy/Terms/Community Guidelines) if not already visible in the footer.
+
+5) Rollout order
+
+Implement Reach-Out backend + UI → smoke test cancel/send.
+
+Implement PDF v2 → test 30/90-day ranges.
+
+Add E2E for multi-entry/lookbacks/reach-out/PDF.
+
+Flip FF_PDF_V2=true in staging; final smoke; then enable in production.
