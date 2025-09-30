@@ -37,31 +37,69 @@ async function runMigrations() {
         const migrationPath = join(__dirname, file);
         const migrationSQL = readFileSync(migrationPath, 'utf-8');
         
-        // Split into individual statements, but handle $$ blocks (PL/pgSQL functions)
+        // Simple statement splitting that preserves all content
+        // Only splits on semicolons outside of dollar-quoted blocks and properly handles comments
         const statements: string[] = [];
         let currentStatement = '';
         let inDollarQuote = false;
+        let dollarQuoteTag = '';
+        let inSingleQuote = false;
+        let inDoubleQuote = false;
         
         const lines = migrationSQL.split('\n');
-        for (const line of lines) {
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
           const trimmedLine = line.trim();
           
-          // Skip comment-only lines
-          if (trimmedLine.startsWith('--') || trimmedLine.startsWith('/*') || trimmedLine.length === 0) {
+          // Skip lines that are ONLY comments (but preserve inline comments in SQL)
+          if (trimmedLine.startsWith('--') && !inDollarQuote) {
             continue;
           }
           
-          // Track $$ blocks
-          if (trimmedLine.includes('$$')) {
-            inDollarQuote = !inDollarQuote;
+          // Skip multi-line comment blocks (but preserve inline /* */ in SQL)
+          if (trimmedLine.startsWith('/*') && trimmedLine.endsWith('*/') && !inDollarQuote) {
+            continue;
+          }
+          
+          // Track quote states character by character for this line
+          for (let j = 0; j < line.length; j++) {
+            const char = line[j];
+            const nextChar = line[j + 1];
+            
+            // Track single quotes (but not escaped ones)
+            if (char === "'" && !inDoubleQuote && !inDollarQuote) {
+              inSingleQuote = !inSingleQuote;
+            }
+            
+            // Track double quotes (but not escaped ones)
+            if (char === '"' && !inSingleQuote && !inDollarQuote) {
+              inDoubleQuote = !inDoubleQuote;
+            }
+            
+            // Track dollar quotes (only when not in regular quotes)
+            if (char === '$' && !inSingleQuote && !inDoubleQuote) {
+              const dollarQuoteMatch = line.substring(j).match(/^\$(\w*)\$/);
+              if (dollarQuoteMatch) {
+                const foundTag = dollarQuoteMatch[0];
+                
+                if (!inDollarQuote) {
+                  inDollarQuote = true;
+                  dollarQuoteTag = foundTag;
+                } else if (foundTag === dollarQuoteTag) {
+                  inDollarQuote = false;
+                  dollarQuoteTag = '';
+                }
+                j += foundTag.length - 1; // Skip past the tag
+              }
+            }
           }
           
           currentStatement += line + '\n';
           
-          // End of statement: semicolon outside of $$ block
-          if (line.includes(';') && !inDollarQuote) {
+          // End of statement: semicolon outside of all quotes
+          if (line.includes(';') && !inDollarQuote && !inSingleQuote && !inDoubleQuote) {
             const stmt = currentStatement.trim();
-            if (stmt.length > 0) {
+            if (stmt.length > 0 && !stmt.startsWith('--')) {
               statements.push(stmt.replace(/;$/, '')); // Remove trailing semicolon
             }
             currentStatement = '';
@@ -69,8 +107,9 @@ async function runMigrations() {
         }
         
         // Add any remaining statement
-        if (currentStatement.trim().length > 0) {
-          statements.push(currentStatement.trim());
+        const finalStmt = currentStatement.trim();
+        if (finalStmt.length > 0 && !finalStmt.startsWith('--')) {
+          statements.push(finalStmt);
         }
         
         console.log(`   Found ${statements.length} statement(s)`);

@@ -33,10 +33,12 @@ Zebby's World is a comprehensive health tracking application specifically design
   - Supports collections, pagination, and product details
   - Environment: `SHOPIFY_STORE_DOMAIN` and `SHOPIFY_STOREFRONT_TOKEN`
   - Feature flag: `FF_SHOPIFY`
-- **Database Migration**: SQL-based migration system for Wave 1 schema changes
+- **Database Migration**: Robust SQL-based migration system
   - Migration runner: `server/migrations/run-migrations.ts` with ESM support
+  - Automatically detects and runs all `.sql` files in sorted order
+  - Handles PL/pgSQL blocks with arbitrary dollar-quoting tags ($tag$, $$, etc.)
+  - Multi-line comment stripping and idempotent migrations
   - Wave 1 migration: `001_wave1_weather_bodyparts.sql` adds weather and body-part columns
-  - Idempotent migrations with `IF NOT EXISTS` clauses
 
 ### September 2025 - Personal Circle (Private Health Sharing)
 - **Database Schema**: 7 tables for private health data sharing (circles, members, scopes, alert rules, logs, tokens, pending alerts)
@@ -87,6 +89,19 @@ Zebby's World is a comprehensive health tracking application specifically design
 - **Smart routing system** ensuring onboarding completion before dashboard access
 - **Enhanced product reviews** with EDS symptom-specific rating scales
 - **Robust authentication** with proper database conflict handling and foreign key preservation
+
+### September 2025 - Wave 2 Foundation (Groups + Referrals/Rewards) - 🚧 IN PROGRESS
+- **Wave-2 Database Schema**: Extended referrals and rewards system
+  - Added `referral_code` column to users table (unique, for invite links)
+  - Created `referral_events` table tracking signup and week_active events
+  - Created `rewards_ledger` table for points earned/spent tracking
+  - Partial unique index prevents duplicate signup credits per user
+  - Migration: `002_wave2_referrals_rewards.sql` with idempotent safeguards
+- **Groups Seeding**: 10 starter community groups via `seed-groups.ts`
+  - 4 age-bracket groups: Young Zebras (18-25), Zebras in Bloom (26-35), Seasoned Stripes (36-50), Wise Zebras (51+)
+  - 3 gender/identity groups: Zebra Sisters (women), Zebra Brothers (men), Rainbow Zebras (LGBTQ+)
+  - 3 diagnosis-specific groups: hEDS Herd, POTS Squad, MCAS Warriors
+  - Each group tagged for discovery (age ranges, conditions, topics)
 
 ## User Preferences
 

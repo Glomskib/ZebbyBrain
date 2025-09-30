@@ -18,6 +18,12 @@ CREATE INDEX IF NOT EXISTS referral_events_referrer_idx ON referral_events(refer
 CREATE INDEX IF NOT EXISTS referral_events_referred_idx ON referral_events(referred_user_id);
 CREATE INDEX IF NOT EXISTS referral_events_type_idx ON referral_events(event_type);
 
+-- Prevent duplicate signup events per referrer-referred pair
+-- Use a partial unique index (week_active events can be multiple, one per week)
+CREATE UNIQUE INDEX IF NOT EXISTS unique_signup_per_referred 
+ON referral_events(referred_user_id, event_type) 
+WHERE event_type = 'signup';
+
 -- Create rewards_ledger table
 CREATE TABLE IF NOT EXISTS rewards_ledger (
   id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
