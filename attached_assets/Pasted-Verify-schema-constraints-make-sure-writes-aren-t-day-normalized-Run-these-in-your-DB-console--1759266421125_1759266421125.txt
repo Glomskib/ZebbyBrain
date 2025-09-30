@@ -1,0 +1,151 @@
+Verify schema & constraints (make sure writes aren’t day-normalized)
+
+Run these in your DB console:
+
+-- Confirm the timestamp column is present and non-null
+\d symptom_entries
+
+-- Ensure there is NO remaining unique index that forces one-per-day
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = 'symptom_entries';
+
+-- If you still see a day-based unique, drop it:
+-- DROP INDEX IF EXISTS ux_symptom_entries_user_date;
+
+
+✅ Expect: occurred_at TIMESTAMPTZ NOT NULL DEFAULT now() present, no unique on (user_id, date).
+
+2) Stop any “date rounding” in the write path
+
+Search your server for these red flags:
+
+startOfDay(...), startOfToday(...), truncate, setHours(0,0,0,0)
+
+on conflict (user_id, date) do update
+
+Any line setting date = new Date(occurredAt).toDateString()
+
+In Zod schemas: z.string().date() (that’s date-only)
+
+Your symptom create should only set occurred_at (UTC timestamp), no day rounding:
+
+// routes/symptoms.ts (create)
+const Body = z.object({
+  intensity: z.number().int().min(0).max(10),
+  bodyPart: z.string().nullable().optional(),
+  side: z.enum(['left','right','bilateral']).nullable().optional(),
+  // IMPORTANT: full timestamp with timezone or server "now"
+  occurredAt: z.string().datetime().optional(), // or z.number().optional() if epoch ms
+  notes: z.string().max(1000).optional(),
+  lat: z.number().optional(),
+  lon: z.number().optional(),
+});
+
+const { intensity, bodyPart, side, occurredAt, notes, lat, lon } = Body.parse(req.body);
+
+const occurredAtUtc = occurredAt
+  ? new Date(occurredAt)                       // MUST be an ISO with offset/Z
+  : new Date();                                 // server "now" in UTC
+
+await db.insert(symptomEntries).values({
+  userId: req.user.id,
+  intensity, bodyPart: bodyPart ?? null, side: side ?? null,
+  occurredAt: occurredAtUtc,                    // <- the only source of truth
+  notes: notes ?? null,
+  ...(await stampWeather({ lat, lon, at: occurredAtUtc }))
+});
+
+
+If you still have a date column, do not write to it. Keep it nullable or derive it in reads.
+
+3) Fix the client to send timezone-aware timestamps
+
+If your UI uses <input type="datetime-local">, its value is naive (no timezone). Converting new Date(value) will treat it as local in some environments and differently in others. The safest path:
+
+Convert local input → UTC ISO before sending.
+
+Using date-fns-tz:
+
+import { zonedTimeToUtc } from 'date-fns-tz';
+
+function toIsoUtcFromLocalLocalInput(localValue: string, tz: string) {
+  // localValue like "2025-09-30T22:15"
+  const utcDate = zonedTimeToUtc(localValue, tz); // e.g., "America/Chicago"
+  return utcDate.toISOString(); // send this to the server
+}
+
+// In the submit handler:
+const tz = user.profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+const iso = occurredAtInput ? toIsoUtcFromLocalLocalInput(occurredAtInput, tz) : undefined;
+
+await fetch('/api/symptoms', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+  body: JSON.stringify({
+    intensity, bodyPart, side,
+    occurredAt: iso, // <-- always ISO with Z
+    notes, lat, lon
+  })
+});
+
+
+If you don’t expose a time picker, skip occurredAt and let the server use now().
+
+4) Group by day in user’s timezone only in READ APIs
+
+For the grouped list endpoint, keep grouping purely in reads:
+
+-- Example grouping by user TZ in SQL (America/Chicago)
+SELECT
+  DATE(occurred_at AT TIME ZONE 'America/Chicago') AS local_day,
+  COUNT(*) AS count
+FROM symptom_entries
+WHERE user_id = $1
+  AND occurred_at BETWEEN $from AND $to
+GROUP BY local_day
+ORDER BY local_day DESC;
+
+
+Or with date-fns-tz in Node, but don’t modify stored values—just for grouping.
+
+5) Display exact times in UI (never derived days)
+
+Each card shows a local time badge (e.g., “8:15 PM”) derived client-side from the ISO you got back.
+
+Keep the “grouped by day” section header for readability, but entries remain individual.
+
+6) Add two tiny tests that catch this forever
+
+Server integration
+
+it('does not round to day and keeps exact timestamps', async () => {
+  const t1 = new Date('2025-09-30T23:55:00-05:00').toISOString(); // CDT
+  const t2 = new Date('2025-10-01T00:05:00-05:00').toISOString();
+
+  await createSymptom({ occurredAt: t1 });
+  await createSymptom({ occurredAt: t2 });
+
+  const rows = await listSymptomsDesc(); // raw entries
+  expect(rows[0].occurredAt).toBe(t2);
+  expect(rows[1].occurredAt).toBe(t1);
+});
+
+
+E2E (Playwright)
+
+Log an entry at 11:55 PM and another at 12:05 AM (use the datetime picker).
+
+Verify they render under different day headers and both show their own times.
+
+7) Common gotchas checklist
+
+Naive datetime from client: Convert to ISO UTC before POST.
+
+Old upsert: remove any ON CONFLICT (user_id, date).
+
+Leftover trigger: make sure you don’t have a DB trigger that sets date = occurred_at::date.
+
+Zod date vs datetime: use z.string().datetime() not z.string().date().
+
+Timezone: use the user’s TZ (America/Chicago in your project) when grouping/formatting, not UTC.

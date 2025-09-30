@@ -381,7 +381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Wave 3 - Multi-Entry: Get symptoms grouped by day with timezone support
   app.get('/api/symptoms/grouped', isAuthenticated, async (req: any, res) => {
     try {
-      const { zonedTimeToUtc } = await import('date-fns-tz');
+      const { fromZonedTime } = await import('date-fns-tz');
       
       const userId = req.user.claims.sub;
       const tz = (req.query.tz as string) || 'UTC'; // Default to UTC if not provided
@@ -404,7 +404,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: `Invalid date format for 'from'. Expected YYYY-MM-DD, got: ${fromStr}` });
         }
         // Convert start of day in user's timezone to UTC
-        from = zonedTimeToUtc(`${fromStr}T00:00:00`, tz);
+        from = fromZonedTime(`${fromStr}T00:00:00`, tz);
       }
 
       if (req.query.to) {
@@ -413,7 +413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: `Invalid date format for 'to'. Expected YYYY-MM-DD, got: ${toStr}` });
         }
         // Convert end of day in user's timezone to UTC
-        to = zonedTimeToUtc(`${toStr}T23:59:59.999`, tz);
+        to = fromZonedTime(`${toStr}T23:59:59.999`, tz);
       }
 
       const grouped = await storage.getUserSymptomEntriesGrouped(userId, { from, to, tz, limit });

@@ -52,6 +52,12 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
   const [currentHeartRate, setCurrentHeartRate] = useState<number | null>(null);
   const [currentLocation, setCurrentLocation] = useState<string>("");
 
+  // Fetch user profile for timezone
+  const { data: userProfile } = useQuery<{ timezone?: string }>({
+    queryKey: ["/api/user/profile"],
+    enabled: isOpen,
+  });
+
   const createSymptomLogMutation = useMutation({
     mutationFn: async (data: any) => {
       await apiRequest("POST", "/api/symptoms", data);
@@ -152,7 +158,7 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (symptomRatings.length === 0) {
@@ -186,8 +192,13 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
       };
     });
     
-    // Convert datetime-local string to proper ISO string
-    const isoTimestamp = new Date(timestamp).toISOString();
+    // Wave 3: Convert datetime-local to proper UTC ISO using user's timezone
+    // datetime-local input format: "2025-09-30T22:15" (no timezone info)
+    // We must interpret this in the user's timezone, then convert to UTC
+    const userTz = userProfile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const { fromZonedTime } = await import('date-fns-tz');
+    const utcDate = fromZonedTime(timestamp, userTz);
+    const isoTimestamp = utcDate.toISOString();
     
     const payload = {
       timestamp: isoTimestamp,
