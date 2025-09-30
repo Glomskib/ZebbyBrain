@@ -798,6 +798,24 @@ export const circlePendingAlerts = pgTable("circle_pending_alerts", {
 
 // ============ END PERSONAL CIRCLE ============
 
+// Wave 3+ - Herd Alerts: Manual reach-out system for notifying herd members
+export const herdAlerts = pgTable("herd_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  recipientUserId: varchar("recipient_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: varchar("status").notNull(), // "pending", "sent", "canceled"
+  message: text("message"), // Optional user message
+  cancelToken: varchar("cancel_token").unique(), // Unique token for canceling
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  windowExpiresAt: timestamp("window_expires_at").notNull(), // When cancel window expires
+  sentAt: timestamp("sent_at"), // When alert was sent
+  canceledAt: timestamp("canceled_at"), // When user canceled
+}, (table) => ({
+  recipientStatusIdx: index("herd_alerts_recipient_status_idx").on(table.recipientUserId, table.status),
+  userCreatedIdx: index("herd_alerts_user_created_idx").on(table.userId, table.createdAt.desc()),
+  pendingExpiredIdx: index("herd_alerts_pending_expired_idx").on(table.status, table.windowExpiresAt),
+}));
+
 // Reminders system for medication, hydration, posture, and custom reminders
 export const reminders = pgTable("reminders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1548,6 +1566,16 @@ export const insertCirclePendingAlertSchema = createInsertSchema(circlePendingAl
 });
 export type InsertCirclePendingAlert = z.infer<typeof insertCirclePendingAlertSchema>;
 export type CirclePendingAlert = typeof circlePendingAlerts.$inferSelect;
+
+// Herd Alerts schemas (Wave 3+)
+export const insertHerdAlertSchema = createInsertSchema(herdAlerts).omit({
+  id: true,
+  createdAt: true,
+  sentAt: true,
+  canceledAt: true,
+});
+export type InsertHerdAlert = z.infer<typeof insertHerdAlertSchema>;
+export type HerdAlert = typeof herdAlerts.$inferSelect;
 
 // Referrals & Rewards schemas
 export const insertReferralEventSchema = createInsertSchema(referralEvents).omit({
