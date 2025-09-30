@@ -6,23 +6,26 @@ Zebby's World is a comprehensive health tracking application specifically design
 
 ## Recent Changes
 
-### September 2025 - Wave 1 Features (AI Trends, Body Parts, Avatar, Shopify)
+### September 2025 - Wave 1 Features (AI Trends, Body Parts, Avatar, Shopify) - ✅ UI INTEGRATION COMPLETE
 - **AI Research & Trends**: Replaced legacy reflection with AI-powered insights
   - Backend: `server/services/insightStats.ts` aggregates 30d/90d numeric stats (pain avg, flare days, HR, sleep, hydration trends)
   - API: POST `/api/ai/insights` with 24h caching and GPT-4o-mini for non-medical advice
   - UI: `ZebbyFindings.tsx` component displays analysis, trend bullets, and optional action ideas
+  - **Integrated**: Mounted on Dashboard below quick stats with 30-day range
   - Feature flag: `FF_AI_TRENDS`
 - **Body-Part Specific Tracking**: Enhanced symptom logging with anatomical precision
   - UI: `BodyPartSelector.tsx` with 19 body parts (head, jaw, neck, shoulders, elbows, wrists, back, chest, abdomen, hips, knees, ankles)
   - Side selection for paired parts (left/right/bilateral)
   - Filter component for insights page to view trends by body part
   - Database: `body_part` and `side` columns in `symptom_entries` table
+  - **Integrated**: Added to symptom logging form with null-safe type handling for optional body part selection
   - Feature flag: `FF_BODY_PARTS`
 - **Zebby Avatar Persistent Chat**: Floating AI companion for on-demand support
   - Backend: POST `/api/ai/chat` with context-aware responses using user stats
-  - UI: `ZebbyAvatar.tsx` as floating chat panel (bottom-right zebra button)
+  - UI: `ZebbyChat.tsx` as floating chat panel (bottom-right zebra button)
   - GPT-4o-mini with system prompt emphasizing empathy and non-medical advice
   - Rate limited to 10 requests/minute
+  - **Integrated**: Mounted globally in App root via AppContent wrapper, only visible when authenticated
   - Feature flag: `FF_AVATAR`
 - **Shopify Marketplace Integration**: Read-only product catalog
   - Backend: GraphQL proxy to Shopify Storefront API
