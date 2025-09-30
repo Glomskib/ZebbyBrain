@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
+import ZebbyChat from "@/components/ZebbyChat";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import SymptomTracker from "@/pages/symptom-tracker";
@@ -73,12 +74,24 @@ function Router() {
   );
 }
 
+function AppContent() {
+  const { isAuthenticated } = useAuth();
+
+  return (
+    <>
+      <Router />
+      {/* Wave 1: Global Zebby Chat Avatar - Only show when authenticated */}
+      {isAuthenticated && <ZebbyChat />}
+    </>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
-        <Router />
+        <AppContent />
       </TooltipProvider>
     </QueryClientProvider>
   );

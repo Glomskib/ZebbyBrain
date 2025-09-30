@@ -13,6 +13,7 @@ import RemindersSection from "@/components/RemindersSection";
 import AchievementsSection from "@/components/AchievementsSection";
 import ShareButton from "@/components/ShareButton";
 import ReachOutButton from "@/components/ReachOutButton";
+import ZebbyFindings from "@/components/ZebbyFindings";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -204,6 +205,11 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Wave 1: AI Research & Trends - Zebby Findings */}
+        <div className="mb-8">
+          <ZebbyFindings range="30d" />
         </div>
 
         {/* Insight Cards */}

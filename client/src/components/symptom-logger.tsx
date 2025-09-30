@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import ZebbyAvatar from "@/components/zebby-avatar";
+import { BodyPartSelector, type BodyPart, type Side } from "@/components/BodyPartSelector";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -32,6 +33,8 @@ interface SymptomRating {
   name: string;
   intensity: number;
   notes: string;
+  bodyPart?: BodyPart | "";
+  side?: Side;
 }
 
 export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
@@ -121,7 +124,7 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
 
   const addSymptom = (symptomName: string) => {
     if (!symptomRatings.find(s => s.name === symptomName)) {
-      setSymptomRatings(prev => [...prev, { name: symptomName, intensity: 5, notes: "" }]);
+      setSymptomRatings(prev => [...prev, { name: symptomName, intensity: 5, notes: "", bodyPart: "", side: null }]);
     }
   };
 
@@ -129,7 +132,7 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
     setSymptomRatings(prev => prev.filter(s => s.name !== symptomName));
   };
 
-  const updateSymptomRating = (symptomName: string, field: 'intensity' | 'notes', value: number | string) => {
+  const updateSymptomRating = (symptomName: string, field: 'intensity' | 'notes' | 'bodyPart' | 'side', value: number | string | BodyPart | Side | "" | null) => {
     console.log(`Updating symptom rating: ${symptomName}, field: ${field}, value: ${value}`);
     setSymptomRatings(prev => {
       const updated = prev.map(symptom => 
@@ -144,7 +147,7 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
 
   const addCustomSymptom = () => {
     if (customSymptom.trim() && !symptomRatings.find(s => s.name === customSymptom.trim())) {
-      setSymptomRatings(prev => [...prev, { name: customSymptom.trim(), intensity: 5, notes: "" }]);
+      setSymptomRatings(prev => [...prev, { name: customSymptom.trim(), intensity: 5, notes: "", bodyPart: "", side: null }]);
       setCustomSymptom("");
     }
   };
@@ -178,6 +181,8 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
         symptomName: symptom.name,
         intensity: domIntensity,
         notes: domNotes,
+        bodyPart: symptom.bodyPart || null,
+        side: symptom.side || null,
       };
     });
     
@@ -320,6 +325,17 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
                         className="resize-none text-sm"
                         data-testid={`textarea-symptom-notes-${index}`}
                       />
+
+                      {/* Wave 1: Body Part Selector */}
+                      <div className="mt-4 pt-4 border-t border-border">
+                        <BodyPartSelector
+                          value={symptomRating.bodyPart as BodyPart}
+                          side={symptomRating.side}
+                          onChange={(part) => updateSymptomRating(symptomRating.name, 'bodyPart', part)}
+                          onSideChange={(side) => updateSymptomRating(symptomRating.name, 'side', side)}
+                          showSide={true}
+                        />
+                      </div>
                     </Card>
                   ))}
                 </div>

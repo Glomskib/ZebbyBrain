@@ -5,11 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Send, X, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-interface ZebbyAvatarProps {
+interface ZebbyChatProps {
   className?: string;
 }
 
-export default function ZebbyAvatar({ className = "" }: ZebbyAvatarProps) {
+export default function ZebbyChat({ className = "" }: ZebbyChatProps) {
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState("");
   const [reply, setReply] = useState<string | null>(null);

@@ -1,0 +1,208 @@
+ebby • Wave 2 (Groups + My Herd + Referrals/Rewards) + Wire Wave-1 UI”
+Goals
+
+Wire Wave-1 UI into the live pages (Findings, BodyParts, Avatar).
+
+Groups MVP like Whoop/FB: age-bracket rooms + adult Male/Female rooms, profile-gated, posts/comments/reactions.
+
+My Herd (rename Circle) with referrals + rewards (points).
+
+Basic moderation/safety and tests.
+All behind flags; security posture unchanged.
+
+0) Env & Flags (ensure set)
+# Wave 1 (already set)
+FF_AI_TRENDS=true
+FF_BODY_PARTS=true
+FF_AVATAR=true
+FF_SHOPIFY=false   # true when creds ready
+
+# Wave 2 (turn on as we build)
+FF_GROUPS=true
+FF_HERD=true
+FF_REFERRALS=true
+FF_REWARDS=true
+
+1) Wire Wave-1 UI on existing pages
+
+Dashboard / Insights page
+
+Replace legacy Reflection with: <ZebbyFindings range="30d" />.
+
+Add a body-part filter dropdown feeding your insights query (propagate ?bodyPart=).
+
+Symptom logging
+
+Insert <BodyPartSelector /> + Side picker; submit bodyPart/side.
+
+App Root
+
+Mount <ZebbyAvatar /> so 🦓 button is global.
+
+Acceptance
+
+Findings loads and caches; avatar opens/sends; body-part saves and filters without errors.
+
+2) Groups (age/gender-gated)
+2.1 DB migrations (Drizzle/SQL; adapt names)
+group              (id, slug, name, visibility 'private' default, kind 'age'|'gender', min_age int, max_age int, gender_req 'male'|'female'|null, created_by, created_at)
+group_membership   (id, group_id fk, user_id fk, role 'member'|'moderator'|'owner' default 'member', status 'approved'|'pending'|'banned' default 'approved', pseudonym text, created_at, UNIQUE(user_id, group_id))
+post               (id, group_id fk, author_id fk, kind 'text'|'poll'|'resource' default 'text', body text, media_url text, created_at, edited_at, INDEX(group_id, created_at desc))
+comment            (id, post_id fk, author_id fk, body text, parent_comment_id nullable, created_at, edited_at, INDEX(post_id, created_at asc))
+reaction           (id, post_id fk, user_id fk, emoji text, created_at, UNIQUE(post_id, user_id, emoji))
+report             (id, target_type 'post'|'comment', target_id, reporter_id, reason_code text, notes text, status 'open'|'reviewed'|'actioned' default 'open', created_at)
+
+2.2 Seeding groups
+
+Age brackets: 0–9, 10–19, …, 70–79, 80+ (kind='age', min_age, max_age).
+
+Adults: Male Only, Female Only (kind='gender', min_age=18, gender_req=male|female).
+
+2.3 Access control
+
+Derive age from profile.birthDate.
+
+For list/join/read: enforce age range and gender requirement on server (never trust client).
+
+Default status='approved' for eligible users; otherwise 403.
+
+2.4 API (rate-limited; all return Cache-Control: no-store)
+GET    /api/groups                         # returns only groups user is eligible for
+POST   /api/groups/:id/join                # server validates age/gender; idempotent
+GET    /api/groups/:id/posts?page=&sort=   # sort=new|top (top = reactions+comments last 7d)
+POST   /api/groups/:id/posts               # { body, kind? } sanitize markdown subset (no HTML)
+POST   /api/posts/:id/comments             # { body } sanitize
+POST   /api/posts/:id/react                # { emoji } upsert per user/post/emoji
+POST   /api/report                         # { targetType, targetId, reasonCode, notes? }
+
+
+Rate limits: posts 6/h, comments 20/h, reactions 60/h per user.
+
+2.5 UI
+
+Groups Directory: show only eligible groups; “Join” (instant if eligible).
+
+Group Page: composer (textarea + emoji), feed, reactions, comment threads (1 level nest), report button.
+
+A11y: keyboard submit (Ctrl/Cmd+Enter), focus management, aria-live on new comments.
+
+2.6 Safety
+
+Markdown whitelist: plain text + line breaks only (no HTML); link parser with rel="nofollow noopener".
+
+Profanity/simple harassment list → auto-flag to report (does not block post).
+
+Minimal mod queue page (list open reports, actions: hide/remove, mark reviewed).
+
+Acceptance
+
+Under-age/incorrect gender cannot access restricted groups (403).
+
+Post/comment/react flows work; sanitizer strips HTML.
+
+Reports create and appear in mod list.
+
+3) “My Herd” (Circle rename) + Referrals + Rewards
+3.1 Rename Circle → Herd (copy only)
+
+Update all UI text: “Personal Circle” → “My Herd”.
+
+3.2 Referrals (feature-flagged)
+
+DB
+
+user.referral_code (unique, generated)
+referral_event (id, referrer_user_id, referred_user_id, type 'signup'|'week_active', occurred_at)
+rewards_ledger (id, user_id, points int, reason 'invite_confirmed'|'active_week', created_at)
+
+
+Rules
+
++100 points on referred email confirm/signup.
+
++250 points when referred user completes first active week (>= 5 distinct logging days).
+
+API
+
+GET  /api/referrals/code                  # returns user.referral_code (generate if missing)
+POST /api/referrals/apply                 # attach code during onboarding
+GET  /api/rewards/balance                 # sum ledger points
+GET  /api/rewards/history                 # last N entries
+
+3.3 Herd viewer linkage
+
+Inviting family/friends via existing herd invite flow also counts as referral when they sign up with that email or code.
+
+Herd scope/consent unchanged (viewer read-only dashboards).
+
+3.4 UI
+
+Settings → My Herd & Rewards:
+
+Show referral code + “Copy” button; invite by email; show members (viewer), revoke.
+
+Reward balance and recent credits (with reasons).
+
+Acceptance
+
+Referral code generated once; applying code attaches referrer; points credit on signup and on active week cron.
+
+Herd membership still requires consent; viewer dashboard loads; revocation blocks further access.
+
+4) Minimal moderation page (admin/mod only)
+
+/admin/mod/reports: list open; filter by target; actions to remove post/comment (soft delete), mark reviewed/actioned. Audit to server logs (no PII).
+
+5) Tests (Supertest/unit; CI must pass)
+
+Groups Access: user age 17 → cannot join adult groups (403); age 25 female → join Female-only ok; Male-only forbidden.
+
+Groups Posting: create/list posts; HTML stripped; rate limits enforced (429).
+
+Reactions: second identical reaction toggles or remains idempotent per design.
+
+Referrals: applying valid code → referral_event:signup and +100 points; simulate week-active → +250.
+
+Rewards: balance equals sum of ledger; history paginates.
+
+Security: all group/referral endpoints require auth; responses include Cache-Control: no-store.
+
+6) Security/Privacy invariants (do not regress)
+
+Helmet/CSP intact; no client-side secrets; webhook order unchanged.
+
+No PII in logs; sanitize user content; export endpoints remain no-store.
+
+Groups notifications (if any) use generic phrasing, never include PHI.
+
+7) Deliverables
+
+Migrations for groups/posts/comments/reactions/report + referrals/rewards.
+
+Routes/controllers/services + rate limits + sanitization.
+
+React pages: Groups Directory, Group Page, Mod Queue; Settings → My Herd & Rewards.
+
+Wired Wave-1 UI (Findings/BodyParts/Avatar) into existing pages.
+
+Tests & README update (flags, how to seed groups, how to award week-active).
+
+Notes to Agent
+
+Reuse existing tile/btn/badge styles; keep copy gentle, supportive.
+
+If profile lacks DOB/gender, block and deep-link to Profile to complete it.
+
+Keep feature flags on; it’s okay to ship hidden and enable progressively.
+
+Rollout order (fastest to value)
+
+Wire Wave-1 UI (1–2 hrs).
+
+Seed groups + enforce gating; list/join; read-only feed; then posts/comments/reactions.
+
+My Herd UI rename + referrals code/balance; grant points on signup; cron for week-active.
+
+Minimal moderation page.
+
+Tests → CI green.
