@@ -1,0 +1,193 @@
+Zebby • Wave-2 Frontend & Cron Finish”
+Goals
+
+Ship the remaining Wave-2 user-facing pieces and glue:
+
+Groups UI (Directory + Group page: posts, comments, reactions, report)
+
+Referrals & Rewards settings UI
+
+Week-Active cron granting +250 points
+
+Automated tests for access control, rate limits, referrals/rewards
+Keep everything behind flags and preserve security (CSP, rate limits, Cache-Control: no-store).
+
+Feature Flags (ensure in Secrets)
+FF_GROUPS=true
+FF_REFERRALS=true
+FF_REWARDS=true
+# (FF_HERD can remain false unless you’ve done the rename copy)
+
+1) Groups UI
+1.1 Pages & Routes
+
+/groups — Groups Directory
+
+/groups/:id — Group Page
+
+Use existing theme classes (tile, btn, badge, etc.).
+
+1.2 Directory
+
+Fetch GET /api/groups (returns only eligible groups and membership state).
+
+Cards show: name, short tags (age/gender/diagnosis), member count (if provided), Join/Leave button.
+
+Empty state: “No eligible groups yet — complete your Profile for more.”
+
+1.3 Group Page
+
+Header: name • tags • Join/Leave (sticky on mobile).
+
+Composer (textarea, 3–5 rows) with submit:
+
+POST /api/groups/:id/posts (rate-limited; sanitize text).
+
+Keyboard submit Ctrl/Cmd+Enter.
+
+Feed:
+
+GET /api/groups/:id/posts?page=&sort=new|top
+
+Post card: body (with line breaks), timestamp, reaction bar (❤️ 👍 🙏), comment count, Report menu.
+
+Reaction: POST /api/posts/:postId/react (idempotent per emoji).
+
+Comments:
+
+Expand comments: GET /api/posts/:postId/comments
+
+Add comment: POST /api/posts/:postId/comments (rate-limited; sanitize).
+
+Report:
+
+POST /api/report with targetType, targetId, reasonCode (spam/harassment/misinformation/inappropriate/off-topic).
+
+1.4 Accessibility
+
+Focus rings on inputs/buttons.
+
+aria-live="polite" for new posts/comments.
+
+Composer has label and helper text (“Be kind. No medical advice.”).
+
+2) Referrals & Rewards UI (Settings)
+2.1 Page: Settings → My Herd & Rewards
+
+Sections:
+
+Your referral code
+
+GET /api/referrals/code → show code + Copy button.
+
+Short explainer: “Friends sign up with your code to earn points.”
+
+Points balance & history
+
+GET /api/rewards/balance → big number.
+
+GET /api/rewards/history?limit=20 → list: +100 invite_confirmed, +250 active_week, timestamps.
+
+(Optional later) Invite by email (uses existing Herd flow when FF_HERD is on).
+
+3) Week-Active Cron (server)
+
+New job server/src/jobs/weekActive.ts:
+
+Daily run (guarded by ENABLE_CRON=true).
+
+Find referred users whose first 7 days ended yesterday, count distinct logging days (symptoms/vitals/sleep/hydration ≥ 5).
+
+If not already credited: insert rewards_ledger +250 (reason='active_week') and referral_events type='week_active'.
+
+Wire a small scheduler in server/src/index.ts (or your cron runner):
+
+if (process.env.ENABLE_CRON === "true") {
+  const HOUR = 1000 * 60 * 60;
+  setInterval(() => {
+    const now = new Date();
+    if (now.getUTCHours() === 2) runWeekActive().catch(console.error);
+  }, HOUR);
+}
+
+
+Logs must be minimal, no PII.
+
+Env
+
+ENABLE_CRON=true
+
+4) Tests (must pass)
+4.1 Groups Access & Rate Limits
+
+User age 17 → POST /api/groups/:adultId/join → 403 with helpful message.
+
+User gender mismatch for gendered group → 403.
+
+Diagnosis group without tag → 403.
+
+Posts >6/h → 429; Comments >20/h → 429; Reactions >60/h → 429.
+
+4.2 Posting/Comments/Sanitization
+
+Posting <script>alert(1)</script> yields sanitized body (no HTML).
+
+Line breaks preserved in render (server returns plain text; client renders with <br/> safely).
+
+4.3 Reactions & Reports
+
+React twice with same emoji returns idempotent state (no duplicates).
+
+Reporting returns 200 and inserts a row.
+
+4.4 Referrals & Rewards
+
+GET /api/referrals/code returns a 6-char code; second call returns same code.
+
+Applying code at signup attaches referrer; creates signup event and +100 in ledger (unique index prevents duplicates).
+
+Simulated cron (invoke function) credits +250 active_week once; balance matches sum; history paginates.
+
+5) Security/Privacy (don’t regress)
+
+All Group/Referral/Rewards endpoints require auth and return Cache-Control: no-store.
+
+Logs do not include post/comment text or emails.
+
+CSP/Helmet intact; no inline HTML rendering from user content.
+
+Rate-limit middleware is IPv6-safe and user-ID keyed.
+
+6) Deliverables
+
+client/src/pages/GroupsDirectory.tsx, client/src/pages/GroupPage.tsx
+
+client/src/pages/settings/MyHerdRewards.tsx
+
+server/src/jobs/weekActive.ts and scheduler wiring
+
+Tests under server/tests/…
+
+README update: flags to enable, cron env, where the pages live.
+
+Quick smoke-test after deploy
+
+Groups
+
+With a 24-yo user, see Young/26–35 groups; join and post; react and comment; report works.
+
+With a female 30-yo, can join “Zebra Sisters”; male user blocked (403).
+
+Without hEDS tag, cannot join hEDS Herd (403).
+
+Referrals/Rewards
+
+Get your referral code, create a test account with that code → see +100 for referrer.
+
+Mark test account active 5/7 days (seed helper) → run cron → see +250.
+
+Headers & limits
+
+All new responses include Cache-Control: no-store.
+
+Spamming posts hits 429, app stays stable.

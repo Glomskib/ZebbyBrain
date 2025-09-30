@@ -6,12 +6,22 @@ import { reportRateLimit } from "../middleware/rateLimits";
 
 const router = express.Router();
 
+// Helper to set no-store headers for privacy
+function setNoStoreHeaders(res: express.Response) {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  });
+}
+
 /**
  * POST /api/report
  * Report content (posts or comments) for moderation
  */
 router.post("/", reportRateLimit, async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }

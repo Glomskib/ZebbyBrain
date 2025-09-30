@@ -7,12 +7,22 @@ import { nanoid } from 'nanoid';
 
 const router = express.Router();
 
+// Helper to set no-store headers for privacy
+function setNoStoreHeaders(res: express.Response) {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  });
+}
+
 /**
  * GET /api/referrals/code
  * Returns or generates user's referral code
  */
 router.get("/code", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }
@@ -54,6 +64,7 @@ router.get("/code", async (req: any, res) => {
  */
 router.post("/apply", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }

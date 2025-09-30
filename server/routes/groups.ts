@@ -25,6 +25,15 @@ import { canAccessGroup } from "../services/groupAccess";
 
 const router = express.Router();
 
+// Helper to set no-store headers for privacy
+function setNoStoreHeaders(res: express.Response) {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  });
+}
+
 // Helper to generate URL-friendly slugs
 function generateSlug(name: string): string {
   return name
@@ -79,6 +88,7 @@ async function hasPermission(
 // GET /api/groups/public - Get all public groups with tags
 router.get("/public", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     // Get all public groups
     const publicGroups = await db
       .select({
@@ -128,6 +138,7 @@ router.get("/public", async (req: any, res) => {
 // GET /api/groups/my-groups - Get user's groups (authenticated)
 router.get("/my-groups", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }
@@ -187,6 +198,7 @@ router.get("/my-groups", async (req: any, res) => {
 // GET /api/groups - List all groups (with filtering)
 router.get("/", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     const { kind, visibility, userId } = req.query;
     
     // Build conditions
@@ -241,6 +253,7 @@ router.get("/", async (req: any, res) => {
 // GET /api/groups/:slug - Get single group by slug
 router.get("/:slug", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     const { slug } = req.params;
     
     const [group] = await db
@@ -278,6 +291,7 @@ router.get("/:slug", async (req: any, res) => {
 // POST /api/groups - Create new group (authenticated users only)
 router.post("/", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }
@@ -355,6 +369,7 @@ router.post("/", async (req: any, res) => {
 // POST /api/groups/:groupId/join - Request to join a group
 router.post("/:groupId/join", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }
@@ -444,6 +459,7 @@ router.post("/:groupId/join", async (req: any, res) => {
 // PUT /api/groups/:groupId/members/:userId/approve - Approve membership (moderator+)
 router.put("/:groupId/members/:userId/approve", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }
@@ -499,6 +515,7 @@ router.put("/:groupId/members/:userId/approve", async (req: any, res) => {
 // PUT /api/groups/:groupId/pseudonym - Update user's pseudonym in a group
 router.put("/:groupId/pseudonym", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }
@@ -551,6 +568,7 @@ router.put("/:groupId/pseudonym", async (req: any, res) => {
 // GET /api/groups/:groupId/members - Get group members (members only)
 router.get("/:groupId/members", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     const { groupId } = req.params;
     const { status } = req.query;
 
@@ -609,6 +627,7 @@ router.get("/:groupId/members", async (req: any, res) => {
 // DELETE /api/groups/:groupId/members/:userId - Remove member (moderator+)
 router.delete("/:groupId/members/:userId", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }

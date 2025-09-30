@@ -5,12 +5,22 @@ import { eq, desc, sql } from "drizzle-orm";
 
 const router = express.Router();
 
+// Helper to set no-store headers for privacy
+function setNoStoreHeaders(res: express.Response) {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  });
+}
+
 /**
  * GET /api/rewards/balance
  * Get user's current rewards point balance
  */
 router.get("/balance", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }
@@ -38,6 +48,7 @@ router.get("/balance", async (req: any, res) => {
  */
 router.get("/history", async (req: any, res) => {
   try {
+    setNoStoreHeaders(res);
     if (!req.user?.claims?.sub) {
       return res.status(401).json({ message: "Authentication required" });
     }
