@@ -48,6 +48,11 @@ export const users = pgTable("users", {
   experienceLevel: varchar("experience_level"), // "new_to_eds", "learning_to_manage", "experienced"
   dailyGoals: text("daily_goals").array(), // ["Track symptoms", "Monitor POTS", "Find helpful products", etc.]
   
+  // Wave 2 - Groups access control fields
+  birthYear: integer("birth_year"), // For age-based group access (e.g., 1995)
+  gender: varchar("gender"), // "woman", "man", "non-binary", "prefer_not_to_say", etc.
+  identity: text("identity").array(), // ["LGBTQ+", "transgender", "non-binary", etc.]
+  
   // Data retention settings (in months, -1 for keep forever)
   symptomLogsRetentionMonths: integer("symptom_logs_retention_months").default(36), // Default 3 years
   vitalsLogsRetentionMonths: integer("vitals_logs_retention_months").default(36), // Default 3 years

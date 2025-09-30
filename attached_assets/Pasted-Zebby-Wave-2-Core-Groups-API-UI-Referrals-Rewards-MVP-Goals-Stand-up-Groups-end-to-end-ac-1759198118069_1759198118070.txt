@@ -1,0 +1,177 @@
+Zebby • Wave-2 Core: Groups API + UI, Referrals + Rewards MVP”
+Goals
+
+Stand up Groups end-to-end: access control from profile (age/gender/identity/diagnosis tags), join, post, comment, react, report.
+
+Deliver Groups Directory and Group Page UI (Whoop/FB-style basics).
+
+Wire Referrals (code + signup credit) and Rewards (points + history).
+
+Keep everything behind flags; preserve enterprise security.
+
+Feature flags (ensure in Secrets / .env)
+FF_GROUPS=true
+FF_HERD=false
+FF_REFERRALS=true
+FF_REWARDS=true
+
+1) Groups API (access control + membership)
+
+Assumptions (DB already exists): groups, group_memberships, posts, comments, reactions, reports.
+(Use your actual table/column names from shared/schema.ts.)
+
+Access control rules
+
+Age brackets: read/join only if derivedAge falls in group’s age range (e.g., Young Zebras 18–25, Zebras in Bloom 26–35, Seasoned Stripes 36–50, Wise Zebras 51+).
+
+Gender/identity: allow if profile.gender or profile.identity matches group tag (e.g., “women”, “men”, “LGBTQ+”).
+
+Diagnosis groups: allow if user has the tag (e.g., hEDS, POTS, MCAS) in profile diagnoses/interests.
+
+If profile lacks required info → 403 with a message linking to Profile update.
+
+Endpoints (all auth required, rate-limited, Cache-Control: no-store)
+
+GET    /api/groups                 # only groups the user is eligible for; include membership status
+POST   /api/groups/:id/join        # idempotent; creates approved membership if eligible
+DELETE /api/groups/:id/leave       # member leaves group
+GET    /api/groups/:id/posts?page=&sort=new|top
+POST   /api/groups/:id/posts       # { body, kind? } sanitize; rate-limit 6/h
+POST   /api/posts/:postId/comments # { body } sanitize; rate-limit 20/h
+POST   /api/posts/:postId/react    # { emoji } upsert; rate-limit 60/h
+POST   /api/report                 # { targetType:'post'|'comment', targetId, reasonCode, notes? }
+
+
+Sorting
+
+new: reverse chronological by created_at.
+
+top (last 7 days): score = reactions_count * 2 + comments_count.
+
+Sanitization
+
+Plain text only (no HTML). Convert linebreaks to <br/> on render.
+
+Linkify URLs with rel="nofollow noopener".
+
+Rate limits (per user)
+
+Posts 6/hour; Comments 20/hour; Reactions 60/hour; Reports 10/hour.
+
+Responses
+
+Strip PII; return pseudonym if you support it later; include counts.
+
+2) Groups UI
+
+Directory page
+
+Sections: For You (eligible), By Age, By Identity, By Diagnosis.
+
+Each card: name, short desc/tags, member count, Join/Leave button.
+
+Group page
+
+Header: name, tags, Join/Leave (sticky).
+
+Composer: textarea (placeholder “Share a win, question, or tip”), Post button (Ctrl/Cmd+Enter).
+
+Feed: posts with reaction bar (❤️ 👍 🙏), comment link, timestamp.
+
+Comments: one level nesting; inline “Add a comment…”.
+
+Report menu on post/comment (“Report” → reason picker).
+
+Accessibility: focus ring, keyboard submit, aria-live="polite" on new comments.
+
+Empty states
+
+Directory: “No eligible groups yet—update your profile to see more.”
+
+Group: “Be the first to post!”
+
+3) Referrals + Rewards MVP
+
+Behavior
+
+Each user has a unique referral_code.
+
+New user can apply a code at signup/onboarding.
+
+Points: +100 on referred user’s verified signup; +250 when referred user logs on ≥5 distinct days in week 1.
+
+Reward balance = sum(ledger). History shows last 20 entries.
+
+Endpoints
+
+GET  /api/referrals/code        # returns or generates user's referral_code
+POST /api/referrals/apply       # { code } attach referrer to current user (once)
+GET  /api/rewards/balance       # { points }
+GET  /api/rewards/history?limit=20
+
+
+Cron (week-active credit)
+
+Daily job checks newly referred accounts’ first 7 days; if ≥5 logging days and not credited, insert rewards_ledger +250 and referral_events: 'week_active'.
+
+Settings UI → “My Herd & Rewards” (MVP)
+
+Show referral code with Copy button.
+
+Brief explanation of points.
+
+Balance + recent entries.
+
+(Herd viewer linkage can come later; keep the name ready.)
+
+4) Safety & Moderation (MVP)
+
+POST /api/report creates report rows.
+
+Admin route /admin/mod/reports (basic list) with actions: mark reviewed, remove post/comment (soft delete).
+
+Auto-flag profanity list: insert a report with reasonCode=auto_flag (do not block posting).
+
+5) Tests (Supertest/unit; must pass)
+
+Access control:
+
+Age 17 cannot join 18–25 group; age 24 can.
+
+Gender mismatch cannot join gendered group; identity tag required for LGBTQ+.
+
+Diagnosis group requires matching tag.
+
+Posts/comments/reactions:
+
+HTML stripped; line breaks preserved.
+
+Rate limits yield 429 after threshold.
+
+Reactions unique per (post,user,emoji).
+
+Referrals/Rewards:
+
+Applying valid code sets referrer; duplicate apply blocked.
+
+Signup credit writes +100 once (unique index prevents duplicates).
+
+Cron marks week-active and gives +250; balance equals sum.
+
+6) Security/Privacy invariants
+
+Keep Helmet/CSP, CORS, and Cache-Control: no-store for group/referral responses.
+
+No PII in logs; redact user content in errors.
+
+Auth required for all endpoints; reject if profile incomplete (for gated groups) with a specific message.
+
+7) Rollout plan
+
+Implement Groups API with access checks → smoke test with a seeded test user per demographic.
+
+Build Directory & Group UI → post/comment/react → report.
+
+Implement Referrals + Rewards → confirm +100 on a referred signup in dev → simulate week-active via a test/cron.
+
+Enable flags for a small beta cohort.
