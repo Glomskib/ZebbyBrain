@@ -1433,7 +1433,10 @@ export type PostPollVote = typeof postPollVotes.$inferSelect;
 
 export const insertGroupCommentSchema = createInsertSchema(groupComments).omit({
   id: true,
+  authorId: true,
+  isRemoved: true,
   createdAt: true,
+  editedAt: true,
 });
 export type InsertGroupComment = z.infer<typeof insertGroupCommentSchema>;
 export type GroupComment = typeof groupComments.$inferSelect;
