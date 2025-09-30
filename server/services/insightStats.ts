@@ -4,31 +4,83 @@ import { eq, and, gte, lte, sql } from "drizzle-orm";
 
 const round = (n: number, d = 1) => Math.round(n * 10 ** d) / 10 ** d;
 
-export async function getUserStats(userId: string, range: "30d" | "90d") {
-  const days = range === "30d" ? 30 : 90;
-  const now = new Date();
-  const from = new Date(now);
-  from.setDate(from.getDate() - days);
+// Wave 3 - Multi-Entry: Support flexible lookback windows
+type RangeWindow = "7d" | "14d" | "30d" | "60d" | "90d" | "180d" | "365d" | "today" | "last_symptom" | "up_to_now";
 
+async function computeFromDate(userId: string, range: RangeWindow): Promise<Date> {
+  const now = new Date();
+  
+  // Standard day ranges
+  if (range.endsWith('d')) {
+    const days = parseInt(range);
+    const from = new Date(now);
+    from.setDate(from.getDate() - days);
+    return from;
+  }
+  
+  // Today: start of current day
+  if (range === 'today') {
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    return startOfDay;
+  }
+  
+  // Last symptom: from last symptom entry timestamp (Wave 3 pattern)
+  if (range === 'last_symptom') {
+    const lastEntry = await db
+      .select({ occurredAt: symptomEntries.occurredAt })
+      .from(symptomEntries)
+      .where(eq(symptomEntries.userId, userId))
+      .orderBy(sql`${symptomEntries.occurredAt} DESC`)
+      .limit(1)
+      .execute();
+    
+    return lastEntry[0]?.occurredAt || now;
+  }
+  
+  // Up to now: from the very first entry ever (Wave 3 pattern)
+  if (range === 'up_to_now') {
+    const firstEntry = await db
+      .select({ occurredAt: symptomEntries.occurredAt })
+      .from(symptomEntries)
+      .where(eq(symptomEntries.userId, userId))
+      .orderBy(sql`${symptomEntries.occurredAt} ASC`)
+      .limit(1)
+      .execute();
+    
+    return firstEntry[0]?.occurredAt || now;
+  }
+  
+  // Default to 30 days
+  const from = new Date(now);
+  from.setDate(from.getDate() - 30);
+  return from;
+}
+
+export async function getUserStats(userId: string, range: RangeWindow) {
+  const from = await computeFromDate(userId, range);
+
+  // Wave 3 - Multi-Entry: Query entries directly with occurred_at
   // Get pain/symptom intensity average
   const painAvgResult = await db
     .select({ avg: sql<number>`avg(${symptomEntries.intensity})` })
     .from(symptomEntries)
-    .innerJoin(symptomLogs, eq(symptomEntries.symptomLogId, symptomLogs.id))
-    .where(and(eq(symptomLogs.userId, userId), gte(symptomLogs.timestamp, from)))
+    .where(and(
+      eq(symptomEntries.userId, userId),
+      gte(symptomEntries.occurredAt, from)
+    ))
     .execute();
 
   const painAvg = painAvgResult[0]?.avg || 0;
 
   // Count flare days (intensity >= 7)
   const flareDaysResult = await db
-    .selectDistinct({ date: sql<string>`date(${symptomLogs.timestamp})` })
+    .selectDistinct({ date: sql<string>`date(${symptomEntries.occurredAt})` })
     .from(symptomEntries)
-    .innerJoin(symptomLogs, eq(symptomEntries.symptomLogId, symptomLogs.id))
     .where(
       and(
-        eq(symptomLogs.userId, userId),
-        gte(symptomLogs.timestamp, from),
+        eq(symptomEntries.userId, userId),
+        gte(symptomEntries.occurredAt, from),
         gte(symptomEntries.intensity, 7)
       )
     )

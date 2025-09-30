@@ -19,7 +19,15 @@ router.post("/insights", async (req, res) => {
     return res.status(401).json({ error: "Authentication required" });
   }
 
-  const range = (req.body?.range as "30d" | "90d") ?? "30d";
+  // Wave 3 - Multi-Entry: Support flexible lookback windows
+  type RangeWindow = "7d" | "14d" | "30d" | "60d" | "90d" | "180d" | "365d" | "today" | "last_symptom" | "up_to_now";
+  const validRanges: RangeWindow[] = ["7d", "14d", "30d", "60d", "90d", "180d", "365d", "today", "last_symptom", "up_to_now"];
+  
+  const range = (req.body?.range as RangeWindow) ?? "30d";
+  if (!validRanges.includes(range)) {
+    return res.status(400).json({ error: `Invalid range. Must be one of: ${validRanges.join(", ")}` });
+  }
+  
   const key = `ai:${userId}:${range}`;
 
   // Check cache first
