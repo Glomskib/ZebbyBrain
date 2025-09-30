@@ -2,6 +2,7 @@ import { precomputeInsightsForActiveUsers } from "./lib/cache";
 import { processReminders } from "./lib/reminders";
 import { processCircleAlerts } from "./lib/circle-alerts";
 import { processWeekActiveRewards } from "./lib/week-active-rewards";
+import { processHerdAlerts } from "./lib/herd-alerts";
 
 /**
  * Enhanced cron scheduler for insights precomputation and reminder processing
@@ -151,6 +152,40 @@ export function setupCronJobs() {
 
   // Start the circle alert processor
   scheduleCircleAlertProcessing();
+
+  // Set up herd alert processing (every 1 minute) - Wave 3+
+  function scheduleHerdAlertProcessing() {
+    const alertInterval = 60 * 1000; // 1 minute in milliseconds
+
+    console.info(JSON.stringify({
+      evt: "herd_alert_scheduler_started",
+      intervalMinutes: 1,
+      timestamp: new Date().toISOString()
+    }));
+
+    const processHerdAlertsNow = async () => {
+      try {
+        await processHerdAlerts();
+      } catch (error) {
+        console.error(JSON.stringify({
+          evt: "herd_alert_processing_error",
+          error: error instanceof Error ? error.message : "Unknown error",
+          timestamp: new Date().toISOString()
+        }));
+      }
+    };
+
+    // Run immediately after 30 seconds
+    setTimeout(processHerdAlertsNow, 30_000);
+
+    // Then run every minute
+    setInterval(processHerdAlertsNow, alertInterval);
+  }
+
+  // Start the herd alert processor if feature is enabled
+  if (process.env.FF_HERD === "true") {
+    scheduleHerdAlertProcessing();
+  }
 
   // In development, also run once immediately for testing (but don't reschedule)
   if (process.env.NODE_ENV === "development") {

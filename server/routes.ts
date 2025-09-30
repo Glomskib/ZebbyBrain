@@ -103,6 +103,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const reportsRoutes = await import('./routes/reports');
   app.use('/api/report', isAuthenticated, reportsRoutes.default);
 
+  // Mount Herd routes (Wave 3+)
+  const herdRoutes = await import('./routes/herd');
+  app.use('/api/herd', isAuthenticated, herdRoutes.default);
+
   // Configure multer for file uploads
   const upload = multer({ 
     storage: multer.memoryStorage(),
