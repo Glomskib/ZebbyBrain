@@ -79,6 +79,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const circlesRoutes = await import('./routes/circles');
   app.use('/api/circles', isAuthenticated, circlesRoutes.default);
 
+  // Mount AI insights routes with authentication
+  const aiInsightsRoutes = await import('./routes/aiInsights');
+  app.use('/api/ai', isAuthenticated, aiInsightsRoutes.default);
+
+  // Mount AI chat routes with authentication
+  const aiChatRoutes = await import('./routes/aiChat');
+  app.use('/api/ai', isAuthenticated, aiChatRoutes.default);
+
+  // Mount Shopify routes
+  const shopifyRoutes = await import('./routes/shopify');
+  app.use('/api/shopify', shopifyRoutes.default);
+
   // Configure multer for file uploads
   const upload = multer({ 
     storage: multer.memoryStorage(),
