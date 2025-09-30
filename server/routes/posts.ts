@@ -49,10 +49,10 @@ async function hasPermission(
   return requiredRoles.includes(membership.role as any);
 }
 
-// GET /api/posts?groupId=... - Get posts for a group
+// GET /api/posts?groupId=...&sort=... - Get posts for a group
 router.get("/", async (req: any, res) => {
   try {
-    const { groupId } = req.query;
+    const { groupId, sort = 'recent' } = req.query;
 
     if (!groupId) {
       return res.status(400).json({ message: "groupId is required" });
@@ -112,10 +112,71 @@ router.get("/", async (req: any, res) => {
           eq(posts.groupId, groupId),
           eq(posts.isRemoved, false)
         )
-      )
-      .orderBy(desc(posts.isPinned), desc(posts.createdAt));
+      );
 
-    res.json(postsData);
+    // Sort posts based on sort parameter
+    if (sort === 'top') {
+      // For "Top" sort, calculate score with recent comments (last 7 days)
+      // Score = reactions*2 + comments in last 7 days
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      // Get comment counts for last 7 days for all posts
+      const recentCommentCounts = await db
+        .select({
+          postId: groupComments.postId,
+          count: sql<number>`cast(count(*) as int)`,
+        })
+        .from(groupComments)
+        .where(
+          and(
+            eq(groupComments.isRemoved, false),
+            sql`${groupComments.createdAt} >= ${sevenDaysAgo.toISOString()}`
+          )
+        )
+        .groupBy(groupComments.postId);
+
+      // Create map of postId -> recent comment count
+      const recentCommentsMap = new Map<string, number>();
+      for (const row of recentCommentCounts) {
+        recentCommentsMap.set(row.postId, row.count);
+      }
+
+      const sortedPosts = postsData
+        .map(post => ({
+          ...post,
+          recentComments: recentCommentsMap.get(post.id) || 0,
+          score: ((post.reactionCount || 0) * 2) + (recentCommentsMap.get(post.id) || 0)
+        }))
+        .sort((a, b) => {
+          // Pinned posts always first
+          if (a.isPinned !== b.isPinned) {
+            return a.isPinned ? -1 : 1;
+          }
+          // Then by score (highest first)
+          if (a.score !== b.score) {
+            return b.score - a.score;
+          }
+          // Tie-breaker: newer posts first
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return timeB - timeA;
+        });
+
+      res.json(sortedPosts);
+    } else {
+      // Default "Recent" sort: pinned first, then newest
+      const sortedPosts = [...postsData].sort((a, b) => {
+        if (a.isPinned !== b.isPinned) {
+          return a.isPinned ? -1 : 1;
+        }
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+      });
+
+      res.json(sortedPosts);
+    }
   } catch (error) {
     console.error("Error fetching posts:", error);
     res.status(500).json({ message: "Failed to fetch posts" });

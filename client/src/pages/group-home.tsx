@@ -25,6 +25,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Users,
   Lock,
   Globe,
@@ -37,6 +44,7 @@ import {
   ChevronDown,
   ChevronUp,
   Flag,
+  TrendingUp,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -106,6 +114,7 @@ export default function GroupHome() {
   const { toast } = useToast();
   const [pseudonymDialogOpen, setPseudonymDialogOpen] = useState(false);
   const [newPseudonym, setNewPseudonym] = useState("");
+  const [sortBy, setSortBy] = useState<"recent" | "top">("recent");
 
   const slug = params?.slug;
 
@@ -115,12 +124,12 @@ export default function GroupHome() {
     enabled: !!slug,
   });
 
-  // Fetch posts
+  // Fetch posts with sort parameter
   const { data: posts, isLoading: postsLoading } = useQuery<Post[]>({
-    queryKey: [`/api/posts?groupId=${group?.id}`],
+    queryKey: [`/api/posts`, group?.id, sortBy],
     queryFn: async () => {
       if (!group?.id) return [];
-      const res = await fetch(`/api/posts?groupId=${group.id}`, {
+      const res = await fetch(`/api/posts?groupId=${group.id}&sort=${sortBy}`, {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch posts");
@@ -140,7 +149,7 @@ export default function GroupHome() {
       queryClient.invalidateQueries({ queryKey: ["/api/groups/my-groups"] });
       queryClient.invalidateQueries({ queryKey: ["/api/groups/public"] });
       if (group?.id) {
-        queryClient.invalidateQueries({ queryKey: [`/api/posts?groupId=${group.id}`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/posts`, group.id] });
       }
       toast({
         title: "Success",
@@ -173,7 +182,7 @@ export default function GroupHome() {
       queryClient.invalidateQueries({ queryKey: [`/api/groups/${slug}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/groups/my-groups"] });
       if (group?.id) {
-        queryClient.invalidateQueries({ queryKey: [`/api/posts?groupId=${group.id}`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/posts`, group.id] });
       }
       setPseudonymDialogOpen(false);
       toast({
@@ -384,10 +393,34 @@ export default function GroupHome() {
             <PostComposer 
               groupId={group.id}
               onPosted={() => {
-                queryClient.invalidateQueries({ queryKey: [`/api/posts?groupId=${group.id}`] });
+                queryClient.invalidateQueries({ queryKey: [`/api/posts`, group.id] });
                 queryClient.invalidateQueries({ queryKey: [`/api/groups/${slug}`] });
               }}
             />
+
+            {/* Sort Selector */}
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Posts</h3>
+              <Select value={sortBy} onValueChange={(value: "recent" | "top") => setSortBy(value)}>
+                <SelectTrigger className="w-[140px]" data-testid="select-sort">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="recent" data-testid="option-sort-recent">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="w-4 h-4" />
+                      Recent
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="top" data-testid="option-sort-top">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4" />
+                      Top
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
             {/* Posts Feed */}
             {postsLoading ? (
@@ -527,7 +560,7 @@ function PostCard({ post, groupSlug, groupId }: { post: Post; groupSlug: string;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/comments`, post.id] });
-      queryClient.invalidateQueries({ queryKey: [`/api/posts?groupId=${post.groupId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/posts`, post.groupId] });
       setCommentText("");
       toast({
         title: "Success",
