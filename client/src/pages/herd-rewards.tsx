@@ -88,7 +88,7 @@ export default function HerdRewards() {
             <CardDescription>Your current rewards balance</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-4xl font-bold text-primary" data-testid="text-points-balance">
+            <div className="text-4xl font-bold text-primary" data-testid="rewards-balance">
               {balanceData?.points || 0}
             </div>
             <p className="text-sm text-muted-foreground mt-2">
@@ -129,6 +129,7 @@ export default function HerdRewards() {
             
             {codeData?.code && (
               <div className="bg-muted p-4 rounded-lg">
+                <p className="text-sm font-medium mb-2">Your Code: <span data-testid="referral-code" className="font-mono">{codeData.code}</span></p>
                 <p className="text-sm font-medium mb-2">How it works:</p>
                 <ul className="text-sm text-muted-foreground space-y-1">
                   <li>• Share your link with friends who have EDS or rare conditions</li>

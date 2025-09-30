@@ -155,6 +155,15 @@ app.use((req, res, next) => {
     res.sendStatus(204);
   });
   
+  // E2E testing routes and mocks (only in test environment)
+  if (process.env.E2E_MOCKS === 'true') {
+    const { e2eMocks } = await import('./dev/e2e-mocks.js');
+    const { e2eDevRoutes } = await import('./dev/e2e-dev-routes.js');
+    app.use('/api', e2eMocks());
+    app.use('/e2e', e2eDevRoutes());
+    log('E2E mocks and dev routes enabled');
+  }
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
