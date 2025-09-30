@@ -6,6 +6,35 @@ Zebby's World is a comprehensive health tracking application specifically design
 
 ## Recent Changes
 
+### September 2025 - Wave 1 Features (AI Trends, Body Parts, Avatar, Shopify)
+- **AI Research & Trends**: Replaced legacy reflection with AI-powered insights
+  - Backend: `server/services/insightStats.ts` aggregates 30d/90d numeric stats (pain avg, flare days, HR, sleep, hydration trends)
+  - API: POST `/api/ai/insights` with 24h caching and GPT-4o-mini for non-medical advice
+  - UI: `ZebbyFindings.tsx` component displays analysis, trend bullets, and optional action ideas
+  - Feature flag: `FF_AI_TRENDS`
+- **Body-Part Specific Tracking**: Enhanced symptom logging with anatomical precision
+  - UI: `BodyPartSelector.tsx` with 19 body parts (head, jaw, neck, shoulders, elbows, wrists, back, chest, abdomen, hips, knees, ankles)
+  - Side selection for paired parts (left/right/bilateral)
+  - Filter component for insights page to view trends by body part
+  - Database: `body_part` and `side` columns in `symptom_entries` table
+  - Feature flag: `FF_BODY_PARTS`
+- **Zebby Avatar Persistent Chat**: Floating AI companion for on-demand support
+  - Backend: POST `/api/ai/chat` with context-aware responses using user stats
+  - UI: `ZebbyAvatar.tsx` as floating chat panel (bottom-right zebra button)
+  - GPT-4o-mini with system prompt emphasizing empathy and non-medical advice
+  - Rate limited to 10 requests/minute
+  - Feature flag: `FF_AVATAR`
+- **Shopify Marketplace Integration**: Read-only product catalog
+  - Backend: GraphQL proxy to Shopify Storefront API
+  - API: GET `/api/shopify/products` and `/api/shopify/product/:handle`
+  - Supports collections, pagination, and product details
+  - Environment: `SHOPIFY_STORE_DOMAIN` and `SHOPIFY_STOREFRONT_TOKEN`
+  - Feature flag: `FF_SHOPIFY`
+- **Database Migration**: SQL-based migration system for Wave 1 schema changes
+  - Migration runner: `server/migrations/run-migrations.ts` with ESM support
+  - Wave 1 migration: `001_wave1_weather_bodyparts.sql` adds weather and body-part columns
+  - Idempotent migrations with `IF NOT EXISTS` clauses
+
 ### September 2025 - Personal Circle (Private Health Sharing)
 - **Database Schema**: 7 tables for private health data sharing (circles, members, scopes, alert rules, logs, tokens, pending alerts)
 - **Backend API (13 endpoints)**: Complete Circle management system
