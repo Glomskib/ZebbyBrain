@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+// Wave 3 - Multi-Entry: Flexible lookback windows
+type RangeWindow = "7d" | "14d" | "30d" | "60d" | "90d" | "180d" | "365d" | "today" | "last_symptom" | "up_to_now";
 
 interface ZebbyFindingsData {
   range: string;
@@ -12,7 +16,8 @@ interface ZebbyFindingsData {
   disclaimer: string;
 }
 
-export default function ZebbyFindings({ range = "30d" }: { range?: "30d" | "90d" }) {
+export default function ZebbyFindings() {
+  const [selectedRange, setSelectedRange] = useState<RangeWindow>("30d");
   const [data, setData] = useState<ZebbyFindingsData | null>(null);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
@@ -26,7 +31,7 @@ export default function ZebbyFindings({ range = "30d" }: { range?: "30d" | "90d"
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ range }),
+          body: JSON.stringify({ range: selectedRange }),
         });
 
         if (!response.ok) {
@@ -54,7 +59,21 @@ export default function ZebbyFindings({ range = "30d" }: { range?: "30d" | "90d"
         setLoading(false);
       }
     })();
-  }, [range, toast]);
+  }, [selectedRange, toast]);
+
+  // Wave 3 - Multi-Entry: Window options with friendly labels
+  const windows: { value: RangeWindow; label: string }[] = [
+    { value: "7d", label: "7d" },
+    { value: "14d", label: "14d" },
+    { value: "30d", label: "30d" },
+    { value: "60d", label: "60d" },
+    { value: "90d", label: "90d" },
+    { value: "180d", label: "180d" },
+    { value: "365d", label: "365d" },
+    { value: "today", label: "Today" },
+    { value: "last_symptom", label: "Last symptom" },
+    { value: "up_to_now", label: "Up to now" },
+  ];
 
   if (loading) {
     return (
@@ -80,8 +99,27 @@ export default function ZebbyFindings({ range = "30d" }: { range?: "30d" | "90d"
   return (
     <Card data-testid="card-zebby-findings">
       <CardHeader>
-        <CardTitle className="text-2xl">🦓 Zebby Findings</CardTitle>
-        <CardDescription>AI-powered insights from your {range} data</CardDescription>
+        <div className="flex items-start justify-between">
+          <div>
+            <CardTitle className="text-2xl">🦓 Zebby Findings</CardTitle>
+            <CardDescription>AI-powered insights from your data</CardDescription>
+          </div>
+        </div>
+        
+        {/* Wave 3 - Multi-Entry: Flexible lookback window chips */}
+        <div className="flex flex-wrap gap-2 mt-4">
+          {windows.map((window) => (
+            <Badge
+              key={window.value}
+              variant={selectedRange === window.value ? "default" : "outline"}
+              className="cursor-pointer hover:bg-primary/90 transition-colors"
+              onClick={() => setSelectedRange(window.value)}
+              data-testid={`chip-range-${window.value}`}
+            >
+              {window.label}
+            </Badge>
+          ))}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-base opacity-90" data-testid="text-analysis">
