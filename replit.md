@@ -26,9 +26,11 @@ Preferred communication style: Simple, everyday language.
 ### Feature Specifications
 - **EDS-Focused Onboarding**: A 6-step flow personalizing the user experience with EDS-specific fields.
 - **Symptom Tracking**: Detailed multi-symptom logging, including body-part specific tracking and intensity scales.
+  - **Wave 3 Multi-Entry**: Support for logging multiple symptom entries for the same day with timezone-aware timestamptz storage. Uses `fromZonedTime` (date-fns-tz v3) for proper timezone conversion.
 - **AI Companion (Zebby Avatar)**: A persistent, floating AI chat assistant providing empathetic support and context-aware responses.
 - **AI Insights & Trends**: AI-powered analysis of health data (pain, flares, HR, sleep, hydration) to provide trends and non-medical advice.
 - **Personal Circle**: Private health data sharing system with granular controls, secure invitations, and automated alert rules for designated members.
+  - **Wave 3+ Herd Reach-Out**: Manual alert system with 10-minute cancel window, rate limiting (3/hour), and background processing. Requires `FF_HERD=true` and `VITE_FF_HERD=true` secrets.
 - **Zebby Social (Groups)**: Community groups with a directory, state-based access control, post composer, interactive feed, and moderation tools. Includes age, gender, and diagnosis-gated access.
 - **Referrals & Rewards**: System for viral growth, including unique referral codes, point-based rewards for referrals and activity, and a rewards ledger.
 - **Marketplace Integration**: Read-only Shopify integration for curated products, including EDS-specific product reviews.
