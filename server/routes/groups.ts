@@ -166,7 +166,7 @@ router.get("/my-groups", async (req: any, res) => {
       .from(groupMemberships)
       .innerJoin(groups, eq(groupMemberships.groupId, groups.id))
       .where(eq(groupMemberships.userId, userId))
-      .orderBy(desc(groupMemberships.joinedAt));
+      .orderBy(desc(groupMemberships.createdAt));
 
     // Format response
     const myGroups = memberships.map(m => ({
@@ -393,31 +393,34 @@ router.post("/:groupId/join", async (req: any, res) => {
       return res.status(403).json({ message: "You are banned from this group" });
     }
 
-    // Check access control for gated groups
-    // Load user profile
-    const [userProfile] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId));
-    
-    if (!userProfile) {
-      return res.status(404).json({ message: "User profile not found" });
-    }
+    // Check access control only for private/gated groups
+    // Public groups are open to all (no access checks needed)
+    if (group.visibility !== 'public') {
+      // Load user profile
+      const [userProfile] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId));
+      
+      if (!userProfile) {
+        return res.status(404).json({ message: "User profile not found" });
+      }
 
-    // Load group tags
-    const groupTagRecords = await db
-      .select()
-      .from(groupTags)
-      .where(eq(groupTags.groupId, groupId));
-    
-    const tags = groupTagRecords.map(t => t.tag);
+      // Load group tags
+      const groupTagRecords = await db
+        .select()
+        .from(groupTags)
+        .where(eq(groupTags.groupId, groupId));
+      
+      const tags = groupTagRecords.map(t => t.tag);
 
-    // Check access
-    const accessCheck = await canAccessGroup(userProfile, group, tags);
-    if (!accessCheck.canAccess) {
-      return res.status(403).json({ 
-        message: accessCheck.reason || "You don't meet the requirements to join this group" 
-      });
+      // Check access
+      const accessCheck = await canAccessGroup(userProfile, group, tags);
+      if (!accessCheck.canAccess) {
+        return res.status(403).json({ 
+          message: accessCheck.reason || "You don't meet the requirements to join this group" 
+        });
+      }
     }
 
     // Check if user is already a member
