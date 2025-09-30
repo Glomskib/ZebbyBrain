@@ -90,18 +90,47 @@ Zebby's World is a comprehensive health tracking application specifically design
 - **Enhanced product reviews** with EDS symptom-specific rating scales
 - **Robust authentication** with proper database conflict handling and foreign key preservation
 
-### September 2025 - Wave 2 Foundation (Groups + Referrals/Rewards) - 🚧 IN PROGRESS
-- **Wave-2 Database Schema**: Extended referrals and rewards system
+### September 2025 - Wave 2: Groups + Referrals/Rewards Backend - ✅ BACKEND COMPLETE
+- **Wave-2 Database Schema**: Extended system with profile fields and rewards
   - Added `referral_code` column to users table (unique, for invite links)
   - Created `referral_events` table tracking signup and week_active events
   - Created `rewards_ledger` table for points earned/spent tracking
-  - Partial unique index prevents duplicate signup credits per user
-  - Migration: `002_wave2_referrals_rewards.sql` with idempotent safeguards
+  - Added `birthYear`, `gender`, `identity` to users table for access control
+  - Migration: `002_wave2_referrals_rewards.sql` and `003_wave2_profile_access_fields.sql`
+- **Access Control System**: Age/gender/diagnosis-gated group access
+  - Service: `server/services/groupAccess.ts` with comprehensive matching logic
+  - Age ranges: 18-25, 26-35, 36-50, 51+
+  - Gender/identity: women, men, LGBTQ+, nonbinary support
+  - Diagnosis matching: hEDS, POTS, MCAS tag detection
+  - Integrated into groups join endpoint with descriptive error messages
+- **Rate Limiting Middleware**: Protection against spam and abuse
+  - Posts: 6 per hour per user (`server/middleware/rateLimits.ts`)
+  - Comments: 20 per hour per user
+  - Reactions: 60 per hour per user
+  - Reports: 10 per hour per user
+  - IPv6-safe keyGenerator using user ID or 'anonymous' fallback
+- **Referrals API**: Viral growth system (`server/routes/referrals.ts`)
+  - GET `/api/referrals/code` - Generate unique 6-char referral code
+  - POST `/api/referrals/apply` - Apply code, awards +100 points to referrer
+  - Nanoid-based code generation, signup event tracking
+- **Rewards API**: Points and gamification (`server/routes/rewards.ts`)
+  - GET `/api/rewards/balance` - Sum of ledger entries for current user
+  - GET `/api/rewards/history` - Last 20 transactions with metadata
+  - Ledger-based tracking (earned/spent), supports referral and week-active events
+- **Reports API**: Content moderation (`server/routes/reports.ts`)
+  - POST `/api/report` - Report posts/comments with reason codes
+  - Rate limited to 10/hour, creates moderation queue entries
+  - Supports spam, harassment, misinformation, inappropriate, off-topic reasons
+- **Text Sanitization**: Security utilities (`server/lib/sanitize.ts`)
+  - HTML stripping, URL linkification, line break conversion
+  - Used in posts/comments to prevent XSS and format content
 - **Groups Seeding**: 10 starter community groups via `seed-groups.ts`
   - 4 age-bracket groups: Young Zebras (18-25), Zebras in Bloom (26-35), Seasoned Stripes (36-50), Wise Zebras (51+)
   - 3 gender/identity groups: Zebra Sisters (women), Zebra Brothers (men), Rainbow Zebras (LGBTQ+)
   - 3 diagnosis-specific groups: hEDS Herd, POTS Squad, MCAS Warriors
   - Each group tagged for discovery (age ranges, conditions, topics)
+- **Feature Flags**: `FF_GROUPS=true`, `FF_REFERRALS=true`, `FF_REWARDS=true`
+- **Next Steps**: Frontend UI for Groups Directory, Referrals/Rewards settings, week-active cron job
 
 ## User Preferences
 
