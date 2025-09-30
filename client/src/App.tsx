@@ -21,6 +21,7 @@ import GroupsDirectory from "@/pages/groups-directory";
 import GroupHome from "@/pages/group-home";
 import PersonalCircle from "@/pages/personal-circle";
 import MemberDashboard from "@/pages/member-dashboard";
+import HerdRewards from "@/pages/herd-rewards";
 
 function Router() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -54,6 +55,7 @@ function Router() {
           <Route path="/groups" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/groups/:slug" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/settings" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/settings/herd-rewards" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/import" component={() => { window.location.href = '/onboarding'; return null; }} />
         </>
       ) : (
@@ -65,6 +67,7 @@ function Router() {
           <Route path="/circle" component={PersonalCircle} />
           <Route path="/member-dashboard" component={MemberDashboard} />
           <Route path="/settings" component={Settings} />
+          <Route path="/settings/herd-rewards" component={HerdRewards} />
           <Route path="/import" component={ImportSettings} />
           <Route path="/import/review" component={ImportReviewQueue} />
         </>
