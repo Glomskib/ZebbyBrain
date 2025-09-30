@@ -41,6 +41,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import PostComposer from "@/components/groups/PostComposer";
+import { ReactionBar } from "@/components/groups/ReactionBar";
 
 interface Group {
   id: string;
@@ -496,7 +497,6 @@ function PostCard({ post, groupSlug, groupId }: { post: Post; groupSlug: string;
   const [reportNotes, setReportNotes] = useState("");
   const [reportCommentId, setReportCommentId] = useState<string | null>(null);
 
-  const allowedEmojis = ["❤️", "👍", "🙏", "💪", "🎉"];
   const reportReasons = [
     { value: "spam", label: "Spam or advertising" },
     { value: "harassment", label: "Harassment or bullying" },
@@ -504,21 +504,6 @@ function PostCard({ post, groupSlug, groupId }: { post: Post; groupSlug: string;
     { value: "inappropriate", label: "Inappropriate content" },
     { value: "off-topic", label: "Off-topic or irrelevant" },
   ];
-
-  // Fetch reactions data for this post
-  const { data: reactionsData } = useQuery<{
-    reactions: { emoji: string; count: number }[];
-    userReactions: string[];
-  }>({
-    queryKey: [`/api/comments/${post.id}/reactions`],
-    queryFn: async () => {
-      const res = await fetch(`/api/comments/${post.id}/reactions`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch reactions");
-      return res.json();
-    },
-  });
 
   // Fetch comments for this post
   const { data: comments } = useQuery<Comment[]>({
@@ -531,18 +516,6 @@ function PostCard({ post, groupSlug, groupId }: { post: Post; groupSlug: string;
       return res.json();
     },
     enabled: showComments,
-  });
-
-  const reactMutation = useMutation({
-    mutationFn: async (emoji: string) => {
-      return await apiRequest("POST", `/api/comments/${post.id}/reactions`, {
-        emoji,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/comments/${post.id}/reactions`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/posts?groupId=${post.groupId}`] });
-    },
   });
 
   const createCommentMutation = useMutation({
@@ -598,17 +571,6 @@ function PostCard({ post, groupSlug, groupId }: { post: Post; groupSlug: string;
       });
     },
   });
-
-  // Get count for a specific emoji
-  const getEmojiCount = (emoji: string) => {
-    const reaction = reactionsData?.reactions.find((r) => r.emoji === emoji);
-    return reaction?.count || 0;
-  };
-
-  // Check if user has reacted with this emoji
-  const hasUserReacted = (emoji: string) => {
-    return reactionsData?.userReactions.includes(emoji) || false;
-  };
 
   return (
     <Card>
@@ -670,32 +632,7 @@ function PostCard({ post, groupSlug, groupId }: { post: Post; groupSlug: string;
         )}
 
         {/* Emoji Reactions */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {allowedEmojis.map((emoji) => {
-            const count = getEmojiCount(emoji);
-            const isActive = hasUserReacted(emoji);
-            return (
-              <Button
-                key={emoji}
-                variant="outline"
-                size="sm"
-                onClick={() => reactMutation.mutate(emoji)}
-                disabled={reactMutation.isPending}
-                className={`h-8 px-3 ${
-                  isActive
-                    ? "bg-primary/10 border-primary text-primary hover:bg-primary/20"
-                    : "hover:bg-accent"
-                }`}
-                data-testid={`button-react-${emoji}-${post.id}`}
-              >
-                <span className="text-base mr-1">{emoji}</span>
-                {count > 0 && (
-                  <span className="text-xs font-medium">{count}</span>
-                )}
-              </Button>
-            );
-          })}
-        </div>
+        <ReactionBar postId={post.id} groupId={post.groupId} />
 
         {/* Actions */}
         <div className="flex items-center gap-4 text-sm">
