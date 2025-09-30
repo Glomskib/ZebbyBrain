@@ -273,17 +273,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const symptomLog = await storage.createSymptomLog(symptomLogData);
 
-      // Create individual symptom entries
+      // Create individual symptom entries (Wave 3 - Multi-Entry with precise timestamps)
       console.log('Creating symptom entries with data:', JSON.stringify(symptomEntries, null, 2));
       const createdEntries = [];
       for (const entry of symptomEntries) {
         console.log(`Creating symptom entry: ${entry.symptomName} with intensity ${entry.intensity}`);
         const symptomEntry = await storage.createSymptomEntry({
+          userId, // Wave 3: Direct user association for flatter queries
           symptomLogId: symptomLog.id,
           symptomName: entry.symptomName,
           intensity: entry.intensity,
-          notes: entry.notes || null
-        });
+          notes: entry.notes || null,
+          bodyPart: entry.bodyPart || null,
+          side: entry.side || null,
+          // Wave 3: Per-entry timestamp (defaults to session timestamp if not provided)
+          occurredAt: entry.occurredAt ? new Date(entry.occurredAt) : new Date(sessionData.timestamp),
+          // Wave 3: Per-entry weather data (same as session for entries logged together)
+          weatherTempC: enhancedWeatherData?.tempC ? enhancedWeatherData.tempC.toString() : null,
+          weatherText: enhancedWeatherData?.text || null,
+          weatherObservedAt: enhancedWeatherData?.observedAt || null,
+          lat: enhancedWeatherData?.lat ? enhancedWeatherData.lat.toString() : null,
+          lon: enhancedWeatherData?.lon ? enhancedWeatherData.lon.toString() : null,
+          weatherSource: enhancedWeatherData?.source || null,
+          // Wave 3: Per-entry vitals context (same as session for entries logged together)
+          waterIntakeCurrentMl: sessionData.waterIntakeCurrentMl || null,
+          heartRateBpm: sessionData.heartRateBpm || null,
+          sodiumIntakeCurrentMg: sessionData.sodiumIntakeCurrentMg || null,
+        } as any);
         console.log('Created symptom entry:', JSON.stringify(symptomEntry, null, 2));
         createdEntries.push(symptomEntry);
       }

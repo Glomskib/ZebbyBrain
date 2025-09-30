@@ -85,7 +85,19 @@ export interface IStorage {
   
   // Enhanced symptom tracking operations
   createSymptomLog(log: InsertSymptomLog): Promise<SymptomLog>;
-  createSymptomEntry(entry: InsertSymptomEntry): Promise<SymptomEntry>;
+  createSymptomEntry(entry: InsertSymptomEntry & {
+    userId?: string;
+    occurredAt?: Date;
+    weatherTempC?: string | null;
+    weatherText?: string | null;
+    weatherObservedAt?: Date | null;
+    lat?: string | null;
+    lon?: string | null;
+    weatherSource?: string | null;
+    waterIntakeCurrentMl?: number | null;
+    heartRateBpm?: number | null;
+    sodiumIntakeCurrentMg?: number | null;
+  }): Promise<SymptomEntry>;
   getUserSymptomLogs(userId: string, limit?: number): Promise<SymptomLog[]>;
   getUserSymptomLogsWithEntries(userId: string, limit?: number): Promise<(SymptomLog & { symptomEntries: SymptomEntry[] })[]>;
   getSymptomLog(id: string): Promise<SymptomLog | undefined>;
