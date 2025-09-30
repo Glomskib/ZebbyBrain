@@ -1,0 +1,397 @@
+“Zebby • Wave-1 Finish (AI Findings, Body-Parts UI, Avatar, Shopify)”
+Goals
+
+Ship the remaining Wave-1 features end-to-end:
+
+AI Research & Trends replaces Reflection
+
+Body-part UI (selector, filters, per-part trends)
+
+Zebby Avatar persistent chat with context from logs
+
+Shopify integration (Storefront proxy + checkout redirect)
+
+Tests for the above, plus basic perf/safety checks
+
+Keep: Helmet/CSP, rate limits, Cache-Control: no-store for health data, redaction.
+
+0) Env & Flags (ensure set)
+
+Update .env / Replit Secrets:
+
+OPENAI_API_KEY=sk-...            # required for AI endpoints
+FF_AI_TRENDS=true
+FF_BODY_PARTS=true
+FF_AVATAR=true
+FF_SHOPIFY=true
+
+SHOPIFY_STORE_DOMAIN=yourstore.myshopify.com
+SHOPIFY_STOREFRONT_TOKEN=xxxxxxxxxxxxxxxx
+
+1) AI Research & Trends (server)
+
+Create server/src/routes/aiInsights.ts
+
+import { Router } from "express";
+import rateLimit from "express-rate-limit";
+import { FF } from "../config/flags";
+import { getUserStats } from "../services/insightStats"; // build below
+import NodeCache from "node-cache";
+
+const cache = new NodeCache({ stdTTL: 60 * 60 * 24 }); // 24h
+const r = Router();
+
+r.use(rateLimit({ windowMs: 60_000, max: 10 }));
+
+r.post("/insights", async (req, res) => {
+  if (!FF.AI_TRENDS) return res.status(404).json({ error: "disabled" });
+  const userId = (req as any).user?.id;
+  if (!userId) return res.status(401).json({ error: "auth_required" });
+
+  const range = (req.body?.range as "30d"|"90d") ?? "30d";
+  const key = `ai:${userId}:${range}`;
+  const cached = cache.get(key); if (cached) { res.set("Cache-Control","no-store"); return res.json(cached); }
+
+  const facts = await getUserStats(userId, range); // numeric only, no PII
+
+  // safety: truncate any inputs
+  const sys = `You are Zebby, a supportive EDS companion. Provide non-medical-advice insights.
+Use the numeric facts to identify trends, gentle ideas, and discussion prompts.
+Never diagnose. Keep it brief, kind, and practical.`;
+
+  const prompt = [
+    { role: "system", content: sys },
+    { role: "user", content:
+      `Here are anonymized facts for ${range}.
+Facts (JSON): ${JSON.stringify(facts)}
+Please return JSON with keys: analysis (<=140 words), trendBullets (3-5 short bullets), actionIdeas (3 concise, optional steps).`}
+  ];
+
+  let result;
+  try {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":`Bearer ${process.env.OPENAI_API_KEY}`},
+      body: JSON.stringify({ model:"gpt-4o-mini", messages: prompt, temperature:0.3 })
+    });
+    const data = await resp.json();
+    const text = data.choices?.[0]?.message?.content ?? "{}";
+    result = JSON.parse(text);
+  } catch {
+    result = { analysis:"We couldn’t generate insights right now.", trendBullets:[], actionIdeas:[] };
+  }
+
+  const payload = {
+    range, analysis: String(result.analysis ?? ""),
+    trendBullets: (result.trendBullets ?? []).slice(0,5).map(String),
+    actionIdeas: (result.actionIdeas ?? []).slice(0,3).map(String),
+    disclaimer: "Informational only — not medical advice."
+  };
+
+  cache.set(key, payload);
+  res.set("Cache-Control","no-store");
+  return res.json(payload);
+});
+
+export default r;
+
+
+Create server/src/services/insightStats.ts (numeric facts only; reuse your existing queries)
+
+import { db } from "../db/client";
+
+export async function getUserStats(userId: string, range: "30d"|"90d") {
+  // minimal, fast stats; adapt to Drizzle schema/table names
+  const days = range==="30d"?30:90;
+  const now = new Date(); const from = new Date(now); from.setDate(from.getDate()-days);
+
+  // Example shapes—replace with your actual queries:
+  const painAvg = await db.query.symptom_event.aggregate({ // pseudo
+    where: { userId, dateTime: { gte: from }}, _avg: { intensity: true }
+  });
+
+  const flareDays = await db.query.symptom_event.count({
+    where: { userId, dateTime:{ gte: from }, intensity: { gte: 7 }}
+  });
+
+  const hrDeltaMean = await hrDelta(userId, from);  // standing - supine daily mean
+  const sleepAvg = await sleepHours(userId, from);
+  const hydrationTrend = await hydrationChange(userId, from); // % change vs prior period
+
+  return {
+    painAvg: round(painAvg?._avg?.intensity ?? 0,1),
+    flareDays,
+    hrDeltaMean: round(hrDeltaMean ?? 0,1),
+    sleepAvg: round(sleepAvg ?? 0,1),
+    hydrationTrend: round(hydrationTrend ?? 0,1)
+  };
+}
+
+const round = (n:number, d=1)=> Math.round(n*10**d)/10;
+// stub helpers; wire to your real repo
+async function hrDelta(userId:string, from:Date){ return 0; }
+async function sleepHours(userId:string, from:Date){ return 0; }
+async function hydrationChange(userId:string, from:Date){ return 0; }
+
+
+Wire route in server/src/index.ts:
+
+import aiInsights from "./routes/aiInsights";
+// after auth middleware
+app.use("/api/ai", aiInsights);
+
+2) “Zebby Findings” UI (client)
+
+Create client/src/components/ZebbyFindings.tsx
+
+import { useEffect, useState } from "react";
+
+export default function ZebbyFindings({ range = "30d" }: { range?: "30d"|"90d" }) {
+  const [data, setData] = useState<{analysis:string;trendBullets:string[];actionIdeas:string[];disclaimer:string} | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(()=>{(async()=>{
+    setLoading(true);
+    try{
+      const token = localStorage.getItem("zebby_token")||"";
+      const r = await fetch("/api/ai/insights",{ method:"POST", headers:{ "Content-Type":"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}) }, body: JSON.stringify({ range }) });
+      const j = await r.json(); setData(j);
+    } finally { setLoading(false); }
+  })()},[range]);
+
+  if (loading) return <div className="tile">Loading Zebby’s findings…</div>;
+  if (!data) return <div className="tile">No insights yet.</div>;
+
+  return (
+    <div className="tile">
+      <div className="font-display text-xl mb-1">Zebby Findings</div>
+      <p className="opacity-80 mb-3">{data.analysis}</p>
+      {!!data.trendBullets?.length && (
+        <ul className="list-disc pl-5 mb-3">
+          {data.trendBullets.map((b,i)=><li key={i}>{b}</li>)}
+        </ul>
+      )}
+      {!!data.actionIdeas?.length && (
+        <div className="mt-2">
+          <div className="font-semibold mb-1">Tiny optional steps</div>
+          <ul className="list-disc pl-5">
+            {data.actionIdeas.map((a,i)=><li key={i}>{a}</li>)}
+          </ul>
+        </div>
+      )}
+      <div className="text-xs opacity-60 mt-3">{data.disclaimer}</div>
+    </div>
+  );
+}
+
+
+Replace Reflection: on your dashboard/insights page, swap old component with <ZebbyFindings />.
+
+3) Body-part UI (client + server)
+
+Client: client/src/components/BodyPartSelector.tsx
+
+const PARTS = [
+  "head","jaw","neck","shoulder_left","shoulder_right","elbow_left","elbow_right",
+  "wrist_left","wrist_right","back_upper","back_lower","chest","abdomen",
+  "hip_left","hip_right","knee_left","knee_right","ankle_left","ankle_right"
+] as const;
+
+export type BodyPart = typeof PARTS[number];
+export type Side = "left"|"right"|"bilateral"|null;
+
+export function BodyPartSelector({ value, onChange }:{ value?:BodyPart, onChange:(p:BodyPart)=>void }) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+      {PARTS.map(p=>(
+        <button key={p} type="button" onClick={()=>onChange(p)} className={`btn ${value===p?"btn-primary":""}`}>
+          {p.replaceAll("_"," ")}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+
+Integrate into your symptom logging form:
+
+Add Body Part (required or optional).
+
+Add Side when applicable.
+
+Server (insights per part): extend your insights service to accept ?bodyPart= and compute avg/flaredays/trend for that part only. Ensure reads are null-safe (Drizzle already is).
+
+Filters: add a selector on the Insights page to filter by body part; reuse your existing query with bodyPart where-clause.
+
+4) Zebby Avatar (persistent chat)
+
+Server route server/src/routes/aiChat.ts
+
+import { Router } from "express";
+import rateLimit from "express-rate-limit";
+import { FF } from "../config/flags";
+
+const r = Router();
+r.use(rateLimit({ windowMs: 60_000, max: 10 }));
+
+r.post("/chat", async (req, res) => {
+  if (!FF.AVATAR) return res.status(404).json({ error: "disabled" });
+  const userId = (req as any).user?.id; if (!userId) return res.status(401).json({ error:"auth_required" });
+  const { message, entryContext } = req.body ?? {};
+
+  const facts = { /* pull quick snapshot like in getUserStats, short */ };
+  const sys = `You are Zebby, a warm, validating EDS companion. You never diagnose.
+Use facts provided; reflect briefly and offer at most one gentle, optional idea.
+Avoid PII; keep under 120 words.`;
+
+  const userMsg = [
+    `User message: ${String(message||"")}`,
+    entryContext ? `Entry context: ${JSON.stringify(entryContext)}` : "",
+    `Facts: ${JSON.stringify(facts)}`
+  ].filter(Boolean).join("\n");
+
+  try{
+    const resp = await fetch("https://api.openai.com/v1/chat/completions",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":`Bearer ${process.env.OPENAI_API_KEY}`},
+      body: JSON.stringify({ model:"gpt-4o-mini", messages:[{role:"system",content:sys},{role:"user",content:userMsg}], temperature:0.4 })
+    });
+    const data = await resp.json();
+    const text = data.choices?.[0]?.message?.content ?? "I’m here with you.";
+    res.set("Cache-Control","no-store"); return res.json({ reply: text });
+  }catch(e){
+    return res.status(500).json({ error:"ai_unavailable" });
+  }
+});
+
+export default r;
+
+
+Wire in server/src/index.ts:
+
+import aiChat from "./routes/aiChat";
+app.use("/api/ai", aiChat);
+
+
+Client floating button/panel client/src/components/ZebbyAvatar.tsx
+
+import { useState } from "react";
+
+export default function ZebbyAvatar(){
+  const [open,setOpen]=useState(false);
+  const [msg,setMsg]=useState(""); const [reply,setReply]=useState<string|null>(null);
+  async function send(entryContext?:any){
+    const token = localStorage.getItem("zebby_token")||"";
+    const r = await fetch("/api/ai/chat",{ method:"POST", headers:{ "Content-Type":"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}) }, body: JSON.stringify({ message: msg, entryContext })});
+    const j = await r.json(); setReply(j.reply||"");
+  }
+  return (
+    <>
+      <button className="fixed bottom-4 right-4 btn btn-primary rounded-full h-14 w-14 text-2xl" onClick={()=>setOpen(true)}>🦓</button>
+      {open && (
+        <div className="fixed bottom-20 right-4 w-96 max-w-[92vw] tile">
+          <div className="flex justify-between items-center mb-2">
+            <div className="font-display">Ask Zebby</div>
+            <button onClick={()=>setOpen(false)} className="btn">✕</button>
+          </div>
+          <textarea className="w-full border rounded p-2" rows={3} value={msg} onChange={e=>setMsg(e.target.value)} placeholder="Ask about your logs, trends, or ideas…" />
+          <div className="mt-2 flex justify-end gap-2">
+            <button className="btn btn-primary" onClick={()=>send()}>Send</button>
+          </div>
+          {reply && <div className="mt-3 text-sm">{reply}</div>}
+          <div className="text-xs opacity-60 mt-2">Informational only — not medical advice.</div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+Add “Ask Zebby about this” actions on log items by calling send({ entryId, summary }) (prop-drill or context).
+
+Mount <ZebbyAvatar /> at app root so it’s always available.
+
+5) Shopify marketplace (server + client)
+
+Server proxy server/src/routes/shopify.ts
+
+import { Router } from "express";
+import rateLimit from "express-rate-limit";
+import { FF } from "../config/flags";
+
+const r = Router();
+r.use(rateLimit({ windowMs: 60_000, max: 30 }));
+
+async function gql(query:string, variables:any){
+  const resp = await fetch(`https://${process.env.SHOPIFY_STORE_DOMAIN}/api/2024-07/graphql.json`,{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "X-Shopify-Storefront-Access-Token": process.env.SHOPIFY_STOREFRONT_TOKEN||""
+    },
+    body: JSON.stringify({ query, variables })
+  });
+  return resp.json();
+}
+
+r.get("/products", async (req,res)=>{
+  if (!FF.SHOPIFY) return res.status(404).json({ error:"disabled" });
+  const { cursor, collection } = req.query as any;
+  const query = `
+    query($cursor:String, $handle:String){
+      collectionByHandle(handle:$handle){ id title }
+      products(first:20, after:$cursor, query:$handle){
+        edges{ cursor node{ id handle title descriptionHtml featuredImage{url altText} priceRange{minVariantPrice{amount currencyCode}} } }
+        pageInfo{ hasNextPage }
+      }
+    }`;
+  const data = await gql(query, { cursor: cursor||null, handle: collection||null });
+  res.set("Cache-Control","no-store"); res.json(data);
+});
+
+export default r;
+
+
+Wire in server/src/index.ts:
+
+import shopify from "./routes/shopify";
+app.use("/api/shop", shopify);
+
+
+Client: switch Marketplace list to /api/shop/products?collection=<tag> and map edges to cards. Buy click → open product’s Shopify URL (handle page or direct checkout if you want later).
+
+6) Tests (Supertest + a couple unit helpers)
+
+aiInsights.test.ts: auth required; returns analysis + arrays; Cache-Control: no-store.
+
+aiChat.test.ts: rate limited; returns reply; no-store.
+
+bodyPart.test.ts: create symptom with bodyPart, query insights filter; returns per-part metrics.
+
+shopify.test.ts: products endpoint returns shape (mock fetch).
+
+migration-smoke.test.ts: creating symptom with lat/lon stores weather_temp_c numeric and weather_observed_at set.
+
+7) Acceptance checklist (must pass)
+
+AI Findings replaces Reflection in UI and references combined 30/90d stats; tone is supportive, non-diagnostic.
+
+Body-part selector saves and filters; per-part summary appears in insights.
+
+Avatar button is always visible; chat replies; “Ask about this” pre-fills context from a log.
+
+Shopify marketplace loads live products; Buy redirects to Shopify; no server-side checkout.
+
+All new endpoints require auth, are rate-limited, and return Cache-Control: no-store.
+
+Security headers remain intact on /api/health.
+
+Notes to Agent
+
+Keep copy gentle and short. Never surface diagnoses.
+
+Drizzle already handles nulls; don’t add brittle guards.
+
+Do not cache protected API responses client-side (service worker stays off for /api/*).
+
+Keep changes incremental—reuse Zebby tiles/buttons and theme tokens.
