@@ -214,9 +214,14 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
           <div className="flex items-center justify-between p-6 border-b border-border">
             <div className="flex items-center gap-3">
               <ZebbyAvatar size="medium" />
-              <h2 className="text-2xl font-semibold text-foreground">
-                Tell Zebby How You're Feeling
-              </h2>
+              <div>
+                <h2 className="text-2xl font-semibold text-foreground">
+                  Tell Zebby How You're Feeling
+                </h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Track as often as you need – log multiple times per day
+                </p>
+              </div>
             </div>
             <Button 
               variant="ghost" 
@@ -401,11 +406,14 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
               />
             </div>
             
-            {/* Timestamp */}
+            {/* Timestamp - Wave 3: Support multiple entries per day */}
             <div>
-              <Label className="text-base font-medium text-foreground mb-3 block">
-                When did this start?
+              <Label className="text-base font-medium text-foreground mb-2 block">
+                When are you feeling this?
               </Label>
+              <p className="text-sm text-muted-foreground mb-3">
+                Set the time for this specific check-in
+              </p>
               <input
                 type="datetime-local"
                 value={timestamp}
