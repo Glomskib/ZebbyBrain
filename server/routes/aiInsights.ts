@@ -14,7 +14,7 @@ router.post("/insights", async (req, res) => {
     return res.status(404).json({ error: "Feature disabled" });
   }
 
-  const userId = (req as any).user?.id;
+  const userId = (req as any).user?.claims?.sub;
   if (!userId) {
     return res.status(401).json({ error: "Authentication required" });
   }
