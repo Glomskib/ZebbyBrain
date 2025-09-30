@@ -19,6 +19,7 @@ import NotFound from "@/pages/not-found";
 import SharePage from "@/pages/share";
 import GroupsDirectory from "@/pages/groups-directory";
 import GroupHome from "@/pages/group-home";
+import ModQueue from "@/pages/mod-queue";
 import PersonalCircle from "@/pages/personal-circle";
 import MemberDashboard from "@/pages/member-dashboard";
 import HerdRewards from "@/pages/herd-rewards";
@@ -54,6 +55,7 @@ function Router() {
           <Route path="/tracker" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/groups" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/groups/:slug" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/groups/:slug/mod/reports" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/settings" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/settings/herd-rewards" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/import" component={() => { window.location.href = '/onboarding'; return null; }} />
@@ -63,6 +65,7 @@ function Router() {
           <Route path="/" component={Dashboard} />
           <Route path="/tracker" component={SymptomTracker} />
           <Route path="/groups" component={GroupsDirectory} />
+          <Route path="/groups/:slug/mod/reports" component={ModQueue} />
           <Route path="/groups/:slug" component={GroupHome} />
           <Route path="/circle" component={PersonalCircle} />
           <Route path="/member-dashboard" component={MemberDashboard} />
