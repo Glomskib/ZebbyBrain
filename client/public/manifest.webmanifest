@@ -1,8 +1,10 @@
 {
-  "name": "Zebby's World - Health Tracker",
+  "id": "/",
+  "name": "Zebby",
   "short_name": "Zebby",
   "description": "Health tracking for EDS and rare conditions",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0d0f12",
   "theme_color": "#8b5cf6",
@@ -24,9 +26,7 @@
   "categories": ["health", "medical", "lifestyle"],
   "shortcuts": [
     {
-      "name": "Log Symptoms",
-      "short_name": "Log",
-      "description": "Quickly log your symptoms",
+      "name": "Log symptom",
       "url": "/symptom-tracker",
       "icons": [
         {
@@ -36,10 +36,28 @@
       ]
     },
     {
+      "name": "Open Groups",
+      "url": "/groups",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
       "name": "Dashboard",
-      "short_name": "Dashboard",
-      "description": "View your health dashboard",
-      "url": "/dashboard",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Export PDF",
+      "url": "/settings",
       "icons": [
         {
           "src": "/icon-192.png",
