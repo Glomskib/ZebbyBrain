@@ -1,0 +1,174 @@
+Zebby • Mobile UX polish (Quick Log + Offline Sync + Share) + EDS AI Brain (RAG)
+
+Goals
+
+Phone-first logging: a fast Quick Log panel with haptics and voice-dictation support.
+
+Offline queue: log entries without internet; sync later safely.
+
+PDF Share: tap “Share” to send the Clinician Pack v2 with the phone’s native share sheet.
+
+EDS AI Brain (RAG): AI answers use trusted EDS knowledge + the user’s past submissions.
+
+New feature flags (Secrets)
+
+FF_MOBILE_UX=true
+FF_OFFLINE_QUEUE=true
+FF_RAG=true
+EMBEDDING_MODEL=text-embedding-3-small
+RAG_TOP_K=6
+
+1) Quick Log (mobile-first) + Haptics
+
+Client (React)
+
+Add a floating “+ Log” button (bottom right).
+
+Opens QuickLogDrawer with:
+
+Pain slider (0–10) with haptics on change
+
+Body part + side
+
+“Right now” time (tap to change)
+
+Short note (optional)
+
+Save
+
+Use Capacitor Haptics on save + pain ticks.
+
+If device is offline, show “Saved offline — will sync when online.”
+
+Server
+
+Reuse existing /api/symptoms create route (no day rounding).
+
+Return the created record with occurredAt + weather stamps.
+
+Acceptance
+
+1 tap to open, 1 drag for pain, 1 tap save. < 10 seconds.
+
+Haptics feel, no duplicate entries, visible local time.
+
+2) Offline Queue (works with your SW v3)
+
+Client
+
+Create a local queue (IndexedDB) for pending symptom entries.
+
+If navigator.onLine === false, save to queue and mark “pending”.
+
+A small sync worker watches connectivity; when back online, POST in order.
+
+Conflict-safe: server is the source of truth; on success, replace the pending entry with the server one.
+
+Server
+
+No changes required; responses still Cache-Control: no-store.
+
+Acceptance
+
+Airplane mode → log 2 entries → they appear as “pending”.
+
+Turn internet back on → entries auto-sync within 10s; banners disappear.
+
+3) Native PDF Share (iOS + Android)
+
+Client
+
+In Export screen, add a Share button.
+
+Call GET /api/exports/pdf?v=2&from=&to= → blob.
+
+Use Capacitor Filesystem to save temp file + Share plugin to open the native share sheet (Mail/Print/Drive/Files).
+
+Fallback to Web Share API if the native plugin isn’t available.
+
+Acceptance
+
+Tapping “Share” opens the phone’s share menu; file name like zebby_report_2025-10-01.pdf.
+
+4) EDS AI Brain (RAG) — smart answers with context
+
+Why: Before the AI answers, it should read (a) EDS reference notes, and (b) the user’s recent logs. Then it gives a short, caring answer (not medical advice).
+
+Database (migrations)
+
+knowledge_chunks (global EDS facts):
+
+id, source, title, content TEXT, embedding VECTOR/JSON, updated_at
+
+user_chunks (personal history snippets):
+
+id, user_id, kind ('symptom'|'trend'|'summary'), content TEXT, embedding, occurred_at
+
+If your Postgres supports pgvector, use it. If not, store arrays and do cosine in JS for now.
+
+Backend
+
+/api/ai/answer:
+
+Input: { question, window: '7d'|'30d'|'90d'|'up_to_now' }
+
+Steps:
+
+Embed the question with text-embedding-3-small.
+
+Search top-K knowledge_chunks + user_chunks by cosine similarity (respect the time window for user data).
+
+Build a short context: 3–6 bullets from EDS facts + 3–6 from the user’s own logs/trends.
+
+Ask the model for a caring, brief reply with non-medical suggestions and patterns.
+
+Rate limit (e.g., 10/min). Cache by (userId, question_hash, window) for ~6h.
+
+Nightly summarizer job:
+
+Create/update user_chunks by generating a rolling 7/30/90d summary (small paragraph) + embedding.
+
+This makes RAG faster and cheaper.
+
+Client
+
+Update Zebby Chat and Zebby Findings to use /api/ai/answer when RAG is on (FF_RAG=true).
+
+Show a small “What this used” link that lists the number of user entries and EDS notes referenced (not raw data).
+
+Acceptance
+
+Ask: “What patterns do you see this month?” → mentions user’s pain times + hydration + sleep, plus one gentle EDS tip.
+
+Ask: “Any non-medical ideas for knee pain days?” → returns 3–4 ideas, clearly not medical advice.
+
+Safety & privacy
+
+Always set Cache-Control: no-store.
+
+Never include PII in logs.
+
+Include disclaimer in the response: “Supportive info, not medical advice.”
+
+5) Seed an EDS mini-library (fast)
+
+We’ll start with a small set (5–10) of vetted EDS and POTS notes (plain text).
+
+Add a dev-only /api/rag/seed route that upserts a handful of knowledge_chunks.
+
+You can expand later.
+
+6) Minimal tests
+
+Offline queue: unit test that queued entries flush on reconnect.
+
+RAG: given a toy knowledge base + 5 mock user logs, /api/ai/answer returns a response and cites topK retrieval count.
+
+PDF Share: mock Share plugin; ensure the blob > 10KB.
+
+Env & flags
+FF_MOBILE_UX=true
+FF_OFFLINE_QUEUE=true
+FF_RAG=true
+EMBEDDING_MODEL=text-embedding-3-small
+RAG_TOP_K=6
