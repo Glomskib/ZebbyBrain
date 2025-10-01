@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import ZebbyChat from "@/components/ZebbyChat";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
@@ -82,6 +83,7 @@ function Router() {
 
 function AppContent() {
   const { isAuthenticated } = useAuth();
+  usePushNotifications(isAuthenticated);
 
   return (
     <>
