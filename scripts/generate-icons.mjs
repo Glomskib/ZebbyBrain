@@ -28,6 +28,16 @@ console.log('✓ Created icon-192.png');
 await sharp(src).resize(512, 512).png().toFile(`${out}/icon-512.png`);
 console.log('✓ Created icon-512.png');
 
+// Apple touch icon with 16% padding (safe area for iOS)
+await sharp(src).resize(152, 152).extend({
+  top: 14,
+  bottom: 14,
+  left: 14,
+  right: 14,
+  background: { r: 139, g: 92, b: 246 } // #8b5cf6
+}).png().toFile(`${out}/apple-touch-icon.png`);
+console.log('✓ Created apple-touch-icon.png (180x180 with padding)');
+
 // Clean up temp file if created
 if (fs.existsSync('client/public/tmp-logo.svg')) {
   fs.unlinkSync('client/public/tmp-logo.svg');
