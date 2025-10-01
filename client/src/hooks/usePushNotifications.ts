@@ -12,26 +12,6 @@ export function usePushNotifications(isAuthenticated: boolean) {
 
     const initPushNotifications = async () => {
       try {
-        const permResult = await PushNotifications.checkPermissions();
-        
-        if (permResult.receive === 'prompt') {
-          const requested = await PushNotifications.requestPermissions();
-          setPermissionStatus(requested.receive);
-          
-          if (requested.receive !== 'granted') {
-            console.log('[PUSH] Permission denied');
-            return;
-          }
-        } else if (permResult.receive === 'granted') {
-          setPermissionStatus('granted');
-        } else {
-          console.log('[PUSH] Permission denied');
-          setPermissionStatus(permResult.receive);
-          return;
-        }
-
-        await PushNotifications.register();
-
         PushNotifications.addListener('registration', async (token) => {
           console.log('[PUSH] Registration success');
           
@@ -64,6 +44,26 @@ export function usePushNotifications(isAuthenticated: boolean) {
         PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
           console.log('[PUSH] Notification action performed:', notification);
         });
+
+        const permResult = await PushNotifications.checkPermissions();
+        
+        if (permResult.receive === 'prompt') {
+          const requested = await PushNotifications.requestPermissions();
+          setPermissionStatus(requested.receive);
+          
+          if (requested.receive !== 'granted') {
+            console.log('[PUSH] Permission denied');
+            return;
+          }
+        } else if (permResult.receive === 'granted') {
+          setPermissionStatus('granted');
+        } else {
+          console.log('[PUSH] Permission denied');
+          setPermissionStatus(permResult.receive);
+          return;
+        }
+
+        await PushNotifications.register();
 
       } catch (error) {
         console.error('[PUSH] Error initializing push notifications:', error);

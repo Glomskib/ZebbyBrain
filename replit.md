@@ -78,3 +78,18 @@ Preferred communication style: Simple, everyday language.
 
 ### Integrations
 - **Shopify Storefront API**: For marketplace product data.
+
+### Mobile Apps (Capacitor)
+- **Capacitor**: Native iOS/Android wrapper for the web app
+- **App ID**: `com.zebbysworld.app`
+- **Push Notifications**: Device token registration system with POST `/api/devices` endpoint
+  - Uses `@capacitor/push-notifications` plugin
+  - Automatically requests permission and registers tokens on app start
+  - Supports APNs (iOS) and FCM (Android)
+- **Deep Links**: Universal links for iOS and app links for Android
+  - Supported routes: `/symptom-tracker`, `/groups`, `/chat`, `/settings/export`
+  - iOS: Associated Domains for `www.zebbysworld.com`
+  - Android: Intent filters for HTTPS and custom `zebby://` scheme
+- **iOS WebView**: App-Bound Domains for `www.zebbysworld.com` to enable service workers
+- **Build Process**: `npm run build` → `npx cap sync` → `npx cap open ios/android`
+- **Configuration**: See `CAPACITOR.md` for complete native setup instructions
