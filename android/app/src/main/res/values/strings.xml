@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Zebby</string>
+    <string name="title_activity_main">Zebby</string>
+    <string name="package_name">com.zebbysworld.app</string>
+    <string name="custom_url_scheme">com.zebbysworld.app</string>
+</resources>

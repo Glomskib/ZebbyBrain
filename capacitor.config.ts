@@ -4,7 +4,6 @@ const config: CapacitorConfig = {
   appId: 'com.zebbysworld.app',
   appName: 'Zebby',
   webDir: 'dist',
-  bundledWebRuntime: false,
   server: {
     androidScheme: 'https'
   }
