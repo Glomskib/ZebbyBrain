@@ -49,6 +49,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Add optional JWT auth middleware for new routes
   app.use(authOptional);
 
+  // Public health checks (no auth required for monitoring)
+  app.get('/api/health', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      env: process.env.NODE_ENV || "development"
+    });
+  });
+  
+  app.get('/api/billing/health', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const stripe = stripeKey && stripeKey.startsWith("sk_");
+    const isLive = stripe && !stripeKey.startsWith("sk_test_");
+    res.json({
+      stripe: stripe ? "ok" : "not_configured",
+      mode: isLive ? "live" : "test",
+      timestamp: new Date().toISOString()
+    });
+  });
+
   // Mount new enhanced routes
   app.use('/api/auth', authTestRoutes);
   app.use('/api/billing', requireAuth, billingRoutes);
