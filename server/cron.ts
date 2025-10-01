@@ -3,6 +3,7 @@ import { processReminders } from "./lib/reminders";
 import { processCircleAlerts } from "./lib/circle-alerts";
 import { processWeekActiveRewards } from "./lib/week-active-rewards";
 import { processHerdAlerts } from "./lib/herd-alerts";
+import { purgeDeletedAccounts } from "./routes/account";
 
 /**
  * Enhanced cron scheduler for insights precomputation and reminder processing
@@ -56,6 +57,9 @@ export function setupCronJobs() {
         
         // Run week-active rewards processing
         await processWeekActiveRewards();
+        
+        // Run account purge (7-day deleted accounts)
+        await purgeDeletedAccounts();
         
         console.info(JSON.stringify({
           evt: "cron_job_completed",

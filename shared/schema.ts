@@ -61,6 +61,7 @@ export const users = pgTable("users", {
   
   // Account deletion (soft delete with 7-day recovery)
   deletedAt: timestamp("deleted_at"), // null = active, timestamp = soft deleted
+  deleteToken: varchar("delete_token").unique(), // UUID token for undo link
   deletionReason: text("deletion_reason"), // Optional reason for deletion
   
   // Wave 2 - Referrals
