@@ -1,0 +1,135 @@
+Quick final checks
+
+Manifest essentials: set a stable "id" and confirm:
+
+"start_url": "/", "scope": "/", "display": "standalone", "name"/"short_name", "theme_color": "#8b5cf6", "background_color": "#0d0f12".
+
+Maskable icon safe area: using an emoji can crop oddly on Android’s mask. If you can, keep a 12–20% inner margin on the zebra mark for the -maskable icon.
+
+iOS install assets: iOS ignores manifest.webmanifest. Add apple-touch-icon (180×180) and apple-mobile-web-app-capable meta in index.html.
+
+Offline fallback: serve a friendly /offline.html for navigation requests when the user is offline (and never cache /api/*).
+
+SW versioning: bump a CACHE_VERSION string in your service worker when you ship to flush stale shells.
+
+Shortcuts (long-press icon): add 2–4 shortcuts in the manifest (e.g., “Log symptom”, “Open Groups”, “Zebby Chat”, “Export PDF”).
+
+Screenshots (optional): add a couple of screenshots entries to improve the install card on Android.
+
+One small polish prompt (copy–paste into Replit Agent)
+
+Title: Zebby • PWA polish: iOS meta + offline fallback + shortcuts
+
+Goals
+
+Add iOS install meta + touch icon.
+
+Add offline fallback page and SW handler (no /api/* caching).
+
+Add manifest id + shortcuts + (optional) screenshots.
+
+Add a CACHE_VERSION bump helper.
+
+Tasks
+
+client/public/index.html — in <head> add:
+
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#8b5cf6">
+
+
+Add client/public/apple-touch-icon.png (180×180). Use your purple background with the zebra centered and ~16% padding.
+
+client/public/manifest.webmanifest — ensure:
+
+{
+  "id": "/",
+  "name": "Zebby",
+  "short_name": "Zebby",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d0f12",
+  "theme_color": "#8b5cf6",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Log symptom", "url": "/log", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Open Groups", "url": "/groups", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Zebby Chat", "url": "/chat", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Export PDF", "url": "/settings/export", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+  /* Optionally add a "screenshots": [...] array later */
+}
+
+
+client/public/offline.html — add a minimal page:
+
+<!doctype html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zebby — Offline</title>
+<style>body{font:16px system-ui, -apple-system, Segoe UI, Roboto; background:#0d0f12; color:#fff; margin:0; display:grid; place-items:center; height:100svh} .card{padding:24px; max-width:520px; border-radius:16px; background:#14161b; box-shadow:0 10px 30px rgba(0,0,0,.35)}</style>
+</head><body>
+<div class="card">
+  <h1>You're offline</h1>
+  <p>Zebby works best online. We’ll reconnect as soon as you’re back.</p>
+  <p>You can still open the app shell from your home screen.</p>
+</div>
+</body></html>
+
+
+client/public/service-worker.js — add version + offline handler:
+
+const CACHE_VERSION = 'zebby-v3'; // bump on deploys
+const APP_SHELL = [
+  '/', '/index.html',
+  '/manifest.webmanifest',
+  '/icon-192.png', '/icon-512.png',
+  '/offline.html'
+  // vite will add hashed assets at build, keep this list small and stable
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(caches.open(CACHE_VERSION).then(c => c.addAll(APP_SHELL)));
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_VERSION).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
+// Navigation fallback only; NEVER cache API
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+
+  // never touch API or external
+  if (url.pathname.startsWith('/api/')) return;
+  if (req.method !== 'GET') return;
+
+  // handle navigation requests (SPA routes)
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req).catch(() => caches.match('/offline.html'))
+    );
+    return;
+  }
+  // pass-through for other GETs (Vite hashed assets are fine)
+});
+
+
+Build & verify
+
+Run build, reload, then DevTools → Application → Manifest should show Installable ✓.
+
+In Cache Storage, you should see only APP_SHELL (no /api/*).
+
+Toggle offline → reload a route (e.g., /groups) → you should land on /offline.html.
