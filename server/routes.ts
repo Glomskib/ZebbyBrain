@@ -141,6 +141,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const devicesRoutes = await import('./routes/devices');
   app.use('/api/devices', isAuthenticated, devicesRoutes.default);
 
+  // Mount RAG routes (EDS AI Brain)
+  const ragRoutes = await import('./routes/rag');
+  app.use('/api/rag', ragRoutes.default);
+
   // Configure multer for file uploads
   const upload = multer({ 
     storage: multer.memoryStorage(),

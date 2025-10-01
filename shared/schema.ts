@@ -1614,3 +1614,42 @@ export const insertDeviceSchema = createInsertSchema(devices).omit({
 });
 export type InsertDevice = z.infer<typeof insertDeviceSchema>;
 export type Device = typeof devices.$inferSelect;
+
+// RAG (Retrieval-Augmented Generation) tables for EDS AI Brain
+export const knowledgeChunks = pgTable("knowledge_chunks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  source: varchar("source").notNull(), // "eds-manual", "pots-guide", "clinic-handout", etc.
+  title: varchar("title").notNull(), // Short descriptive title
+  content: text("content").notNull(), // The actual knowledge text
+  embedding: jsonb("embedding"), // Vector embedding as JSON array [0.1, 0.2, ...]
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  sourceIdx: index("knowledge_chunks_source_idx").on(table.source),
+}));
+
+export const userChunks = pgTable("user_chunks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  kind: varchar("kind").notNull(), // "symptom" | "trend" | "summary"
+  content: text("content").notNull(), // Summary or aggregated text
+  embedding: jsonb("embedding"), // Vector embedding as JSON array
+  occurredAt: timestamp("occurred_at", { withTimezone: true }), // Time window this chunk represents
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userKindIdx: index("user_chunks_user_kind_idx").on(table.userId, table.kind),
+  userOccurredIdx: index("user_chunks_user_occurred_idx").on(table.userId, table.occurredAt.desc()),
+}));
+
+export const insertKnowledgeChunkSchema = createInsertSchema(knowledgeChunks).omit({
+  id: true,
+  updatedAt: true,
+});
+export type InsertKnowledgeChunk = z.infer<typeof insertKnowledgeChunkSchema>;
+export type KnowledgeChunk = typeof knowledgeChunks.$inferSelect;
+
+export const insertUserChunkSchema = createInsertSchema(userChunks).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertUserChunk = z.infer<typeof insertUserChunkSchema>;
+export type UserChunk = typeof userChunks.$inferSelect;

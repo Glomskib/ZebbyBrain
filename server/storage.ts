@@ -68,6 +68,12 @@ import {
   type InsertShareComments,
   type Device,
   type InsertDevice,
+  knowledgeChunks,
+  userChunks,
+  type KnowledgeChunk,
+  type InsertKnowledgeChunk,
+  type UserChunk,
+  type InsertUserChunk,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, inArray, gte, lte, sql } from "drizzle-orm";
@@ -225,6 +231,17 @@ export interface IStorage {
   updateDevice(id: string, updates: Partial<InsertDevice>): Promise<void>;
   deleteDevice(id: string): Promise<void>;
   getUserDevices(userId: string): Promise<Device[]>;
+  
+  // RAG (Retrieval-Augmented Generation) operations
+  createKnowledgeChunk(chunk: InsertKnowledgeChunk): Promise<KnowledgeChunk>;
+  upsertKnowledgeChunk(source: string, title: string, content: string, embedding: number[]): Promise<KnowledgeChunk>;
+  getKnowledgeChunks(limit?: number): Promise<KnowledgeChunk[]>;
+  searchKnowledgeChunks(embedding: number[], topK: number): Promise<KnowledgeChunk[]>;
+  
+  createUserChunk(chunk: InsertUserChunk): Promise<UserChunk>;
+  getUserChunks(userId: string, kind?: string, limit?: number): Promise<UserChunk[]>;
+  searchUserChunks(userId: string, embedding: number[], topK: number, timeWindow?: { from?: Date; to?: Date }): Promise<UserChunk[]>;
+  deleteOldUserChunks(userId: string, beforeDate: Date): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1357,6 +1374,133 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(devices)
       .where(eq(devices.userId, userId));
+  }
+
+  // RAG (Retrieval-Augmented Generation) implementation
+  async createKnowledgeChunk(chunk: InsertKnowledgeChunk): Promise<KnowledgeChunk> {
+    const [created] = await db
+      .insert(knowledgeChunks)
+      .values(chunk)
+      .returning();
+    return created;
+  }
+
+  async upsertKnowledgeChunk(source: string, title: string, content: string, embedding: number[]): Promise<KnowledgeChunk> {
+    const [existing] = await db
+      .select()
+      .from(knowledgeChunks)
+      .where(and(eq(knowledgeChunks.source, source), eq(knowledgeChunks.title, title)));
+    
+    if (existing) {
+      const [updated] = await db
+        .update(knowledgeChunks)
+        .set({ content, embedding, updatedAt: new Date() })
+        .where(eq(knowledgeChunks.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      return await this.createKnowledgeChunk({ source, title, content, embedding });
+    }
+  }
+
+  async getKnowledgeChunks(limit = 100): Promise<KnowledgeChunk[]> {
+    return await db
+      .select()
+      .from(knowledgeChunks)
+      .limit(limit);
+  }
+
+  async searchKnowledgeChunks(queryEmbedding: number[], topK: number): Promise<KnowledgeChunk[]> {
+    const allChunks = await db.select().from(knowledgeChunks).where(sql`embedding IS NOT NULL`);
+    
+    const chunksWithSimilarity = allChunks.map(chunk => {
+      const chunkEmbedding = chunk.embedding as number[];
+      const similarity = this.cosineSimilarity(queryEmbedding, chunkEmbedding);
+      return { ...chunk, similarity };
+    });
+    
+    return chunksWithSimilarity
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, topK);
+  }
+
+  async createUserChunk(chunk: InsertUserChunk): Promise<UserChunk> {
+    const [created] = await db
+      .insert(userChunks)
+      .values(chunk)
+      .returning();
+    return created;
+  }
+
+  async getUserChunks(userId: string, kind?: string, limit = 100): Promise<UserChunk[]> {
+    const conditions = [eq(userChunks.userId, userId)];
+    if (kind) {
+      conditions.push(eq(userChunks.kind, kind));
+    }
+
+    return await db
+      .select()
+      .from(userChunks)
+      .where(and(...conditions))
+      .orderBy(desc(userChunks.occurredAt))
+      .limit(limit);
+  }
+
+  async searchUserChunks(
+    userId: string, 
+    queryEmbedding: number[], 
+    topK: number, 
+    timeWindow?: { from?: Date; to?: Date }
+  ): Promise<UserChunk[]> {
+    const conditions = [eq(userChunks.userId, userId), sql`embedding IS NOT NULL`];
+    
+    if (timeWindow?.from) {
+      conditions.push(gte(userChunks.occurredAt, timeWindow.from));
+    }
+    if (timeWindow?.to) {
+      conditions.push(lte(userChunks.occurredAt, timeWindow.to));
+    }
+
+    const chunks = await db
+      .select()
+      .from(userChunks)
+      .where(and(...conditions));
+    
+    const chunksWithSimilarity = chunks.map(chunk => {
+      const chunkEmbedding = chunk.embedding as number[];
+      const similarity = this.cosineSimilarity(queryEmbedding, chunkEmbedding);
+      return { ...chunk, similarity };
+    });
+    
+    return chunksWithSimilarity
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, topK);
+  }
+
+  async deleteOldUserChunks(userId: string, beforeDate: Date): Promise<void> {
+    await db
+      .delete(userChunks)
+      .where(and(
+        eq(userChunks.userId, userId),
+        lte(userChunks.occurredAt, beforeDate)
+      ));
+  }
+
+  // Helper: Cosine similarity calculation
+  private cosineSimilarity(a: number[], b: number[]): number {
+    if (a.length !== b.length) return 0;
+    
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 }
 
