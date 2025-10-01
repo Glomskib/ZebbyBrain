@@ -81,11 +81,8 @@ export function AccountManagement() {
 
   const downloadBackupMutation = useMutation({
     mutationFn: async (passphrase: string) => {
-      const url = new URL('/api/account/backup', window.location.origin);
-      url.searchParams.set('passphrase', passphrase);
-      
-      const response = await fetch(url.toString(), {
-        credentials: 'include'
+      const response = await apiRequest("POST", "/api/account/backup", {
+        passphrase
       });
       
       if (!response.ok) {

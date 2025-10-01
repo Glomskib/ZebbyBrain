@@ -101,7 +101,7 @@ router.post('/undo-delete', async (req: any, res) => {
   }
 });
 
-router.get('/backup', async (req: any, res) => {
+router.post('/backup', async (req: any, res) => {
   if (!FF_BACKUP_RESTORE) {
     return res.status(403).json({ error: 'Feature not available' });
   }
@@ -114,7 +114,7 @@ router.get('/backup', async (req: any, res) => {
 
   try {
     const userId = req.user.id;
-    const passphrase = req.query.passphrase as string;
+    const passphrase = req.body.passphrase as string;
 
     if (!passphrase || passphrase.length < 8) {
       return res.status(400).json({ error: 'Passphrase must be at least 8 characters' });
