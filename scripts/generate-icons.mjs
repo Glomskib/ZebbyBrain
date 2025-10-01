@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import sharp from 'sharp';
 
-const out = 'public';
+const out = 'client/public';
 const srcCandidates = [
+  'client/public/logo.png',
+  'client/public/logo.svg',
   'public/logo.png',
   'public/logo.svg',
 ];
@@ -14,7 +16,7 @@ if (!src) {
     <rect width="100%" height="100%" fill="#8b5cf6"/>
     <text x="50%" y="54%" font-size="520" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">🦓</text>
   </svg>`;
-  src = 'public/tmp-logo.svg';
+  src = 'client/public/tmp-logo.svg';
   fs.writeFileSync(src, svg);
 }
 
@@ -27,8 +29,8 @@ await sharp(src).resize(512, 512).png().toFile(`${out}/icon-512.png`);
 console.log('✓ Created icon-512.png');
 
 // Clean up temp file if created
-if (fs.existsSync('public/tmp-logo.svg')) {
-  fs.unlinkSync('public/tmp-logo.svg');
+if (fs.existsSync('client/public/tmp-logo.svg')) {
+  fs.unlinkSync('client/public/tmp-logo.svg');
 }
 
 console.log('Icons generated successfully in', out);
