@@ -14,20 +14,44 @@ export async function devLogin(page: Page, email: string) {
   
   const json = await response.json();
   
-  if (!json.success || !json.user) {
-    throw new Error(`Test login failed: ${JSON.stringify(json)}`);
+  if (!json.ok || !json.user) {
+    const responseText = await response.text().catch(() => JSON.stringify(json));
+    throw new Error(`Test login failed: ${responseText}`);
   }
   
-  await page.context().addCookies([
-    {
-      name: 'connect.sid',
-      value: json.sessionId || 'test-session',
-      domain: 'localhost',
-      path: '/',
-      httpOnly: true,
-      sameSite: 'Lax',
+  // Get the session cookie from the response
+  const headersArray = response.headersArray();
+  const setCookieHeaders = headersArray.filter(h => h.name.toLowerCase() === 'set-cookie');
+  
+  // Derive domain from base URL
+  const baseUrl = new URL(base);
+  const domain = baseUrl.hostname;
+  
+  let cookieSet = false;
+  for (const header of setCookieHeaders) {
+    // Look for connect.sid cookie
+    if (header.value.includes('connect.sid=')) {
+      const cookieParts = header.value.split(';')[0].split('=');
+      if (cookieParts[0] === 'connect.sid' && cookieParts[1]) {
+        await page.context().addCookies([
+          {
+            name: 'connect.sid',
+            value: cookieParts[1],
+            domain,
+            path: '/',
+            httpOnly: true,
+            sameSite: 'Lax',
+          }
+        ]);
+        cookieSet = true;
+        break;
+      }
     }
-  ]);
+  }
+  
+  if (!cookieSet) {
+    throw new Error(`No connect.sid cookie found in test-login response. Ensure SESSION_SECRET is set and session store is configured.`);
+  }
   
   await page.goto(base);
   await page.waitForTimeout(500);

@@ -11,9 +11,8 @@ const allow = (process.env.ALLOW_TEST_LOGIN || "").toLowerCase() === "true";
 const shared = process.env.TEST_LOGIN_PASSWORD || "";
 const JWT_SECRET = process.env.JWT_SECRET;
 
-r.post("/test-login", async (req, res) => {
+r.post("/test-login", async (req: any, res) => {
   if (!allow) return res.status(403).json({ error: "disabled" });
-  if (!JWT_SECRET) return res.status(500).json({ error: "jwt_secret_missing" });
   
   const pass = req.headers["x-test-login-password"] || req.body?.password;
   if (!pass || pass !== shared) return res.status(401).json({ error: "bad_password" });
@@ -33,16 +32,40 @@ r.post("/test-login", async (req, res) => {
       }).returning();
     }
     
-    const token = jwt.sign({ uid: user.id }, JWT_SECRET, { expiresIn: "7d" });
-    res.json({ 
-      ok: true, 
-      token, 
-      user: { 
-        id: user.id, 
-        email: user.email, 
-        plan: user.plan,
-        onboardingCompleted: user.onboardingCompleted
-      } 
+    // Create mock session for E2E testing
+    // Don't reassign req.session - just set the passport property
+    if (!req.session) {
+      return res.status(500).json({ error: "session_not_initialized" });
+    }
+    
+    req.session.passport = {
+      user: {
+        claims: {
+          sub: user.id,
+          email: user.email,
+          first_name: user.firstName,
+          last_name: user.lastName
+        }
+      }
+    };
+    
+    // Save session and return
+    req.session.save((err: any) => {
+      if (err) {
+        console.error("Session save error:", err);
+        return res.status(500).json({ error: "session_error" });
+      }
+      
+      res.json({ 
+        ok: true, 
+        sessionId: req.sessionID,
+        user: { 
+          id: user.id, 
+          email: user.email, 
+          plan: user.plan,
+          onboardingCompleted: user.onboardingCompleted
+        } 
+      });
     });
   } catch (error) {
     console.error("Test login error:", error);
@@ -53,6 +76,10 @@ r.post("/test-login", async (req, res) => {
 // E2E-only: Manually trigger herd alert processing
 r.post("/e2e/process-herd-alerts", async (req, res) => {
   if (!allow) return res.status(403).json({ error: "disabled" });
+  
+  // Require password just like test-login
+  const pass = req.headers["x-test-login-password"] || req.body?.password;
+  if (!pass || pass !== shared) return res.status(401).json({ error: "bad_password" });
   
   try {
     await processHerdAlerts();
