@@ -22,6 +22,7 @@ import {
   sharePermissions,
   shareAnalytics,
   shareComments,
+  devices,
   type User,
   type UpsertUser,
   type SymptomLog,
@@ -65,6 +66,8 @@ import {
   type InsertShareAnalytics,
   type ShareComments,
   type InsertShareComments,
+  type Device,
+  type InsertDevice,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, inArray, gte, lte, sql } from "drizzle-orm";
@@ -215,6 +218,13 @@ export interface IStorage {
   getShareComments(sharedContentId: string, approved?: boolean): Promise<ShareComments[]>;
   updateCommentApproval(id: string, isApproved: boolean, moderatorNotes?: string): Promise<void>;
   deleteShareComment(id: string): Promise<void>;
+  
+  // Device operations (Capacitor push notifications)
+  createDevice(device: InsertDevice): Promise<Device>;
+  getDeviceByToken(deviceToken: string): Promise<Device | undefined>;
+  updateDevice(id: string, updates: Partial<InsertDevice>): Promise<void>;
+  deleteDevice(id: string): Promise<void>;
+  getUserDevices(userId: string): Promise<Device[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1311,6 +1321,42 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(shareComments)
       .where(eq(shareComments.id, id));
+  }
+
+  async createDevice(device: InsertDevice): Promise<Device> {
+    const [created] = await db
+      .insert(devices)
+      .values(device)
+      .returning();
+    return created;
+  }
+
+  async getDeviceByToken(deviceToken: string): Promise<Device | undefined> {
+    const [device] = await db
+      .select()
+      .from(devices)
+      .where(eq(devices.deviceToken, deviceToken));
+    return device;
+  }
+
+  async updateDevice(id: string, updates: Partial<InsertDevice>): Promise<void> {
+    await db
+      .update(devices)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(devices.id, id));
+  }
+
+  async deleteDevice(id: string): Promise<void> {
+    await db
+      .delete(devices)
+      .where(eq(devices.id, id));
+  }
+
+  async getUserDevices(userId: string): Promise<Device[]> {
+    return await db
+      .select()
+      .from(devices)
+      .where(eq(devices.userId, userId));
   }
 }
 

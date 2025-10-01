@@ -137,6 +137,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const accountRoutes = await import('./routes/account');
   app.use('/api/account', isAuthenticated, accountRoutes.default);
 
+  // Mount Devices routes (Capacitor push notifications)
+  const devicesRoutes = await import('./routes/devices');
+  app.use('/api/devices', isAuthenticated, devicesRoutes.default);
+
   // Configure multer for file uploads
   const upload = multer({ 
     storage: multer.memoryStorage(),

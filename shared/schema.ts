@@ -855,6 +855,20 @@ export const reminders = pgTable("reminders", {
   nextScheduledIdx: index("reminders_next_scheduled_idx").on(table.nextScheduledAt),
 }));
 
+// Push notification devices for Capacitor mobile apps
+export const devices = pgTable("devices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  deviceToken: varchar("device_token").notNull(), // APNs or FCM token
+  platform: varchar("platform").notNull(), // "ios" or "android"
+  deviceInfo: text("device_info"), // Optional JSON string with device metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userIdx: index("devices_user_idx").on(table.userId),
+  tokenIdx: uniqueIndex("devices_token_idx").on(table.deviceToken),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   symptomLogs: many(symptomLogs),
@@ -1592,3 +1606,11 @@ export const insertRewardsLedgerSchema = createInsertSchema(rewardsLedger).omit(
 });
 export type InsertRewardsLedger = z.infer<typeof insertRewardsLedgerSchema>;
 export type RewardsLedger = typeof rewardsLedger.$inferSelect;
+
+export const insertDeviceSchema = createInsertSchema(devices).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertDevice = z.infer<typeof insertDeviceSchema>;
+export type Device = typeof devices.$inferSelect;
