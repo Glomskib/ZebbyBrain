@@ -86,6 +86,54 @@ export function ExportSection() {
   const downloadPdf = async (version = "1") => {
     try {
       setIsExporting(true);
+      
+      // Check feature flag for PDF v2
+      const isPdfV2Enabled = import.meta.env.VITE_FF_PDF_V2 === "true";
+      
+      if (version === "2" && isPdfV2Enabled) {
+        // Use new GET endpoint for PDF v2
+        if (!fromDate || !toDate) {
+          toast({
+            title: "Date Range Required",
+            description: "Please select a date range for the clinician report.",
+            variant: "destructive"
+          });
+          return;
+        }
+        
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const url = new URL('/api/exports/pdf', window.location.origin);
+        url.searchParams.set('v', '2');
+        url.searchParams.set('from', fromDate);
+        url.searchParams.set('to', toDate);
+        url.searchParams.set('tz', tz);
+        
+        const response = await fetch(url.toString(), {
+          credentials: 'include'
+        });
+        
+        if (!response.ok) {
+          throw new Error(`PDF v2 export failed: ${response.statusText}`);
+        }
+        
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `zebby_report_${fromDate}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(downloadUrl);
+        
+        toast({
+          title: "PDF Generated",
+          description: "Your clinical health report has been downloaded successfully."
+        });
+        return;
+      }
+      
+      // Standard PDF v1 flow
       const selectedSections = Object.entries(pdfSections)
         .filter(([_, selected]) => selected)
         .map(([section]) => section);

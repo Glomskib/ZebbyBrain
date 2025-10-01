@@ -9,6 +9,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { Crown, Check, X, Loader2, Download, LogIn } from "lucide-react";
 import { ExportSection } from "@/components/ExportSection";
 import { DataRetentionSection } from "@/components/DataRetentionSection";
+import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
+import { AccountManagement } from "@/components/AccountManagement";
 
 interface BillingStatus {
   plan: string;
@@ -303,6 +305,22 @@ export default function Settings() {
 
       {/* Data Retention Section */}
       <DataRetentionSection isAuthenticated={isAuthenticated} />
+
+      {/* PWA Install */}
+      <PWAInstallPrompt />
+
+      {/* Account Management */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Account Management</CardTitle>
+          <CardDescription>
+            Manage your account data, backups, and account deletion
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AccountManagement />
+        </CardContent>
+      </Card>
     </div>
   );
 }
