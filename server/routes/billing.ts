@@ -209,6 +209,20 @@ r.post("/create-portal-session", async (req, res) => {
   }
 });
 
+// Billing system health check (for production monitoring)
+r.get("/health", (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  const isLive = stripeKey && !stripeKey.startsWith("sk_test_");
+  
+  res.json({
+    stripe: stripe ? "ok" : "not_configured",
+    mode: isLive ? "live" : "test",
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Get user billing status
 r.get("/status", async (req, res) => {
   // Get user ID from either session auth (OIDC) or JWT auth ONLY - no body fallback for security
