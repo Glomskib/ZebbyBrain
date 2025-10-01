@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { db } from "../db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { processHerdAlerts } from "../lib/herd-alerts";
 
 const r = Router();
 
@@ -46,6 +47,19 @@ r.post("/test-login", async (req, res) => {
   } catch (error) {
     console.error("Test login error:", error);
     res.status(500).json({ error: "server_error" });
+  }
+});
+
+// E2E-only: Manually trigger herd alert processing
+r.post("/e2e/process-herd-alerts", async (req, res) => {
+  if (!allow) return res.status(403).json({ error: "disabled" });
+  
+  try {
+    await processHerdAlerts();
+    res.json({ ok: true, message: "Herd alerts processed" });
+  } catch (error) {
+    console.error("E2E herd alert processing error:", error);
+    res.status(500).json({ error: "processing_failed" });
   }
 });
 
