@@ -1,0 +1,255 @@
+1) Enable gzip/deflate compression (+ proper vary)
+
+Your app serves the SPA and JSON. Add compression to cut payloads ~30–70%.
+
+Patch — server/index.ts (top imports + after Helmet):
+
+import compression from "compression";
+
+// ...after helmet(...)
+app.use(compression({
+  threshold: 1024,            // skip tiny responses
+  filter: (req, res) => {
+    // don't compress already-compressed or event streams
+    const type = res.getHeader("Content-Type") as string | undefined;
+    if (type && /(^text\/event-stream)/i.test(type)) return false;
+    return compression.filter(req, res);
+  }
+}));
+// Ensure correct caches on proxies
+app.use((req, res, next) => {
+  res.setHeader("Vary", "Accept-Encoding");
+  next();
+});
+
+2) Static asset caching policy (fast SPA loads)
+
+Right now serveStatic sends everything with default headers. Cache hashed assets aggressively, but keep index.html no-cache so new deploys take effect.
+
+Patch — server/vite.ts in serveStatic(app)
+
+import mime from "mime";
+
+export function serveStatic(app: Express) {
+  const distPath = path.resolve(import.meta.dirname, "public");
+  if (!fs.existsSync(distPath)) throw new Error(`Missing build dir: ${distPath}`);
+
+  app.use((req, res, next) => {
+    const filePath = path.join(distPath, req.path);
+    const isIndex = req.path === "/" || req.path === "/index.html";
+    const exists = fs.existsSync(filePath);
+
+    if (exists && !isIndex) {
+      // hashed assets -> cache for a year
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    } else {
+      // HTML & fallbacks -> no cache
+      res.setHeader("Cache-Control", "no-store");
+    }
+    next();
+  });
+
+  app.use(express.static(distPath));
+
+  app.use("*", (_req, res) => {
+    res.setHeader("Content-Type", mime.getType("html") || "text/html");
+    res.sendFile(path.resolve(distPath, "index.html"));
+  });
+}
+
+3) Robust weather calls: timeout + retry + cache
+
+server/weatherService.ts is clean but synchronous to user requests and lacks resilience. Add a 3-try backoff, 4s timeout, and a tiny in-memory cache per location/day so symptom logging never stalls.
+
+Drop-in utility — server/lib/fetchSafe.ts
+
+export async function fetchSafe(url: string, opts: RequestInit = {}, tries = 3, timeoutMs = 4000) {
+  for (let i = 0; i < tries; i++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...opts, signal: ctrl.signal });
+      clearTimeout(t);
+      if (res.ok) return res;
+      if (res.status >= 500) throw new Error(`Server ${res.status}`);
+      return res; // 4xx - don't retry
+    } catch (e) {
+      clearTimeout(t);
+      if (i === tries - 1) throw e;
+      await new Promise(r => setTimeout(r, 250 * (i + 1) * (i + 1)));
+    }
+  }
+  throw new Error("unreachable");
+}
+
+
+Patch — server/weatherService.ts (cache + safe fetch):
+
+import { fetchSafe } from "./lib/fetchSafe";
+
+const CACHE = new Map<string, { at: number; data: WeatherData }>();
+const DAY_MS = 86_400_000;
+
+export async function getWeather(location: string): Promise<WeatherData | null> {
+  try {
+    const key = `${location}:${new Date().toDateString()}`;
+    const cached = CACHE.get(key);
+    if (cached && (Date.now() - cached.at) < DAY_MS) return cached.data;
+
+    const url = /* your existing OpenWeather/Open-Meteo url */;
+    const resp = await fetchSafe(url, {}, 3, 4000);
+    if (!resp.ok) return null;
+
+    const json = await resp.json() as OpenWeatherResponse;
+    const data: WeatherData = {
+      temperature: Math.round((json.main?.temp ?? 0) * 10) / 10,
+      condition: mapWeatherCondition(json.weather?.[0]?.main || "Unknown"),
+      location: json.name || location
+    };
+
+    CACHE.set(key, { at: Date.now(), data });
+    return data;
+  } catch {
+    return null; // never block symptom logging
+  }
+}
+
+
+…and in the symptom route you already correctly treat a null as “don’t block.”
+
+4) Add a normal CI that runs typecheck, lint, tests, build
+
+You have a great Security CI. Add a standard CI so regressions are caught early.
+
+.github/workflows/ci.yml
+
+name: CI
+on:
+  push: { branches: [main, develop] }
+  pull_request: { branches: [main, develop] }
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci
+      - run: npm run check
+      - run: npm run lint || true  # add lint soon; soft-fail initially
+      - run: npx playwright install --with-deps
+      - run: npm run build
+      - run: npx playwright test --reporter=line
+
+
+Add a basic lint script later:
+
+"lint": "eslint . --ext .ts,.tsx"
+
+5) Stripe webhook hardening (if/when you add them)
+
+I see billing routes and health checks but no webhook handler. When you do add it:
+
+Verify signatures via stripe.webhooks.constructEvent
+
+Use raw body parser on /webhooks/stripe
+
+Idempotency lock with event id in DB
+
+If that’s already elsewhere, great—just ensure app.use(express.json(...)) doesn’t pre-parse that route.
+
+6) CSP: narrow dev exceptions & add upgrade-insecure-requests
+
+Your CSP is solid. Tiny tweaks:
+
+In production add upgrade-insecure-requests directive.
+
+Ensure connect-src includes your Replit domain and any analytics endpoint you actually use.
+
+Keep 'unsafe-inline'/'unsafe-eval' limited to dev only (you already do that).
+
+Snippet (inside existing Helmet CSP prod block)
+
+"upgrade-insecure-requests": []
+
+7) Observability: client error boundary + server error IDs
+
+You’ve got good server logging. Make it actionable for users:
+
+Client error boundary — client/src/components/ErrorBoundary.tsx
+
+import { Component, ReactNode } from "react";
+
+export default class ErrorBoundary extends Component<{children: ReactNode},{hasError:boolean;err?:any}> {
+  state = { hasError: false as boolean, err: undefined as any };
+  static getDerivedStateFromError(err: any) { return { hasError: true, err }; }
+  componentDidCatch(err: any, info: any) { console.error("UI Error", err, info); }
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return <div className="p-6 text-sm">
+      <h2 className="font-semibold mb-2">Something went wrong</h2>
+      <p className="opacity-70">Please refresh. If this keeps happening, contact support with the timestamp {new Date().toISOString()}.</p>
+    </div>;
+  }
+}
+
+
+Wrap Router in App.tsx:
+
+<ErrorBoundary>
+  <Router />
+</ErrorBoundary>
+
+
+Server response correlation ID (add near your logging middleware):
+
+app.use((req, res, next) => {
+  const rid = crypto.randomUUID();
+  (req as any).rid = rid;
+  res.setHeader("X-Request-Id", rid);
+  next();
+});
+
+
+Then include rid in error logs and JSON errors for easier support.
+
+8) Data export CSV/JSON: large responses stream
+
+Your export route uses json2csv and PDF printing. For CSV/JSON exports that can exceed several MB, switch to streaming so autoscale instances don’t balloon memory.
+
+Pattern (CSV stream)
+
+res.setHeader("Content-Type", "text/csv; charset=utf-8");
+res.setHeader("Content-Disposition", `attachment; filename="zebby-export-${Date.now()}.csv"`);
+const pass = new PassThrough();
+pass.pipe(res);
+pass.write("colA,colB\n");
+for await (const row of storage.streamSymptomLogs(userId)) {
+  pass.write(`${row.a},${row.b}\n`);
+}
+pass.end();
+
+
+(If drizzle doesn’t easily stream, page in chunks with LIMIT/OFFSET and res.flushHeaders().)
+
+Medium-impact polish
+
+Static 404: Add a nice 404 component for unknown SPA routes (keeps users in the app instead of a blank page).
+
+A11y: Your components mostly look good; ensure every icon-only button has an aria-label (I saw some in the sidebar and chart controls).
+
+Client code-split: You’ve kept the router tidy—consider lazy loading marketplace, product-detail, and import pages (Vite lazy(() => import(...))) to shave initial load.
+
+Session cookies: You’re setting up express-session in replitAuth.ts. Make sure cookie: { sameSite: 'lax', httpOnly: true, secure: NODE_ENV === 'production' } is set (if not already present in the part I didn’t expand).
+
+Low-effort DX boosts
+
+Prestart guard: add a quick guard to avoid “dist missing” on autoscale.
+
+"prestart": "node -e \"require('fs').accessSync('dist/index.js')\""
+
+
+Prune prod deps: npm ci --omit=dev in autoscale build to keep the image light (Replit’s deployment config supports custom build steps).
+
+Type-narrow storage: In server/storage.ts, declare dedicated return types that omit internal columns (e.g., refresh_token) to prevent accidental leakage.
