@@ -91,6 +91,12 @@ export interface IStorage {
     experienceLevel?: string | null;
     dailyGoals?: string[] | null;
   }): Promise<User>;
+  updateUserSubscription(userId: string, subscriptionData: {
+    stripeCustomerId?: string | null;
+    plan?: string;
+    planStatus?: string;
+    currentPeriodEnd?: Date | null;
+  }): Promise<User>;
   
   // Enhanced symptom tracking operations
   createSymptomLog(log: InsertSymptomLog): Promise<SymptomLog>;
@@ -312,6 +318,23 @@ export class DatabaseStorage implements IStorage {
       .update(users)
       .set({
         ...profileData,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
+  }
+
+  async updateUserSubscription(userId: string, subscriptionData: {
+    stripeCustomerId?: string | null;
+    plan?: string;
+    planStatus?: string;
+    currentPeriodEnd?: Date | null;
+  }): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({
+        ...subscriptionData,
         updatedAt: new Date(),
       })
       .where(eq(users.id, userId))
