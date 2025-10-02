@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { EMBEDDING_MODEL, EMBEDDING_DIM } from "../rag/config";
 
 const r = Router();
 
@@ -23,6 +24,15 @@ r.get("/status", (req, res) => {
     },
     env: process.env.NODE_ENV || "development",
     timestamp: new Date().toISOString()
+  });
+});
+
+r.get("/rag/health", (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ 
+    ok: true, 
+    model: EMBEDDING_MODEL, 
+    dim: EMBEDDING_DIM 
   });
 });
 

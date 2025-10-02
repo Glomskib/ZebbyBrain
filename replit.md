@@ -29,6 +29,12 @@ Preferred communication style: Simple, everyday language.
   - **Wave 3 Multi-Entry**: Support for logging multiple symptom entries for the same day with timezone-aware timestamptz storage. Uses `fromZonedTime` (date-fns-tz v3) for proper timezone conversion.
 - **AI Companion (Zebby Avatar)**: A persistent, floating AI chat assistant providing empathetic support and context-aware responses.
 - **AI Insights & Trends**: AI-powered analysis of health data (pain, flares, HR, sleep, hydration) to provide trends and non-medical advice.
+- **RAG (EDS AI Brain)**: Retrieval-Augmented Generation system for knowledge-based question answering.
+  - **Knowledge Base**: Curated EDS information stored as vector embeddings (JSONB arrays, no pgvector dependency).
+  - **User Context**: Personalized answers using user's symptom/vitals history with time window filtering (7d/30d/90d/all-time).
+  - **Embeddings**: OpenAI text-embedding-3-small (1536 dimensions) with cosine similarity search.
+  - **API Endpoints**: POST `/api/rag/seed` (dev-only), POST `/api/rag/answer`, GET `/api/rag/health`.
+  - **Configuration**: Centralized in `server/rag/config.ts` with EMBEDDING_MODEL and EMBEDDING_DIM constants.
 - **Personal Circle**: Private health data sharing system with granular controls, secure invitations, and automated alert rules for designated members.
   - **Wave 3+ Herd Reach-Out**: Manual alert system with 10-minute cancel window, rate limiting (3/hour), and background processing. Requires `FF_HERD=true` and `VITE_FF_HERD=true` secrets.
 - **Zebby Social (Groups)**: Community groups with a directory, state-based access control, post composer, interactive feed, and moderation tools. Includes age, gender, and diagnosis-gated access.
@@ -38,11 +44,13 @@ Preferred communication style: Simple, everyday language.
 - **Security**: Robust authentication, Zod validation, rate limiting middleware, and text sanitization (HTML stripping, XSS prevention).
 
 ### System Design Choices
-- **Data Models**: Enhanced user profiles, detailed symptom logs, AI interaction history, product catalogs, and specialized product reviews.
+- **Data Models**: Enhanced user profiles, detailed symptom logs, AI interaction history, product catalogs, specialized product reviews, and RAG knowledge/user chunks.
 - **Access Control**: Middleware-based route protection, ownership verification, and detailed access control for social groups based on user profile data.
 - **Database Migrations**: SQL-based migration system for robust schema evolution.
 - **Caching**: 24-hour caching for AI insights and efficient data retrieval.
 - **Testing**: Comprehensive Playwright E2E test suite (though not runnable in Replit due to browser dependencies).
+- **Performance**: Gzip/deflate compression, weather API caching, resilient network calls with retry/timeout logic.
+- **Observability**: Client ErrorBoundary for crash handling, request correlation IDs, PII/PHI redaction in logs.
 
 ## External Dependencies
 

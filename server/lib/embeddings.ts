@@ -1,14 +1,13 @@
 import OpenAI from "openai";
+import { EMBEDDING_MODEL } from "../rag/config";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const model = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
-  
   const response = await openai.embeddings.create({
-    model,
+    model: EMBEDDING_MODEL,
     input: text,
   });
 
@@ -16,10 +15,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  const model = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
-  
   const response = await openai.embeddings.create({
-    model,
+    model: EMBEDDING_MODEL,
     input: texts,
   });
 
