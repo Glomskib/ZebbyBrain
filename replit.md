@@ -35,6 +35,8 @@ Preferred communication style: Simple, everyday language.
   - **Embeddings**: OpenAI text-embedding-3-small (1536 dimensions) with cosine similarity search.
   - **API Endpoints**: POST `/api/rag/seed` (dev-only), POST `/api/rag/answer`, GET `/api/rag/health`.
   - **Configuration**: Centralized in `server/rag/config.ts` with EMBEDDING_MODEL and EMBEDDING_DIM constants.
+  - **Cost Controls**: Daily query quotas (free: 5, plus: 100), configurable via DAILY_QUERY_LIMIT_FREE/PAID env vars.
+  - **Usage Tracking**: Token usage logging with estimated cost tracking for monitoring OpenAI spend.
 - **Personal Circle**: Private health data sharing system with granular controls, secure invitations, and automated alert rules for designated members.
   - **Wave 3+ Herd Reach-Out**: Manual alert system with 10-minute cancel window, rate limiting (3/hour), and background processing. Requires `FF_HERD=true` and `VITE_FF_HERD=true` secrets.
 - **Zebby Social (Groups)**: Community groups with a directory, state-based access control, post composer, interactive feed, and moderation tools. Includes age, gender, and diagnosis-gated access.
@@ -50,7 +52,8 @@ Preferred communication style: Simple, everyday language.
 - **Caching**: 24-hour caching for AI insights and efficient data retrieval.
 - **Testing**: Comprehensive Playwright E2E test suite (though not runnable in Replit due to browser dependencies).
 - **Performance**: Gzip/deflate compression, weather API caching, resilient network calls with retry/timeout logic.
-- **Observability**: Client ErrorBoundary for crash handling, request correlation IDs, PII/PHI redaction in logs.
+- **Observability**: Client ErrorBoundary for crash handling, request correlation IDs, PII/PHI redaction in logs, RAG usage tracking with token counts and cost estimates.
+- **Cost Management**: Daily per-user RAG query limits with middleware-based quota enforcement, configurable token limits (ANSWER_MAX_TOKENS), and structured usage logging.
 
 ## External Dependencies
 

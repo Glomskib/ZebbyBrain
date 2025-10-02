@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { generateEmbedding } from "../lib/embeddings";
+import { logUsage } from "../lib/usageLog";
+import { quota } from "../middleware/quota";
 import { z } from "zod";
 
 const router = Router();
@@ -91,9 +93,15 @@ const answerSchema = z.object({
   window: z.enum(["7d", "30d", "90d", "up_to_now"]).default("30d"),
 });
 
-router.post("/answer", async (req, res) => {
+router.post("/answer", 
+  quota(
+    Number(process.env.DAILY_QUERY_LIMIT_FREE ?? 5),
+    Number(process.env.DAILY_QUERY_LIMIT_PAID ?? 100)
+  ),
+  async (req, res) => {
   try {
-    if (!req.user?.id) {
+    const user = (req as any).user as { id: string; plan?: string } | undefined;
+    if (!user?.id) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
@@ -115,7 +123,7 @@ router.post("/answer", async (req, res) => {
 
     const [knowledgeChunks, userChunks] = await Promise.all([
       storage.searchKnowledgeChunks(queryEmbedding, Math.floor(topK / 2)),
-      storage.searchUserChunks(req.user.id, queryEmbedding, Math.floor(topK / 2), timeWindow),
+      storage.searchUserChunks(user.id, queryEmbedding, Math.floor(topK / 2), timeWindow),
     ]);
 
     const edsContext = knowledgeChunks
@@ -146,17 +154,25 @@ Guidelines:
     const openai = (await import("openai")).default;
     const client = new openai({ apiKey: process.env.OPENAI_API_KEY });
 
+    const completionModel = process.env.COMPLETION_MODEL || "gpt-4o-mini";
+    const answerMaxTokens = Number(process.env.ANSWER_MAX_TOKENS ?? 350);
+
     const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: completionModel,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: body.question },
       ],
       temperature: 0.7,
-      max_tokens: 300,
+      max_tokens: answerMaxTokens,
     });
 
     const answer = completion.choices[0].message.content || "I'm here to help, but I couldn't generate a response. Please try again.";
+
+    const inputTokensApprox = Math.ceil((systemPrompt.length + body.question.length) / 4);
+    const outputTokensApprox = Math.ceil(answer.length / 4);
+    
+    logUsage("rag.answer", inputTokensApprox, outputTokensApprox, user.id);
 
     return res.json({
       answer,
@@ -164,6 +180,10 @@ Guidelines:
       sources: {
         edsKnowledge: knowledgeChunks.length,
         userHistory: userChunks.length,
+      },
+      usage: {
+        queriesUsed: res.locals.quotaCount,
+        queriesLimit: res.locals.quotaLimit,
       },
     });
   } catch (error: any) {
