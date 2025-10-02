@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { generateEmbedding } from "../lib/embeddings";
 import { logUsage } from "../lib/usageLog";
 import { quota } from "../middleware/quota";
+import { isAuthenticated } from "../replitAuth";
 import { z } from "zod";
 
 const router = Router();
@@ -94,14 +95,16 @@ const answerSchema = z.object({
 });
 
 router.post("/answer", 
+  isAuthenticated,
   quota(
     Number(process.env.DAILY_QUERY_LIMIT_FREE ?? 5),
     Number(process.env.DAILY_QUERY_LIMIT_PAID ?? 100)
   ),
   async (req, res) => {
   try {
-    const user = (req as any).user as { id: string; plan?: string } | undefined;
-    if (!user?.id) {
+    const user = (req as any).user as { id: string; plan?: string; claims?: { sub: string } } | undefined;
+    const userId = user?.claims?.sub || user?.id;
+    if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
@@ -123,7 +126,7 @@ router.post("/answer",
 
     const [knowledgeChunks, userChunks] = await Promise.all([
       storage.searchKnowledgeChunks(queryEmbedding, Math.floor(topK / 2)),
-      storage.searchUserChunks(user.id, queryEmbedding, Math.floor(topK / 2), timeWindow),
+      storage.searchUserChunks(userId, queryEmbedding, Math.floor(topK / 2), timeWindow),
     ]);
 
     const edsContext = knowledgeChunks
@@ -172,7 +175,7 @@ Guidelines:
     const inputTokensApprox = Math.ceil((systemPrompt.length + body.question.length) / 4);
     const outputTokensApprox = Math.ceil(answer.length / 4);
     
-    logUsage("rag.answer", inputTokensApprox, outputTokensApprox, user.id);
+    logUsage("rag.answer", inputTokensApprox, outputTokensApprox, userId);
 
     return res.json({
       answer,

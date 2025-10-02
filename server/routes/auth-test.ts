@@ -38,14 +38,18 @@ r.post("/test-login", async (req: any, res) => {
       return res.status(500).json({ error: "session_not_initialized" });
     }
     
+    const oneWeekFromNow = Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60);
+    
     req.session.passport = {
       user: {
         claims: {
           sub: user.id,
           email: user.email,
           first_name: user.firstName,
-          last_name: user.lastName
-        }
+          last_name: user.lastName,
+          exp: oneWeekFromNow
+        },
+        expires_at: oneWeekFromNow
       }
     };
     
