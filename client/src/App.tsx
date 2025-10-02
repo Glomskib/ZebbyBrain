@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import ZebbyChat from "@/components/ZebbyChat";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
@@ -99,7 +100,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
-        <AppContent />
+        <ErrorBoundary>
+          <AppContent />
+        </ErrorBoundary>
       </TooltipProvider>
     </QueryClientProvider>
   );

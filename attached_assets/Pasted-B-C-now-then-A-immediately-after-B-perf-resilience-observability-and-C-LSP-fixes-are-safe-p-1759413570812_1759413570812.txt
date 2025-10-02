@@ -1,0 +1,244 @@
+B + C now, then A immediately after
+
+B (perf/resilience/observability) and C (LSP fixes) are safe, parallelizable, and won’t block anything.
+
+A (RAG test) is gated on one tiny change you can do right now (the secret). I’ll give you the exact steps so it’s unblocked.
+
+0) Fix the secret now (2 minutes)
+
+In Replit → Secrets:
+
+Key: EMBEDDING_MODEL
+
+Value: text-embedding-3-small
+
+If you’re using pgvector with a fixed dimension:
+
+text-embedding-3-small = 1536 dims
+
+text-embedding-3-large = 3072 dims
+
+If your knowledge_chunks.embedding column is typed as vector(3072) from earlier experiments, switch to small? Do one of these:
+
+A) Keep “small” and alter to 1536 (recommended)
+
+ALTER TABLE knowledge_chunks ALTER COLUMN embedding TYPE vector(1536);
+ALTER TABLE user_chunks     ALTER COLUMN embedding TYPE vector(1536);
+
+
+B) Prefer “large” quality
+Set the secret to text-embedding-3-large and keep vector(3072).
+
+Tip: to future-proof, centralize the embedding dimension:
+
+// server/rag/config.ts
+export const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
+export const EMBEDDING_DIM   = EMBEDDING_MODEL.includes("large") ? 3072 : 1536;
+
+
+If you generate the table in code/migrations, read EMBEDDING_DIM there too so schema and model never drift.
+
+1) Do B (perf/resilience) now – copy/paste patches
+
+You already have many hard parts done. Add these (all server-only and low-risk):
+
+Compression + Vary
+
+// server/index.ts
+import compression from "compression";
+app.use(compression({ threshold: 1024, filter: (req, res) => {
+  const type = res.getHeader("Content-Type") as string | undefined;
+  if (type && /(^text\/event-stream)/i.test(type)) return false;
+  return compression.filter(req, res);
+}}));
+app.use((_, res, next) => { res.setHeader("Vary", "Accept-Encoding"); next(); });
+
+
+Static asset caching (hashed files long-cache, HTML no-cache)
+(If you have a static serve helper, wire this there.)
+
+// before express.static(...)
+app.use((req, res, next) => {
+  const isHtml = req.path === "/" || req.path.endsWith(".html");
+  res.setHeader("Cache-Control", isHtml ? "no-store" : "public, max-age=31536000, immutable");
+  next();
+});
+
+
+Weather/network calls: timeout + retry + cache
+Add a tiny fetchSafe and in-memory cache so user actions never stall.
+
+// server/lib/fetchSafe.ts
+export async function fetchSafe(url: string, opts: RequestInit = {}, tries = 3, timeoutMs = 4000) {
+  for (let i = 0; i < tries; i++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...opts, signal: ctrl.signal });
+      clearTimeout(timer);
+      if (res.ok) return res;
+      if (res.status >= 500) throw new Error("retryable");
+      return res;
+    } catch {
+      clearTimeout(timer);
+      if (i === tries - 1) throw new Error("fetch failed");
+      await new Promise(r => setTimeout(r, 250 * (i + 1) * (i + 1)));
+    }
+  }
+  throw new Error("unreachable");
+}
+
+// server/weatherService.ts (example)
+const CACHE = new Map<string, { at: number; data: any }>();
+const DAY = 86_400_000;
+export async function getWeather(key: string) {
+  const c = CACHE.get(key);
+  if (c && Date.now() - c.at < DAY) return c.data;
+  const res = await fetchSafe(makeUrl(key), {}, 3, 4000).catch(() => null);
+  if (!res || !res.ok) return null;
+  const data = await res.json();
+  CACHE.set(key, { at: Date.now(), data });
+  return data;
+}
+
+
+CSP polish
+
+// production CSP additions
+"upgrade-insecure-requests": [],
+
+
+Client ErrorBoundary
+Wrap your router so crashes are user-friendly and logged.
+
+// client/src/components/ErrorBoundary.tsx
+import { Component, ReactNode } from "react";
+export default class ErrorBoundary extends Component<{children:ReactNode},{hasError:boolean}> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err:any, info:any){ console.error("UI Error", err, info); }
+  render(){ return this.state.hasError ? <div className="p-6">Something went wrong. Please refresh.</div> : this.props.children; }
+}
+
+// client/src/App.tsx
+<ErrorBoundary>
+  <Router />
+</ErrorBoundary>
+
+
+Standard CI (you already have security CI)
+
+# .github/workflows/ci.yml
+name: CI
+on: [push, pull_request]
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci
+      - run: npm run check || true
+      - run: npm run build
+      - run: npx playwright install --with-deps
+      - run: npx playwright test --reporter=line
+
+2) Do C (LSP diagnostics) now – fast triage playbook
+
+Without seeing the 29 diagnostics, here’s a quick sweep that resolves 90% of typical TS/LSP noise:
+
+Turn on stricter but useful rules (if not already)
+
+// tsconfig.json
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true
+  }
+}
+
+
+Server
+
+Add explicit return types on exported functions (routes, services).
+
+Narrow any in request bodies via your Zod schemas:
+
+const parsed = MySchema.parse(req.body);
+// use parsed: MySchemaType
+
+
+In async route handlers, return res.status(...).json(...) to make control flow explicit (silences “not all code paths return”).
+
+Replace require(...) shims in ESM with await import(...) or top-level imports (fixes ESM LSP warnings).
+
+Client
+
+Fix useEffect dependency warnings by either:
+
+moving function deps inside the effect, or
+
+useCallback the function, then include it in deps.
+
+Add aria-label to icon-only buttons.
+
+Add types to component props/interfaces (no implicit any).
+
+Avoid default-export then named-import mismatch; keep it consistent.
+
+ESLint pass (if configured):
+
+Remove unused imports/vars.
+
+Prefer const over let where immutability applies.
+
+If you want, paste the 3 file paths and I’ll give precise one-liners for each diagnostic.
+
+3) Then do A: RAG smoke test (after the secret fix)
+
+Use this to prove the pipeline end-to-end:
+
+Seed (dev-only guard is already in place):
+
+curl -X POST http://localhost:5000/api/rag/seed \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "docs": [
+      {"id":"d1","title":"Zebby Onboarding","text":"Zebby helps you log symptoms and view insights."},
+      {"id":"d2","title":"Privacy","text":"Data is stored securely and can be exported anytime."}
+    ]
+  }'
+
+
+Ask a question:
+
+curl -X POST http://localhost:5000/api/rag/answer \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"How do I use Zebby to track symptoms?"}'
+
+
+Expected: JSON with answer + sources (top-k chunk IDs).
+If you get a 500, log the embedding dimension and model chosen to confirm they match your table type.
+
+Nice guardrails (quick checks):
+
+Reject empty queries (min length).
+
+Clamp topK (e.g., 3–10).
+
+Filter self-matches by user (if using user_chunks).
+
+4) Order of operations (so nothing blocks)
+
+Update EMBEDDING_MODEL secret (and table vector(dim) if needed).
+
+Land B patches (compression, caching, error boundary, fetchSafe).
+
+Fix C diagnostics (the sweep above usually clears them quickly).
+
+Run the RAG smoke test commands.
+
+If all green: wire the RAG answer endpoint to your UI (tiny client PR: loading state + “sources” accordion).

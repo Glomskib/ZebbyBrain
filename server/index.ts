@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import hpp from "hpp";
 import cors from "cors";
+import compression from "compression";
 import crypto from "crypto";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -32,24 +33,46 @@ app.use((req, res, next) => {
   next();
 });
 
+// Compression middleware
+app.use(compression({
+  threshold: 1024, // skip tiny responses
+  filter: (req, res) => {
+    const type = res.getHeader("Content-Type") as string | undefined;
+    if (type && /(^text\/event-stream)/i.test(type)) return false;
+    return compression.filter(req, res);
+  }
+}));
+
+// Ensure correct caches on proxies
+app.use((req, res, next) => {
+  res.setHeader("Vary", "Accept-Encoding");
+  next();
+});
+
 // Helmet for comprehensive security headers
+const cspDirectives: any = {
+  "default-src": ["'self'"],
+  "img-src": ["'self'", "data:", "blob:"],
+  "font-src": ["'self'", "https://fonts.gstatic.com"],
+  "style-src": ["'self'", "https://fonts.googleapis.com"], // for Tailwind + Google Fonts
+  "script-src": process.env.NODE_ENV === "development" 
+    ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"] // Allow inline scripts in development for Vite + Stripe
+    : ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],
+  "connect-src": ["'self'", "https://api.stripe.com", "https://api.openai.com"],
+  "frame-src": ["https://js.stripe.com"],
+  "frame-ancestors": ["'none'"],
+  "object-src": ["'none'"],
+  "base-uri": ["'self'"],
+};
+
+if (process.env.NODE_ENV === "production") {
+  cspDirectives["upgrade-insecure-requests"] = [];
+}
+
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
-    directives: {
-      "default-src": ["'self'"],
-      "img-src": ["'self'", "data:", "blob:"],
-      "font-src": ["'self'", "https://fonts.gstatic.com"],
-      "style-src": ["'self'", "https://fonts.googleapis.com"], // for Tailwind + Google Fonts
-      "script-src": process.env.NODE_ENV === "development" 
-        ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"] // Allow inline scripts in development for Vite + Stripe
-        : ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],
-      "connect-src": ["'self'", "https://api.stripe.com", "https://api.openai.com"],
-      "frame-src": ["https://js.stripe.com"],
-      "frame-ancestors": ["'none'"],
-      "object-src": ["'none'"],
-      "base-uri": ["'self'"],
-    },
+    directives: cspDirectives,
   },
   frameguard: { action: "deny" }, // Explicitly set X-Frame-Options to DENY
   referrerPolicy: { policy: "no-referrer" },

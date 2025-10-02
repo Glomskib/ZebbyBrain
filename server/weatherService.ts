@@ -1,3 +1,5 @@
+import { fetchSafe } from "./lib/fetchSafe";
+
 interface WeatherData {
   temperature: number; // Celsius
   condition: string; // sunny, cloudy, rainy, etc.
@@ -15,6 +17,9 @@ interface OpenWeatherResponse {
   name: string;
 }
 
+const CACHE = new Map<string, { at: number; data: WeatherData }>();
+const DAY_MS = 86_400_000;
+
 /**
  * Get current weather data for a location
  * Uses OpenWeatherMap API (free tier)
@@ -25,7 +30,6 @@ export async function getCurrentWeather(
   apiKey?: string
 ): Promise<WeatherData | null> {
   try {
-    // Use environment variable for API key
     const weatherApiKey = apiKey || process.env.OPENWEATHER_API_KEY;
     
     if (!weatherApiKey) {
@@ -33,9 +37,15 @@ export async function getCurrentWeather(
       return null;
     }
 
+    const cacheKey = `${lat},${lon}:${new Date().toDateString()}`;
+    const cached = CACHE.get(cacheKey);
+    if (cached && (Date.now() - cached.at) < DAY_MS) {
+      return cached.data;
+    }
+
     const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${weatherApiKey}&units=metric`;
     
-    const response = await fetch(url);
+    const response = await fetchSafe(url, {}, 3, 4000);
     
     if (!response.ok) {
       console.error(`Weather API error: ${response.status} ${response.statusText}`);
@@ -44,14 +54,16 @@ export async function getCurrentWeather(
 
     const data: OpenWeatherResponse = await response.json();
     
-    // Map OpenWeather conditions to simplified conditions
     const weatherCondition = mapWeatherCondition(data.weather[0].main);
     
-    return {
-      temperature: Math.round(data.main.temp * 10) / 10, // Round to 1 decimal
+    const weatherData: WeatherData = {
+      temperature: Math.round(data.main.temp * 10) / 10,
       condition: weatherCondition,
       location: data.name
     };
+    
+    CACHE.set(cacheKey, { at: Date.now(), data: weatherData });
+    return weatherData;
     
   } catch (error) {
     console.error("Failed to fetch weather data:", error);
@@ -74,9 +86,15 @@ export async function getWeatherByCity(
       return null;
     }
 
+    const cacheKey = `${city}:${new Date().toDateString()}`;
+    const cached = CACHE.get(cacheKey);
+    if (cached && (Date.now() - cached.at) < DAY_MS) {
+      return cached.data;
+    }
+
     const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${weatherApiKey}&units=metric`;
     
-    const response = await fetch(url);
+    const response = await fetchSafe(url, {}, 3, 4000);
     
     if (!response.ok) {
       console.error(`Weather API error: ${response.status} ${response.statusText}`);
@@ -87,11 +105,14 @@ export async function getWeatherByCity(
     
     const weatherCondition = mapWeatherCondition(data.weather[0].main);
     
-    return {
+    const weatherData: WeatherData = {
       temperature: Math.round(data.main.temp * 10) / 10,
       condition: weatherCondition,
       location: data.name
     };
+    
+    CACHE.set(cacheKey, { at: Date.now(), data: weatherData });
+    return weatherData;
     
   } catch (error) {
     console.error("Failed to fetch weather data:", error);
