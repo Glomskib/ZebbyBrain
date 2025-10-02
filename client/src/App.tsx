@@ -25,6 +25,7 @@ import ModQueue from "@/pages/mod-queue";
 import PersonalCircle from "@/pages/personal-circle";
 import MemberDashboard from "@/pages/member-dashboard";
 import HerdRewards from "@/pages/herd-rewards";
+import AskZebby from "@/pages/ask-zebby";
 
 function Router() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -55,6 +56,7 @@ function Router() {
           <Route path="/circle" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/member-dashboard" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/tracker" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/ask-zebby" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/groups" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/groups/:slug" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/groups/:slug/mod/reports" component={() => { window.location.href = '/onboarding'; return null; }} />
@@ -66,6 +68,7 @@ function Router() {
         <>
           <Route path="/" component={Dashboard} />
           <Route path="/tracker" component={SymptomTracker} />
+          <Route path="/ask-zebby" component={AskZebby} />
           <Route path="/groups" component={GroupsDirectory} />
           <Route path="/groups/:slug/mod/reports" component={ModQueue} />
           <Route path="/groups/:slug" component={GroupHome} />

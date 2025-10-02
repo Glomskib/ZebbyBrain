@@ -1,0 +1,160 @@
+let’s wire up Stripe subscriptions end-to-end so Zebby can automatically move people from free → Plus.
+
+🔧 Backend Setup (Stripe + Zebby)
+1. Install Stripe SDK
+
+In your Replit project:
+
+npm install stripe
+
+2. Add Secrets
+
+In Replit Secrets (and Deployment env):
+
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...   # from Stripe dashboard when you add webhook
+STRIPE_PRICE_ID=price_...         # the Plus subscription price you create in Stripe
+STRIPE_SUCCESS_URL=https://yourapp.com/dashboard?upgraded=true
+STRIPE_CANCEL_URL=https://yourapp.com/settings/billing
+
+3. Create Checkout Session Endpoint
+
+Add server/routes/billing.ts:
+
+import { Router } from "express";
+import Stripe from "stripe";
+
+const router = Router();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2025-01-27.acacia" });
+
+router.post("/billing/checkout", async (req, res) => {
+  const user = (req as any).user;
+  if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "subscription",
+      line_items: [{ price: process.env.STRIPE_PRICE_ID!, quantity: 1 }],
+      customer_email: user.email, // you must have email in your auth profile
+      success_url: process.env.STRIPE_SUCCESS_URL!,
+      cancel_url: process.env.STRIPE_CANCEL_URL!,
+      metadata: { userId: user.id },
+    });
+
+    res.json({ url: session.url });
+  } catch (err: any) {
+    console.error("Stripe error:", err);
+    res.status(500).json({ message: "Stripe checkout failed" });
+  }
+});
+
+export default router;
+
+
+Mount in server/index.ts:
+
+import billingRouter from "./routes/billing";
+app.use("/api", isAuthenticated, billingRouter);
+
+4. Handle Webhooks (subscription updates)
+
+Add server/routes/stripe-webhook.ts:
+
+import { Router } from "express";
+import Stripe from "stripe";
+import bodyParser from "body-parser";
+import { storage } from "../storage"; // wherever you manage user data
+
+const router = Router();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2025-01-27.acacia" });
+
+router.post("/billing/webhook",
+  bodyParser.raw({ type: "application/json" }), // raw body required for signature
+  (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    if (!sig) return res.status(400).send("Missing signature");
+
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET!
+      );
+    } catch (err: any) {
+      console.error("Webhook signature error:", err.message);
+      return res.status(400).send("Webhook Error");
+    }
+
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const userId = session.metadata?.userId;
+        if (userId) {
+          storage.users.updatePlan(userId, "paid");
+          console.log(`User ${userId} upgraded to paid`);
+        }
+        break;
+      }
+      case "customer.subscription.deleted": {
+        const sub = event.data.object as Stripe.Subscription;
+        const userId = (sub.metadata as any)?.userId;
+        if (userId) {
+          storage.users.updatePlan(userId, "free");
+          console.log(`User ${userId} downgraded to free`);
+        }
+        break;
+      }
+      default:
+        console.log(`Unhandled event ${event.type}`);
+    }
+
+    res.sendStatus(200);
+  }
+);
+
+export default router;
+
+
+Mount in server/index.ts before body-parser JSON:
+
+import stripeWebhook from "./routes/stripe-webhook";
+app.use("/api", stripeWebhook);
+
+5. Update Quota Middleware
+
+Your quota.ts already distinguishes free vs paid.
+Now it just works: Stripe → webhook → storage.users.updatePlan(userId, "paid") → quota gives 100/day.
+
+🔧 Frontend Hookup
+
+Update the Upgrade banner button in AskZebby.tsx:
+
+<a
+  onClick={async (e) => {
+    e.preventDefault();
+    const res = await fetch("/api/billing/checkout", {
+      method: "POST",
+      credentials: "include",
+    });
+    const { url } = await res.json();
+    window.location.href = url;
+  }}
+  className="inline-block mt-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+>
+  Upgrade to Zebby Plus
+</a>
+
+
+This will redirect the user to Stripe Checkout.
+
+✅ Flow Summary
+
+User clicks Upgrade → /api/billing/checkout → Stripe Checkout.
+
+Payment success → Stripe → checkout.session.completed webhook → update user plan = paid.
+
+Quota middleware now allows 100/day.
+
+If they cancel → Stripe sends subscription.deleted → downgrade plan to free.

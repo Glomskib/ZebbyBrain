@@ -1,0 +1,139 @@
+Updated AskZebby.tsx
+
+Here’s the extended version of the component with an upgrade banner:
+
+import { useState } from "react";
+
+interface RagAnswer {
+  answer: string;
+  sources: { id: string; title?: string; text?: string }[];
+  userContext?: any;
+}
+
+export default function AskZebby() {
+  const [question, setQuestion] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<RagAnswer | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [queriesLeft, setQueriesLeft] = useState<number | null>(null);
+  const [atLimit, setAtLimit] = useState(false);
+
+  const ask = async () => {
+    if (!question.trim()) return;
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch("/api/rag/answer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include", // send session cookie
+        body: JSON.stringify({ question }),
+      });
+
+      if (!res.ok) {
+        if (res.status === 429) {
+          setError("You’ve hit your daily query limit.");
+          setAtLimit(true);
+        } else if (res.status === 401) {
+          setError("Please log in to ask questions.");
+        } else {
+          setError(`Error: ${res.statusText}`);
+        }
+        return;
+      }
+
+      const data = await res.json();
+      setResult(data);
+
+      const left = res.headers.get("X-Queries-Left");
+      if (left) {
+        const leftNum = parseInt(left, 10);
+        setQueriesLeft(leftNum);
+        setAtLimit(leftNum <= 0);
+      }
+    } catch (err: any) {
+      setError(err.message || "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="w-full max-w-2xl mx-auto bg-white rounded-2xl shadow p-6 space-y-4">
+      <h2 className="text-xl font-semibold">Ask Zebby</h2>
+      <textarea
+        className="w-full rounded-md border p-2 focus:ring focus:ring-indigo-300"
+        rows={3}
+        placeholder="Type your question about EDS..."
+        value={question}
+        onChange={(e) => setQuestion(e.target.value)}
+      />
+      <button
+        onClick={ask}
+        disabled={loading || atLimit}
+        className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+      >
+        {loading ? "Thinking..." : "Ask"}
+      </button>
+
+      {queriesLeft !== null && (
+        <p className="text-sm text-gray-500">
+          You have {queriesLeft} queries left today.
+        </p>
+      )}
+
+      {error && (
+        <div className="bg-red-100 text-red-700 p-3 rounded-md">{error}</div>
+      )}
+
+      {atLimit && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 space-y-2">
+          <h3 className="font-semibold text-yellow-800">
+            You’ve reached your free daily limit
+          </h3>
+          <p className="text-sm text-yellow-700">
+            Upgrade to <span className="font-bold">Zebby Plus</span> for 100 questions/day and unlock premium support.
+          </p>
+          <a
+            href="https://your-stripe-checkout-link-here"
+            className="inline-block mt-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+          >
+            Upgrade to Zebby Plus
+          </a>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-4 space-y-4">
+          <div className="p-4 bg-gray-50 rounded-lg">
+            <h3 className="font-semibold mb-2">Answer</h3>
+            <p>{result.answer}</p>
+          </div>
+
+          {result.sources?.length > 0 && (
+            <div>
+              <h3 className="font-semibold mb-2">Sources</h3>
+              <ul className="list-disc list-inside space-y-1">
+                {result.sources.map((s, i) => (
+                  <li key={i}>
+                    <strong>{s.title || s.id}</strong>:{" "}
+                    {s.text?.slice(0, 120)}…
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+🚀 What This Adds
+
+Detects when the user has hit their daily free quota.
+
+Shows a banner with upgrade pitch.
+
+Includes a button linking to Stripe Checkout (replace https://your-stripe-checkout-link-here with your actual link).

@@ -1,0 +1,98 @@
+here’s how to extend your user storage schema with a plan field so Stripe webhooks can flip users between free and paid.
+
+1. Database Schema Update
+
+If you’re using Postgres + Drizzle (like your other tables):
+
+// server/db/schema.ts (or wherever your drizzle schema is defined)
+import { pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: varchar("id").primaryKey(),   // from your auth provider
+  email: varchar("email").notNull(),
+  name: varchar("name"),
+  plan: text("plan").notNull().default("free"), // "free" | "paid"
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+
+Run a migration:
+
+ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'free';
+
+2. Storage Layer Update
+
+Add helpers in server/storage.ts:
+
+import { db } from "./db";
+import { users } from "./db/schema";
+import { eq } from "drizzle-orm";
+
+export const storage = {
+  users: {
+    async getById(id: string) {
+      return db.select().from(users).where(eq(users.id, id)).limit(1);
+    },
+    async updatePlan(id: string, plan: "free" | "paid") {
+      await db.update(users).set({ plan }).where(eq(users.id, id));
+    },
+    async createOrUpdate(profile: { id: string; email: string; name?: string }) {
+      await db
+        .insert(users)
+        .values({
+          id: profile.id,
+          email: profile.email,
+          name: profile.name,
+        })
+        .onConflictDoUpdate({
+          target: users.id,
+          set: { email: profile.email, name: profile.name },
+        });
+    },
+  },
+};
+
+3. Auth Middleware Attachment
+
+In server/replitAuth.ts (or your auth middleware), attach plan to req.user:
+
+// after verifying auth/session
+const dbUser = await storage.users.getById(userId);
+(req as any).user = {
+  id: userId,
+  email: dbUser?.email,
+  plan: dbUser?.plan ?? "free",
+};
+
+4. Quota Middleware Reads Plan
+
+Your quota.ts already checks user.plan.
+Example:
+
+const limit = user.plan === "paid"
+  ? Number(process.env.DAILY_QUERY_LIMIT_PAID ?? 100)
+  : Number(process.env.DAILY_QUERY_LIMIT_FREE ?? 5);
+
+5. Stripe Webhook Uses Storage
+
+Already written:
+
+storage.users.updatePlan(userId, "paid");
+
+
+…and for cancel:
+
+storage.users.updatePlan(userId, "free");
+
+✅ End-to-End Flow
+
+User signs up → users table row created with plan = "free".
+
+User upgrades → Stripe Checkout → webhook sets plan = "paid".
+
+On every request, req.user.plan is pulled from DB.
+
+Quota middleware enforces 5/day vs 100/day.
+
+If subscription ends, webhook downgrades plan = "free".

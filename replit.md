@@ -37,6 +37,7 @@ Preferred communication style: Simple, everyday language.
   - **Configuration**: Centralized in `server/rag/config.ts` with EMBEDDING_MODEL and EMBEDDING_DIM constants.
   - **Cost Controls**: Daily query quotas (free: 5, plus: 100), configurable via DAILY_QUERY_LIMIT_FREE/PAID env vars.
   - **Usage Tracking**: Token usage logging with estimated cost tracking for monitoring OpenAI spend.
+  - **UI**: Ask Zebby page (`/ask-zebby`) with question input, time window selection, answer display, source attribution, usage counter, and upgrade banner for free users at limit.
 - **Personal Circle**: Private health data sharing system with granular controls, secure invitations, and automated alert rules for designated members.
   - **Wave 3+ Herd Reach-Out**: Manual alert system with 10-minute cancel window, rate limiting (3/hour), and background processing. Requires `FF_HERD=true` and `VITE_FF_HERD=true` secrets.
 - **Zebby Social (Groups)**: Community groups with a directory, state-based access control, post composer, interactive feed, and moderation tools. Includes age, gender, and diagnosis-gated access.
