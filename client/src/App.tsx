@@ -28,7 +28,7 @@ import MemberDashboard from "@/pages/member-dashboard";
 import HerdRewards from "@/pages/herd-rewards";
 import AskZebby from "@/pages/ask-zebby";
 
-function Redirect({ to }: { to: string }) {
+function Redirect({ from, to }: { from: string; to: string }) {
   const [, setLocation] = useLocation();
   
   useEffect(() => {
@@ -37,11 +37,11 @@ function Redirect({ to }: { to: string }) {
     const hash = window.location.hash;
     
     // Replace the legacy path prefix with new path
-    const newPath = currentPath.replace(/^\/(store|zebbys-pouch|pastures|spoonies|personal-circle)/, to);
+    const newPath = currentPath.replace(new RegExp(`^${from}`), to);
     const fullUrl = `${newPath}${search}${hash}`;
     
     setLocation(fullUrl);
-  }, [to, setLocation]);
+  }, [from, to, setLocation]);
   
   return null;
 }
@@ -55,11 +55,16 @@ function Router() {
   return (
     <Switch>
       {/* Legacy route redirects for Kickstarter-ready naming - preserves query params and hash */}
-      <Route path="/store/:rest*" component={() => <Redirect to="/marketplace" />} />
-      <Route path="/zebbys-pouch/:rest*" component={() => <Redirect to="/marketplace" />} />
-      <Route path="/pastures/:rest*" component={() => <Redirect to="/groups" />} />
-      <Route path="/spoonies/:rest*" component={() => <Redirect to="/circle" />} />
-      <Route path="/personal-circle/:rest*" component={() => <Redirect to="/circle" />} />
+      <Route path="/store" component={() => <Redirect from="/store" to="/marketplace" />} />
+      <Route path="/store/:rest+" component={() => <Redirect from="/store" to="/marketplace" />} />
+      <Route path="/zebbys-pouch" component={() => <Redirect from="/zebbys-pouch" to="/marketplace" />} />
+      <Route path="/zebbys-pouch/:rest+" component={() => <Redirect from="/zebbys-pouch" to="/marketplace" />} />
+      <Route path="/pastures" component={() => <Redirect from="/pastures" to="/groups" />} />
+      <Route path="/pastures/:rest+" component={() => <Redirect from="/pastures" to="/groups" />} />
+      <Route path="/spoonies" component={() => <Redirect from="/spoonies" to="/circle" />} />
+      <Route path="/spoonies/:rest+" component={() => <Redirect from="/spoonies" to="/circle" />} />
+      <Route path="/personal-circle" component={() => <Redirect from="/personal-circle" to="/circle" />} />
+      <Route path="/personal-circle/:rest+" component={() => <Redirect from="/personal-circle" to="/circle" />} />
       
       {/* Routes available to all users */}
       <Route path="/marketplace" component={Marketplace} />
