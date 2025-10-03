@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { BarChart3, Heart, Sparkles, TrendingUp, Users, Package, MessageCircle } from "lucide-react";
 import { Link } from "wouter";
+import { L } from "@/i18n/labels";
 
 export default function Dashboard() {
   const { toast } = useToast();
@@ -168,7 +169,7 @@ export default function Dashboard() {
                 <div className="w-12 h-12 rounded-2xl zebby-gradient-subtle flex items-center justify-center">
                   <BarChart3 className="w-6 h-6 text-primary" />
                 </div>
-                <CardTitle className="text-xl">Tracker</CardTitle>
+                <CardTitle className="text-xl">{L.tracker}</CardTitle>
               </div>
               <CardDescription className="text-base">
                 Quick-log pain (0–10), fatigue, joints, mood, and notes. Auto-suggests patterns after 3+ days.
@@ -192,7 +193,7 @@ export default function Dashboard() {
                 <div className="w-12 h-12 rounded-2xl zebby-gradient-subtle flex items-center justify-center">
                   <MessageCircle className="w-6 h-6 text-primary" />
                 </div>
-                <CardTitle className="text-xl">Ask Zebby</CardTitle>
+                <CardTitle className="text-xl">{L.askZebby}</CardTitle>
               </div>
               <CardDescription className="text-base">
                 Bite-sized guidance for flares, pacing, and appointments. Empathy-first answers with sources.
@@ -221,7 +222,7 @@ export default function Dashboard() {
                     <Users className="w-5 h-5 text-primary" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-foreground">Pastures</h3>
+                    <h3 className="font-semibold text-foreground">{L.pastures}</h3>
                     <p className="text-sm text-muted-foreground">Join community groups</p>
                   </div>
                 </div>
@@ -237,7 +238,7 @@ export default function Dashboard() {
                     <Heart className="w-5 h-5 text-secondary" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-foreground">Spoonies</h3>
+                    <h3 className="font-semibold text-foreground">{L.spoonies}</h3>
                     <p className="text-sm text-muted-foreground">Share with trusted contacts</p>
                   </div>
                 </div>
@@ -253,7 +254,7 @@ export default function Dashboard() {
                     <Package className="w-5 h-5 text-accent" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-foreground">Zebby's Pouch</h3>
+                    <h3 className="font-semibold text-foreground">{L.pouch}</h3>
                     <p className="text-sm text-muted-foreground">EDS-friendly products</p>
                   </div>
                 </div>

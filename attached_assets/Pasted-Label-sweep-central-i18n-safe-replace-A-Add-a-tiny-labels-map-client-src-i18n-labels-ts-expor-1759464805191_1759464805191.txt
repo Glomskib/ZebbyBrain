@@ -1,0 +1,178 @@
+Label sweep (central i18n + safe replace)
+A) Add a tiny labels map
+
+client/src/i18n/labels.ts
+
+export const L = {
+  pastures: "Pastures",
+  spoonies: "Spoonies",
+  pouch: "Zebby’s Pouch",
+  askZebby: "Ask Zebby",
+  // add more strings here as needed
+} as const;
+
+export type LabelKey = keyof typeof L;
+
+B) Use labels in UI
+
+Example changes (pattern you’ll repeat):
+
+Before
+
+<nav>
+  <Link to="/groups">Groups</Link>
+  <Link to="/circles">Circles</Link>
+  <Link to="/store">Marketplace</Link>
+</nav>
+
+
+After
+
+import { L } from "@/i18n/labels";
+// ...
+<nav>
+  <Link to="/pastures">{L.pastures}</Link>
+  <Link to="/spoonies">{L.spoonies}</Link>
+  <Link to="/zebbys-pouch">{L.pouch}</Link>
+</nav>
+
+C) Frontend redirects (nice to have, zero risk)
+
+Add route redirects so any old links still work:
+
+// client/src/App.tsx (or your router file)
+import { Navigate, Route, Routes } from "react-router-dom";
+// ...
+<Routes>
+  {/* legacy routes */}
+  <Route path="/groups/*" element={<Navigate to="/pastures" replace />} />
+  <Route path="/circles/*" element={<Navigate to="/spoonies" replace />} />
+  <Route path="/store" element={<Navigate to="/zebbys-pouch" replace />} />
+  <Route path="/marketplace" element={<Navigate to="/zebbys-pouch" replace />} />
+  {/* ... existing routes */}
+</Routes>
+
+D) Quick check for stragglers (run locally)
+grep -RniE 'groups?|circles?|store|marketplace' client/ | grep -v -E 'i18n|labels\.ts'
+
+
+Anything still user-facing? Convert it to L.* or rename.
+
+2) Firebase envs (the exact values + formatting)
+
+In Replit → Secrets (and Deployment env), add:
+
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=service-account@your-project-id.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEv...==\n-----END PRIVATE KEY-----\n"
+ALLOWED_ORIGINS=https://preview.flutterflow.app,https://app.zebbysworld.com,capacitor://localhost,ionic://localhost,http://localhost:5173
+
+
+Notes:
+
+The private key must have \n escaped as shown.
+
+You already have the middleware; just restart the app after saving secrets.
+
+Sanity curl (no FlutterFlow needed):
+
+# get an ID token (Firebase REST) then:
+curl -s -X POST https://<your-replit-domain>/api/rag/answer \
+  -H "Authorization: Bearer $ID_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What are common EDS symptoms?","window":"30d"}' -i
+# Expect: 200 and header `X-Queries-Left: <n>`
+
+3) Ask Zebby polish (counter + upgrade wiring)
+
+Your page already exists. Make sure it:
+
+Reads X-Queries-Left from the response headers
+
+Stores it in state and renders a counter
+
+Shows an Upgrade CTA when left ≤ 0
+
+Calls your Stripe checkout route and redirects to returned URL
+
+Example (merge into client/src/pages/ask-zebby.tsx)
+
+const [queriesLeft, setQueriesLeft] = useState<number | null>(null);
+const [atLimit, setAtLimit] = useState(false);
+const [loading, setLoading] = useState(false);
+const [error, setError] = useState<string | null>(null);
+
+async function ask(question: string) {
+  if (!question.trim()) return;
+  setLoading(true); setError(null);
+  try {
+    const res = await fetch("/api/rag/answer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }, // Bearer handled server-side if using session; mobile sends Bearer
+      credentials: "include",
+      body: JSON.stringify({ question, window: "30d" }),
+    });
+
+    if (!res.ok) {
+      if (res.status === 429) {
+        setAtLimit(true);
+        setError("Daily limit reached.");
+      } else if (res.status === 401) {
+        setError("Please log in to ask questions.");
+      } else {
+        setError(`Error: ${res.statusText}`);
+      }
+      return;
+    }
+
+    const left = res.headers.get("X-Queries-Left");
+    if (left) {
+      const n = parseInt(left, 10);
+      setQueriesLeft(n);
+      setAtLimit(n <= 0);
+    }
+
+    const data = await res.json();
+    // set your `answer`, `sources` etc here...
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function upgrade() {
+  const r = await fetch("/api/billing/create-checkout-session", {
+    method: "POST",
+    credentials: "include",
+  });
+  const { url } = await r.json();
+  window.location.href = url;
+}
+
+
+UI bits
+
+{queriesLeft !== null && (
+  <p className="text-sm text-gray-500">Queries left today: {queriesLeft}</p>
+)}
+
+{atLimit && (
+  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+    <p className="font-semibold text-yellow-800">You’ve reached your free daily limit.</p>
+    <p className="text-yellow-700 text-sm">Upgrade to Zebby Plus for 100 questions/day.</p>
+    <button onClick={upgrade} className="mt-2 px-4 py-2 rounded-lg bg-indigo-600 text-white">
+      Upgrade to Zebby Plus
+    </button>
+  </div>
+)}
+
+Quick demo flow (what to test right after)
+
+Home shows a random positive message (from /api/motivation).
+
+Ask Zebby: ask 2–3 questions → see answer + sources + Queries left.
+
+Send >5 queries as a free user → see Upgrade banner → button opens Stripe Checkout.
+
+Nav reads Pastures / Spoonies / Zebby’s Pouch everywhere.
+
+Postman collection works (docs/zebby-api.postman_collection.json).

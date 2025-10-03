@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { useEffect } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ZebbyChat from "@/components/ZebbyChat";
 import Landing from "@/pages/landing";
@@ -27,6 +28,24 @@ import MemberDashboard from "@/pages/member-dashboard";
 import HerdRewards from "@/pages/herd-rewards";
 import AskZebby from "@/pages/ask-zebby";
 
+function Redirect({ to }: { to: string }) {
+  const [, setLocation] = useLocation();
+  
+  useEffect(() => {
+    const currentPath = window.location.pathname;
+    const search = window.location.search;
+    const hash = window.location.hash;
+    
+    // Replace the legacy path prefix with new path
+    const newPath = currentPath.replace(/^\/(store|zebbys-pouch|pastures|spoonies|personal-circle)/, to);
+    const fullUrl = `${newPath}${search}${hash}`;
+    
+    setLocation(fullUrl);
+  }, [to, setLocation]);
+  
+  return null;
+}
+
 function Router() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { profile, isLoading: profileLoading, needsOnboarding } = useProfile();
@@ -35,6 +54,13 @@ function Router() {
 
   return (
     <Switch>
+      {/* Legacy route redirects for Kickstarter-ready naming - preserves query params and hash */}
+      <Route path="/store/:rest*" component={() => <Redirect to="/marketplace" />} />
+      <Route path="/zebbys-pouch/:rest*" component={() => <Redirect to="/marketplace" />} />
+      <Route path="/pastures/:rest*" component={() => <Redirect to="/groups" />} />
+      <Route path="/spoonies/:rest*" component={() => <Redirect to="/circle" />} />
+      <Route path="/personal-circle/:rest*" component={() => <Redirect to="/circle" />} />
+      
       {/* Routes available to all users */}
       <Route path="/marketplace" component={Marketplace} />
       <Route path="/product/:id" component={({ params }: { params: { id: string } }) => <ProductDetail productId={params.id} />} />

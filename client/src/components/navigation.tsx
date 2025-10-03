@@ -12,6 +12,7 @@ import {
 import { Bell, Menu } from "lucide-react";
 import { ShoppingCart } from "@/components/ShoppingCart";
 import ZebbyAvatar from "@/components/zebby-avatar";
+import { L } from "@/i18n/labels";
 
 export default function Navigation() {
   const [location] = useLocation();
@@ -22,13 +23,13 @@ export default function Navigation() {
   };
 
   const navItems = [
-    { path: "/", label: "Dashboard", testId: "nav-dashboard" },
-    { path: "/tracker", label: "Tracker", testId: "nav-tracker" },
-    { path: "/ask-zebby", label: "Ask Zebby", testId: "nav-ask-zebby" },
-    { path: "/groups", label: "Pastures", testId: "nav-groups" },
-    { path: "/circle", label: "Spoonies", testId: "nav-circle" },
-    { path: "/marketplace", label: "Zebby's Pouch", testId: "nav-marketplace" },
-    { path: "/settings", label: "Settings", testId: "nav-settings" },
+    { path: "/", label: L.dashboard, testId: "nav-dashboard" },
+    { path: "/tracker", label: L.tracker, testId: "nav-tracker" },
+    { path: "/ask-zebby", label: L.askZebby, testId: "nav-ask-zebby" },
+    { path: "/groups", label: L.pastures, testId: "nav-groups" },
+    { path: "/circle", label: L.spoonies, testId: "nav-circle" },
+    { path: "/marketplace", label: L.pouch, testId: "nav-marketplace" },
+    { path: "/settings", label: L.settings, testId: "nav-settings" },
   ];
 
   const getInitials = () => {

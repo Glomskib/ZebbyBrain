@@ -80,14 +80,27 @@ export default function AskZebby() {
         window: timeWindow,
       });
       
-      return response.json();
+      const data = await response.json();
+      
+      // Read X-Queries-Left header for mobile compatibility
+      const queriesLeftHeader = response.headers.get("X-Queries-Left");
+      if (queriesLeftHeader) {
+        const queriesLeft = parseInt(queriesLeftHeader, 10);
+        // Update usage data with header value if available
+        if (data.usage) {
+          data.usage.queriesUsed = data.usage.queriesLimit - queriesLeft;
+        }
+      }
+      
+      return data;
     },
     onSuccess: (data: RagAnswer) => {
       setResult(data);
       setError(null);
+      const queriesRemaining = data.usage.queriesLimit - data.usage.queriesUsed;
       toast({
         title: "Answer received",
-        description: `${data.usage.queriesLimit - data.usage.queriesUsed} queries remaining today`,
+        description: `${queriesRemaining} ${queriesRemaining === 1 ? 'query' : 'queries'} remaining today`,
       });
     },
     onError: (err: any) => {
