@@ -1,0 +1,257 @@
+“Make Zebby test-ready for mobile + Kickstarter”
+
+You are working in a TypeScript/Node + React project called Zebby. Your job is to make the backend/app test-ready for a FlutterFlow + Firebase mobile client, keep costs guarded, and align naming. Do everything below, in order.
+
+0) Goals (high level)
+
+Accept Firebase-authenticated requests (email/Google login from the mobile app).
+
+Keep existing web session login for dev, but gate costly endpoints by Firebase.
+
+Add a simple /api/motivation endpoint that returns a random positive message.
+
+Make UI/labels congruent: Groups → Pastures, Circles → Spoonies, Store → Zebby’s Pouch.
+
+Ensure Ask Zebby page is feature-flagged and visible in prod.
+
+Keep Stripe checkout working; plan-based quotas enforced.
+
+Provide curl commands and a Postman collection to test.
+
+1) Env vars (Replit → Secrets & Deployment)
+
+Create or update these keys:
+
+OPENAI_API_KEY=sk-...
+EMBEDDING_MODEL=text-embedding-3-small
+COMPLETION_MODEL=gpt-4o-mini
+
+# Firebase (for backend token verification)
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=service-account@your-project-id.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# Stripe
+STRIPE_SECRET_KEY=sk_live_or_test_...
+STRIPE_PRICE_ID=price_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_SUCCESS_URL=https://yourapp.com/dashboard?upgraded=true
+STRIPE_CANCEL_URL=https://yourapp.com/settings/billing
+
+# Feature flags & quotas
+VITE_FF_RAG=true
+DAILY_QUERY_LIMIT_FREE=5
+DAILY_QUERY_LIMIT_PAID=100
+ANSWER_MAX_TOKENS=350
+RAG_TOP_K=6
+
+# CORS (allow your FlutterFlow preview + production origins)
+ALLOWED_ORIGINS=https://preview.flutterflow.app,https://yourapp.com
+
+
+For FIREBASE_PRIVATE_KEY, keep escaped newlines (\n). Use a Firebase Service Account from the Firebase Console.
+
+2) Install dependencies
+npm i firebase-admin
+
+
+(Stripe is already installed; if not: npm i stripe)
+
+3) Firebase auth middleware (server/middleware/firebaseAuth.ts)
+
+Create this file:
+
+import { RequestHandler } from "express";
+import admin from "firebase-admin";
+
+function initAdmin() {
+  if (admin.apps.length) return;
+  const projectId = process.env.FIREBASE_PROJECT_ID!;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL!;
+  // Replace escaped \n with real newlines:
+  const privateKey = (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+  admin.initializeApp({
+    credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
+  });
+}
+initAdmin();
+
+export const verifyFirebase: RequestHandler = async (req, res, next) => {
+  try {
+    const auth = req.headers.authorization || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ message: "Missing bearer token" });
+    const decoded = await admin.auth().verifyIdToken(token);
+    (req as any).user = { id: decoded.uid, email: decoded.email ?? "" };
+    return next();
+  } catch (err) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+};
+
+4) Apply Firebase guard to costly routes
+
+In server/index.ts (or wherever routes mounted), use verifyFirebase for:
+
+/api/rag/answer
+
+/api/billing/checkout
+
+Example:
+
+import { verifyFirebase } from "./middleware/firebaseAuth";
+
+// keep dev-only session login routes as-is
+app.post("/api/rag/answer", verifyFirebase, quota(...), ragAnswerHandler);
+app.post("/api/billing/checkout", verifyFirebase, checkoutHandler);
+
+
+Keep your existing test-login/session path for web dev, but the mobile app will send Firebase ID tokens.
+
+5) Random positive message endpoint
+
+DB: ensure a table uplifting_messages(text TEXT NOT NULL, active BOOL DEFAULT TRUE, weight INT DEFAULT 1) exists and has some rows.
+
+Route server/routes/motivation.ts:
+
+import { Router } from "express";
+import { db } from "../db";
+export const motivationRouter = Router();
+
+motivationRouter.get("/motivation", async (_req, res) => {
+  // Simple random row (Postgres): tune for your driver/ORM
+  const { rows } = await db.query(`SELECT text FROM uplifting_messages WHERE active = TRUE ORDER BY random() LIMIT 1`);
+  const text = rows?.[0]?.text ?? "You’ve got this. One small step at a time. 🌟";
+  res.json({ message: text, ts: new Date().toISOString() });
+});
+
+
+Mount:
+
+import { motivationRouter } from "./routes/motivation";
+app.use("/api", motivationRouter);
+
+6) Rename features (frontend + backend)
+
+Replace labels everywhere:
+
+“Groups” → “Pastures”
+
+“Circles” → “Spoonies”
+
+“Store/Marketplace” → “Zebby’s Pouch”
+
+Update nav/menu text, page headers, button copy.
+
+If routes include names, update paths and add redirects:
+
+/groups/* → /pastures/*
+
+/circles/* → /spoonies/*
+
+/store or /marketplace → /zebbys-pouch
+
+If API uses those paths, mirror the rename or keep aliases (prefer rename with 301/302 redirects).
+
+7) CORS for mobile client
+
+In your CORS setup:
+
+import cors from "cors";
+const allowed = (process.env.ALLOWED_ORIGINS || "").split(",");
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    return cb(null, allowed.includes(origin));
+  },
+  credentials: true,
+}));
+
+8) Ensure Ask Zebby is visible (feature flag)
+
+Frontend: check VITE_FF_RAG (already added) to show Ask Zebby menu item and route in prod.
+
+9) Stripe checkout remains working
+
+Confirm /api/billing/checkout reads user from (req as any).user.id (Firebase UID) and includes metadata.userId.
+
+Webhook handler updates plan accordingly (already implemented). No change needed besides ensuring Firebase flow doesn’t break it.
+
+10) Usage/Quota headers
+
+Ensure /api/rag/answer sets:
+
+X-Queries-Left: <number>
+
+
+so the client can show remaining queries. (You already log usage and enforce quotas.)
+
+11) Test artifacts
+
+Create/refresh a Postman collection with these requests:
+
+GET {{baseUrl}}/api/rag/health
+
+GET {{baseUrl}}/api/motivation
+
+POST {{baseUrl}}/api/rag/answer (with Authorization: Bearer {{firebaseIdToken}})
+
+POST {{baseUrl}}/api/billing/checkout (with Bearer token)
+
+(If you already have a JSON, update it; otherwise generate one in repo /docs/.)
+
+12) Success criteria (must all pass)
+
+/api/motivation returns a JSON {message} and changes on refresh.
+
+From Postman: with a valid Firebase ID token, /api/rag/answer returns {answer, sources} and response header X-Queries-Left decreases.
+
+With no token → /api/rag/answer returns 401.
+
+Hitting limit returns 429 + friendly JSON error.
+
+“Groups/Circles/Store” are nowhere in the UI; replaced with Pastures/Spoonies/Zebby’s Pouch.
+
+Ask Zebby page visible in prod (VITE_FF_RAG=true).
+
+Stripe test mode: /api/billing/checkout returns a URL, webhook flips plan to paid, quota = 100/day.
+
+13) Hand-off notes (export/migrate later)
+
+When we’re done:
+
+Export the Postman collection and replit.md updates.
+
+Keep Firebase (Auth/Storage/Firestore) as the mobile source of truth.
+
+The mobile app (FlutterFlow) will:
+
+Use Firebase Auth (email + Google).
+
+Upload photos to Firebase Storage.
+
+Read MOTD from your /api/motivation (or a Firestore motd collection later).
+
+Call /api/rag/answer with Firebase ID token.
+
+Use Stripe via your /api/billing/checkout.
+
+No further code is needed on Replit once this prompt is complete.
+
+14) Rollback plan
+
+Feature flag VITE_FF_RAG=false hides Ask Zebby if needed.
+
+Remove verifyFirebase middleware temporarily to restore old session-only behavior.
+
+Revert labels via a single commit if copy causes confusion.
+
+Please execute all steps, commit changes with clear messages, and reply with:
+
+What files were created/edited
+
+Any env var missing values
+
+Test evidence (curl/headers, screenshots if possible)
+
+A link/path to the updated Postman collection
