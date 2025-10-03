@@ -116,7 +116,7 @@ export default function GroupsDirectory() {
       <div className="border-b bg-card">
         <div className="container mx-auto px-4 py-6 max-w-6xl">
           <h1 className="text-3xl font-bold mb-2" data-testid="heading-groups-directory">
-            Zebby Social
+            Pastures
           </h1>
           <p className="text-muted-foreground" data-testid="text-subtitle">
             Connect with others who understand your journey with EDS and rare conditions

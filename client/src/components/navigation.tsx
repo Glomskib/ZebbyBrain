@@ -25,9 +25,9 @@ export default function Navigation() {
     { path: "/", label: "Dashboard", testId: "nav-dashboard" },
     { path: "/tracker", label: "Tracker", testId: "nav-tracker" },
     { path: "/ask-zebby", label: "Ask Zebby", testId: "nav-ask-zebby" },
-    { path: "/groups", label: "Groups", testId: "nav-groups" },
-    { path: "/circle", label: "Circle", testId: "nav-circle" },
-    { path: "/marketplace", label: "Marketplace", testId: "nav-marketplace" },
+    { path: "/groups", label: "Pastures", testId: "nav-groups" },
+    { path: "/circle", label: "Spoonies", testId: "nav-circle" },
+    { path: "/marketplace", label: "Zebby's Pouch", testId: "nav-marketplace" },
     { path: "/settings", label: "Settings", testId: "nav-settings" },
   ];
 

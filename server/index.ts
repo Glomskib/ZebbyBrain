@@ -20,10 +20,18 @@ if (!process.env.STRIPE_WEBHOOK_SECRET && process.env.NODE_ENV === "production")
 }
 
 // HTTP Security Headers and Protection
-// Strict CORS: only your known origins
-const allowed = [process.env.APP_URL, "http://localhost:5173", "http://localhost:5000"].filter(Boolean) as string[];
+// Strict CORS: only your known origins (including mobile)
+const allowed = [
+  process.env.APP_URL, 
+  "http://localhost:5173", 
+  "http://localhost:5000",
+  ...(process.env.ALLOWED_ORIGINS || "").split(",").filter(Boolean)
+].filter(Boolean) as string[];
 app.use(cors({ 
-  origin: allowed, 
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    return cb(null, allowed.includes(origin));
+  },
   credentials: true 
 }));
 

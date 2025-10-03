@@ -73,7 +73,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Mount new enhanced routes
   app.use('/api/auth', authTestRoutes);
-  app.use('/api/billing', requireAuth, billingRoutes);
+  const { flexibleAuth } = await import('./middleware/flexibleAuth');
+  app.use('/api/billing', flexibleAuth, billingRoutes);
   app.use('/api', metaRoutes);
   app.use('/api/user', isAuthenticated, userRoutes);
   
@@ -144,6 +145,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Mount RAG routes (EDS AI Brain)
   const ragRoutes = await import('./routes/rag');
   app.use('/api/rag', ragRoutes.default);
+
+  // Mount Motivation routes (Mobile support)
+  const { motivationRouter } = await import('./routes/motivation');
+  app.use('/api', motivationRouter);
 
   // Configure multer for file uploads
   const upload = multer({ 

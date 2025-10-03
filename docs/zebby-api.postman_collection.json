@@ -1,0 +1,210 @@
+{
+  "info": {
+    "name": "Zebby's World API",
+    "description": "API collection for Zebby's World mobile + web application. Includes Firebase authentication, RAG AI Brain, Stripe billing, and motivation endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "firebaseIdToken",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Checks",
+      "item": [
+        {
+          "name": "API Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "health"]
+            }
+          }
+        },
+        {
+          "name": "RAG Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rag/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rag", "health"]
+            }
+          }
+        },
+        {
+          "name": "Billing Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "billing", "health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Motivation",
+      "item": [
+        {
+          "name": "Get Random Motivation Message",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/motivation",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "motivation"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "RAG (EDS AI Brain)",
+      "item": [
+        {
+          "name": "Ask Question (Firebase Auth)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebaseIdToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What is EDS and how can I manage it?\",\n  \"window\": \"30d\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rag/answer",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rag", "answer"]
+            }
+          }
+        },
+        {
+          "name": "Ask Question (Session Auth)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"How can I track my symptoms?\",\n  \"window\": \"7d\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rag/answer",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rag", "answer"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Billing",
+      "item": [
+        {
+          "name": "Create Checkout Session (Firebase Auth)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebaseIdToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trialMonths\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/create-checkout-session",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "billing", "create-checkout-session"]
+            }
+          }
+        },
+        {
+          "name": "Get Billing Status (Firebase Auth)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebaseIdToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "billing", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Test Login (Dev Only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"your-test-password\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/test-login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "test-login"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

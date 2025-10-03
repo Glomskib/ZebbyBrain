@@ -1653,3 +1653,18 @@ export const insertUserChunkSchema = createInsertSchema(userChunks).omit({
 });
 export type InsertUserChunk = z.infer<typeof insertUserChunkSchema>;
 export type UserChunk = typeof userChunks.$inferSelect;
+
+export const upliftingMessages = pgTable("uplifting_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  text: text("text").notNull(),
+  active: boolean("active").default(true),
+  weight: integer("weight").default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertUpliftingMessageSchema = createInsertSchema(upliftingMessages).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertUpliftingMessage = z.infer<typeof insertUpliftingMessageSchema>;
+export type UpliftingMessage = typeof upliftingMessages.$inferSelect;

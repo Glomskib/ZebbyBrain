@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { generateEmbedding } from "../lib/embeddings";
 import { logUsage } from "../lib/usageLog";
 import { quota } from "../middleware/quota";
-import { isAuthenticated } from "../replitAuth";
+import { flexibleAuth } from "../middleware/flexibleAuth";
 import { z } from "zod";
 
 const router = Router();
@@ -95,7 +95,7 @@ const answerSchema = z.object({
 });
 
 router.post("/answer", 
-  isAuthenticated,
+  flexibleAuth,
   quota(
     Number(process.env.DAILY_QUERY_LIMIT_FREE ?? 5),
     Number(process.env.DAILY_QUERY_LIMIT_PAID ?? 100)
@@ -176,6 +176,9 @@ Guidelines:
     const outputTokensApprox = Math.ceil(answer.length / 4);
     
     logUsage("rag.answer", inputTokensApprox, outputTokensApprox, userId);
+
+    const queriesLeft = res.locals.quotaLimit - res.locals.quotaCount;
+    res.setHeader('X-Queries-Left', queriesLeft.toString());
 
     return res.json({
       answer,

@@ -252,7 +252,7 @@ export default function PersonalCircle() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <Users className="h-8 w-8 text-primary" />
-            Personal Circle
+            Spoonies
           </h1>
           <p className="text-muted-foreground mt-2">
             Share your health journey with trusted family, friends, and caregivers
