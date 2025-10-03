@@ -54,20 +54,20 @@ function Router() {
 
   return (
     <Switch>
-      {/* Legacy route redirects for Kickstarter-ready naming - preserves query params and hash */}
-      <Route path="/store" component={() => <Redirect from="/store" to="/marketplace" />} />
-      <Route path="/store/:rest+" component={() => <Redirect from="/store" to="/marketplace" />} />
-      <Route path="/zebbys-pouch" component={() => <Redirect from="/zebbys-pouch" to="/marketplace" />} />
-      <Route path="/zebbys-pouch/:rest+" component={() => <Redirect from="/zebbys-pouch" to="/marketplace" />} />
-      <Route path="/pastures" component={() => <Redirect from="/pastures" to="/groups" />} />
-      <Route path="/pastures/:rest+" component={() => <Redirect from="/pastures" to="/groups" />} />
-      <Route path="/spoonies" component={() => <Redirect from="/spoonies" to="/circle" />} />
-      <Route path="/spoonies/:rest+" component={() => <Redirect from="/spoonies" to="/circle" />} />
-      <Route path="/personal-circle" component={() => <Redirect from="/personal-circle" to="/circle" />} />
-      <Route path="/personal-circle/:rest+" component={() => <Redirect from="/personal-circle" to="/circle" />} />
+      {/* Legacy route redirects: OLD names → NEW Kickstarter names (preserves query params & hash) */}
+      <Route path="/groups" component={() => <Redirect from="/groups" to="/pastures" />} />
+      <Route path="/groups/:rest+" component={() => <Redirect from="/groups" to="/pastures" />} />
+      <Route path="/circle" component={() => <Redirect from="/circle" to="/spoonies" />} />
+      <Route path="/circle/:rest+" component={() => <Redirect from="/circle" to="/spoonies" />} />
+      <Route path="/personal-circle" component={() => <Redirect from="/personal-circle" to="/spoonies" />} />
+      <Route path="/personal-circle/:rest+" component={() => <Redirect from="/personal-circle" to="/spoonies" />} />
+      <Route path="/marketplace" component={() => <Redirect from="/marketplace" to="/zebbys-pouch" />} />
+      <Route path="/marketplace/:rest+" component={() => <Redirect from="/marketplace" to="/zebbys-pouch" />} />
+      <Route path="/store" component={() => <Redirect from="/store" to="/zebbys-pouch" />} />
+      <Route path="/store/:rest+" component={() => <Redirect from="/store" to="/zebbys-pouch" />} />
       
-      {/* Routes available to all users */}
-      <Route path="/marketplace" component={Marketplace} />
+      {/* NEW canonical routes with Kickstarter naming */}
+      <Route path="/zebbys-pouch" component={Marketplace} />
       <Route path="/product/:id" component={({ params }: { params: { id: string } }) => <ProductDetail productId={params.id} />} />
       <Route path="/share/:id" component={SharePage} />
       <Route path="/login" component={() => { window.location.href = '/api/login'; return null; }} />
@@ -84,13 +84,13 @@ function Router() {
         /* Redirect to onboarding for users who haven't completed it */
         <>
           <Route path="/" component={() => { window.location.href = '/onboarding'; return null; }} />
-          <Route path="/circle" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/spoonies" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/member-dashboard" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/tracker" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/ask-zebby" component={() => { window.location.href = '/onboarding'; return null; }} />
-          <Route path="/groups" component={() => { window.location.href = '/onboarding'; return null; }} />
-          <Route path="/groups/:slug" component={() => { window.location.href = '/onboarding'; return null; }} />
-          <Route path="/groups/:slug/mod/reports" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/pastures" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/pastures/:slug" component={() => { window.location.href = '/onboarding'; return null; }} />
+          <Route path="/pastures/:slug/mod/reports" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/settings" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/settings/herd-rewards" component={() => { window.location.href = '/onboarding'; return null; }} />
           <Route path="/import" component={() => { window.location.href = '/onboarding'; return null; }} />
@@ -100,10 +100,10 @@ function Router() {
           <Route path="/" component={Dashboard} />
           <Route path="/tracker" component={SymptomTracker} />
           <Route path="/ask-zebby" component={AskZebby} />
-          <Route path="/groups" component={GroupsDirectory} />
-          <Route path="/groups/:slug/mod/reports" component={ModQueue} />
-          <Route path="/groups/:slug" component={GroupHome} />
-          <Route path="/circle" component={PersonalCircle} />
+          <Route path="/pastures" component={GroupsDirectory} />
+          <Route path="/pastures/:slug/mod/reports" component={ModQueue} />
+          <Route path="/pastures/:slug" component={GroupHome} />
+          <Route path="/spoonies" component={PersonalCircle} />
           <Route path="/member-dashboard" component={MemberDashboard} />
           <Route path="/settings" component={Settings} />
           <Route path="/settings/herd-rewards" component={HerdRewards} />

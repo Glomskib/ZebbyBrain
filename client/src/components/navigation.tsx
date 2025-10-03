@@ -26,9 +26,9 @@ export default function Navigation() {
     { path: "/", label: L.dashboard, testId: "nav-dashboard" },
     { path: "/tracker", label: L.tracker, testId: "nav-tracker" },
     { path: "/ask-zebby", label: L.askZebby, testId: "nav-ask-zebby" },
-    { path: "/groups", label: L.pastures, testId: "nav-groups" },
-    { path: "/circle", label: L.spoonies, testId: "nav-circle" },
-    { path: "/marketplace", label: L.pouch, testId: "nav-marketplace" },
+    { path: "/pastures", label: L.pastures, testId: "nav-pastures" },
+    { path: "/spoonies", label: L.spoonies, testId: "nav-spoonies" },
+    { path: "/zebbys-pouch", label: L.pouch, testId: "nav-zebbys-pouch" },
     { path: "/settings", label: L.settings, testId: "nav-settings" },
   ];
 

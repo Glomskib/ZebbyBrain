@@ -1,0 +1,99 @@
+What I verified from the ZIP
+
+Ask Zebby page present: client/src/pages/ask-zebby.tsx (reads X-Queries-Left).
+
+RAG route sets header: server/routes/rag.ts (contains X-Queries-Left).
+
+Config endpoint exists: server/meta/config.ts.
+
+Vite feature flag is referenced on the client: import.meta.env.VITE_FF_RAG shows up in ask-zebby.tsx.
+
+Postman collection: docs/zebby-api.postman_collection.json.
+
+Two things to fix
+
+Feature flag not injected to the frontend
+Your /api/meta/config currently shows ff_rag_frontend: undefined, which means VITE_FF_RAG isn’t set in the Deployment env and rebuilt. That’s why Ask Zebby is hidden.
+
+Redirects are reversed for the renamed sections
+The “legacy → new” should be:
+
+/groups/* → /pastures/*
+
+/circles/* or /circle/* → /spoonies/*
+
+/store/* or /marketplace/* → /zebbys-pouch/*
+
+From the Replit message you pasted earlier, some rules are pointing the new names back to old (e.g., /pastures → /groups). That’s backwards for public launch.
+
+(There are still legacy words in the repo, but most are in docs/server internals. UI labels look aligned.)
+
+Paste-this “Replit fix-it” prompt
+
+Replit, final Kickstarter fixes — do exactly this:
+A. Frontend flag: Add VITE_FF_RAG=true to both Workspace Secrets and Deployment → Environment, then rebuild/redeploy. In client, ensure import.meta.env.VITE_FF_RAG is read via a small helper:
+
+// client/src/lib/flags.ts
+export const FF_RAG =
+  (import.meta.env.VITE_FF_RAG ?? "false").toString().toLowerCase() === "true";
+
+
+Use {FF_RAG && <Link to="/ask-zebby">Ask Zebby</Link>} in nav. Keep the route mounted so direct links work.
+
+B. Redirects (legacy → new): Fix front-end route redirects so old URLs land on the new names and preserve query/hash:
+
+// client/src/App.tsx (or your router file)
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+const RedirectPreserve = ({ to }: { to: string }) => {
+  const { search, hash } = useLocation();
+  return <Navigate to={`${to}${search}${hash}`} replace />;
+};
+
+<Routes>
+  {/* legacy → new */}
+  <Route path="/groups/*" element={<RedirectPreserve to="/pastures" />} />
+  <Route path="/circle/*" element={<RedirectPreserve to="/spoonies" />} />
+  <Route path="/circles/*" element={<RedirectPreserve to="/spoonies" />} />
+  <Route path="/store/*" element={<RedirectPreserve to="/zebbys-pouch" />} />
+  <Route path="/marketplace/*" element={<RedirectPreserve to="/zebbys-pouch" />} />
+  {/* keep all your existing new routes below */}
+</Routes>
+
+
+Remove any reverse mappings (e.g., /pastures → /groups) so new names remain canonical.
+
+C. Firebase + CORS (for mobile): If not already set, add these to Secrets and Deployment env, then restart/redeploy:
+
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=service-account@your-project-id.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+ALLOWED_ORIGINS=https://preview.flutterflow.app,https://app.zebbysworld.com,capacitor://localhost,ionic://localhost,http://localhost:5173
+
+
+Confirm /api/meta/config shows ff_rag_frontend: true (or "true"), firebase_configured: true, and the full origins list.
+
+60-second verification
+# 1) Config snapshot
+curl -s https://<your-domain>/api/meta/config | jq
+# expect: ff_rag_frontend true, firebase_configured true, proper origins
+
+# 2) Health
+curl -s https://<your-domain>/api/rag/health
+
+# 3) UI
+# - Ask Zebby visible in nav
+# - /ask-zebby loads and works
+# - Hitting /groups or /store redirects to /pastures or /zebbys-pouch (query/hash preserved)
+
+
+Once those two items are done (flag + redirect direction), you’re set for the Kickstarter demo:
+
+positive message on load
+
+Ask Zebby answers with sources
+
+counter decrements
+
+upgrade banner at limit → Stripe
+
+Pastures / Spoonies / Zebby’s Pouch branding everywhere
