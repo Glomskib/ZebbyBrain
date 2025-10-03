@@ -8,6 +8,7 @@ import crypto from "crypto";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupCronJobs } from "./cron";
+import { configMeta } from "./meta/config";
 
 const app = express();
 
@@ -198,6 +199,9 @@ app.use((req, res, next) => {
     app.use('/e2e', e2eDevRoutes());
     log('E2E mocks and dev routes enabled');
   }
+  
+  // Config metadata endpoint for easy debugging
+  app.use("/api", configMeta);
   
   const server = await registerRoutes(app);
 
