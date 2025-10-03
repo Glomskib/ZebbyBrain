@@ -1,0 +1,189 @@
+Schema (for reference)
+
+If you haven’t already, your Drizzle schema should include plan:
+
+// server/db/schema.ts
+import { pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: varchar("id").primaryKey(),
+  email: varchar("email").notNull(),
+  name: varchar("name"),
+  plan: text("plan").notNull().default("free"),   // 👈 NEW
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+
+If plan already exists, the migration will no-op safely.
+
+2) TypeScript migration (preferred)
+
+Create a new file, e.g. server/db/migrations/0001_add_user_plan.ts:
+
+import { sql } from "drizzle-orm";
+import { type Migration } from "drizzle-orm/node-postgres/migrator";
+
+/**
+ * Adds `plan` to users table, defaults all existing users to 'free'.
+ * Idempotent: checks existence before altering.
+ */
+export const up: Migration["up"] = async (db) => {
+  // Ensure extension for safe checks (not strictly required)
+  // await db.execute(sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
+
+  // 1) Add column if missing
+  await db.execute(sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'plan'
+      ) THEN
+        ALTER TABLE "users" ADD COLUMN "plan" TEXT NOT NULL DEFAULT 'free';
+      END IF;
+    END $$;
+  `);
+
+  // 2) Backfill any NULLs (in case of partial state)
+  await db.execute(sql`UPDATE "users" SET "plan" = 'free' WHERE "plan" IS NULL;`);
+};
+
+export const down: Migration["down"] = async (db) => {
+  // Remove column if it exists (safe rollback)
+  await db.execute(sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'plan'
+      ) THEN
+        ALTER TABLE "users" DROP COLUMN "plan";
+      END IF;
+    END $$;
+  `);
+};
+
+3) Pure SQL migration (if you keep .sql files)
+
+Create server/db/migrations/0001_add_user_plan.sql:
+
+-- up
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'users' AND column_name = 'plan'
+  ) THEN
+    ALTER TABLE "users" ADD COLUMN "plan" TEXT NOT NULL DEFAULT 'free';
+  END IF;
+END $$;
+
+UPDATE "users" SET "plan" = 'free' WHERE "plan" IS NULL;
+
+-- down
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'users' AND column_name = 'plan'
+  ) THEN
+    ALTER TABLE "users" DROP COLUMN "plan";
+  END IF;
+END $$;
+
+
+Use either the TS or the SQL version—no need for both.
+
+4) Drizzle config sanity (if needed)
+
+Make sure drizzle.config.ts (or .mjs) points to your output folder:
+
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  schema: "./server/db/schema.ts",
+  out: "./server/db/migrations",
+  dialect: "postgresql",
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+});
+
+5) Commands to run
+
+From project root (adjust to your script names):
+
+# 0) Ensure env set
+export DATABASE_URL="postgres://..."
+
+# 1) Generate (if you prefer auto-gen): 
+# npx drizzle-kit generate
+
+# 2) Push / migrate
+npx drizzle-kit push           # applies pending migrations
+# or, if you use programmatic migrator:
+# tsx server/db/migrate.ts
+
+
+If you use the programmatic migrator, create server/db/migrate.ts:
+
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import pg from "pg";
+
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const db = drizzle(pool);
+
+(async () => {
+  await migrate(db, { migrationsFolder: "server/db/migrations" });
+  await pool.end();
+  console.log("Migrations applied ✅");
+})();
+
+
+Run:
+
+tsx server/db/migrate.ts
+
+6) Post-migration app wiring (quick checks)
+
+Auth attach: ensure req.user.plan is loaded from DB:
+
+const dbUser = await storage.users.getById(userId);
+(req as any).user = { id: userId, email: dbUser?.email, plan: dbUser?.plan ?? "free" };
+
+
+Quota middleware (already implemented) picks up:
+
+const limit = user.plan === "paid"
+  ? Number(process.env.DAILY_QUERY_LIMIT_PAID ?? 100)
+  : Number(process.env.DAILY_QUERY_LIMIT_FREE ?? 5);
+
+
+Stripe webhooks call:
+
+await storage.users.updatePlan(userId, "paid"); // on checkout.session.completed
+await storage.users.updatePlan(userId, "free"); // on subscription.deleted
+
+7) Smoke test
+
+Run migration: npx drizzle-kit push (or tsx .../migrate.ts).
+
+Inspect column:
+
+\d+ users            -- in psql
+SELECT id,email,plan FROM users LIMIT 5;
+
+
+Login as a user → verify API returns plan: "free".
+
+Hit Stripe Checkout → complete test payment.
+
+Watch webhook logs → confirm plan flips to "paid".
+
+Call /api/rag/answer more than 5× → should allow up to 100/day.
