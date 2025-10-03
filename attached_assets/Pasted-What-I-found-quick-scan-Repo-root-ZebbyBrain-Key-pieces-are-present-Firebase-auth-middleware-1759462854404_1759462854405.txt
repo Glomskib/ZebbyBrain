@@ -1,0 +1,90 @@
+What I found (quick scan)
+
+Repo root: ZebbyBrain/
+
+Key pieces are present:
+
+Firebase auth middleware: server/middleware/firebaseAuth.ts
+
+RAG answer route: server/routes/rag.ts
+
+Motivation endpoint + table: referenced in shared/schema.ts; endpoint references found
+
+Billing: multiple hits; checkout route present
+
+X-Queries-Left header: set in server/routes/rag.ts
+
+Ask Zebby page: client/src/pages/ask-zebby.tsx
+
+Postman collection: docs/zebby-api.postman_collection.json → download:
+Open Postman Collection
+
+“Old name” strings still in code (user-facing or docs)
+
+There are still references to the legacy terms in assorted files (some may be docs or dead strings):
+
+Groups (26), Group (42)
+
+Circles (15), Circle (22)
+
+Store (33), Marketplace (15)
+
+This confirms Replit did the safe UI rename in many places, but a sweep (labels/i18n + a few UI strings) will finish the job before public eyes are on it.
+
+What to do right now (fast-ready for testers/Kickstarter)
+
+Set env on Replit (workspace + deployment), then restart:
+
+FIREBASE_PROJECT_ID=...
+FIREBASE_CLIENT_EMAIL=...
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+ALLOWED_ORIGINS=https://preview.flutterflow.app,https://app.zebbysworld.com,capacitor://localhost,ionic://localhost,http://localhost:5173
+
+
+Run the Bearer-token smoke test (Firebase)
+
+Create a temp user in Firebase Auth, get an ID token via REST, then:
+
+curl -s -X POST https://<your-replit-domain>/api/rag/answer \
+  -H "Authorization: Bearer $ID_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What are common EDS symptoms?","window":"30d"}' -i
+
+
+Expect 200 + X-Queries-Left header.
+
+Kickstarter demo flow
+
+Open /ask-zebby, ask 2–3 things → see answer + sources + counter.
+
+Hit free cap → Upgrade banner → Stripe Checkout URL.
+
+Home shows random positive message.
+
+Nav uses Pastures / Spoonies / Zebby’s Pouch everywhere.
+
+Hand-off to Cursor: first tasks I’ll run (copy/paste ready)
+
+When you export to Cursor, I’ll paste these as tasks so the AI finishes quickly and safely:
+
+Task 1 — Label sweep → central map
+
+Create client/src/i18n/labels.ts with { pastures: "Pastures", spoonies: "Spoonies", pouch: "Zebby’s Pouch", askZebby: "Ask Zebby" }. Replace all user-facing occurrences of “Groups/Circles/Store/Marketplace” with these constants. Provide a file list and a grep report showing no leftover user-facing strings.
+
+Task 2 — Route redirects (front-end only)
+
+Add front-end redirects: /groups/*→/pastures/*, /circles/*→/spoonies/*, /store|/marketplace→/zebbys-pouch. Do not change backend routes. Provide UI test steps.
+
+Task 3 — Motivation endpoint wire-up (banner)
+
+Ensure GET /api/motivation is mounted and used on the Home page to show a random positive message (with fallback). Include loading/error states. Provide curl + UI proof.
+
+Task 4 — CORS + logging
+
+Confirm CORS reads ALLOWED_ORIGINS (comma list), logs the parsed origins on boot, and correctly accepts/blocks requests by Origin. Provide a tiny /api/meta/ping and two curl examples (allowed origin vs blocked).
+
+Task 5 — Ask Zebby polish
+
+On /ask-zebby, display “Queries left today: N” from X-Queries-Left. Show sources in an accordion. If 429, show the Upgrade banner and wire the button to /api/billing/create-checkout-session (open returned URL). Provide a brief UI test script.
+
+(Phase 2 in Cursor will handle the 2D body map replacement and image uploads.)
