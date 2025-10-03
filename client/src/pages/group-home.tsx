@@ -109,7 +109,7 @@ interface Comment {
 }
 
 export default function GroupHome() {
-  const [, params] = useRoute("/groups/:slug");
+  const [, params] = useRoute("/pastures/:slug");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [pseudonymDialogOpen, setPseudonymDialogOpen] = useState(false);
@@ -216,7 +216,7 @@ export default function GroupHome() {
         <p className="text-muted-foreground mb-8">
           This group doesn't exist or you don't have access to it.
         </p>
-        <Link href="/groups">
+        <Link href="/pastures">
           <Button data-testid="button-back-to-directory">
             Back to Directory
           </Button>

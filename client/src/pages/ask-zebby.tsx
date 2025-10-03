@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Brain, Sparkles, Clock, Crown, BookOpen, TrendingUp, AlertCircle, Loader2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { FF_RAG } from "@/lib/flags";
 
 interface RagAnswer {
   answer: string;
@@ -66,7 +67,7 @@ export default function AskZebby() {
     retry: false,
   });
 
-  const ragEnabled = import.meta.env.VITE_FF_RAG === "true";
+  const ragEnabled = FF_RAG;
 
   // Ask question mutation
   const askMutation = useMutation({

@@ -55,7 +55,7 @@ interface Report {
 }
 
 export default function ModQueue() {
-  const [, params] = useRoute("/groups/:slug/mod/reports");
+  const [, params] = useRoute("/pastures/:slug/mod/reports");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [selectedAction, setSelectedAction] = useState<string>("no_action");

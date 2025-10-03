@@ -98,7 +98,7 @@ export default function Dashboard() {
                   Log Today's Symptoms
                 </Button>
                 <Button 
-                  onClick={() => window.location.href = '/personal-circle'}
+                  onClick={() => window.location.href = '/spoonies'}
                   className="bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white font-semibold rounded-2xl px-6 py-6 text-base border border-white/30"
                   data-testid="button-reach-out"
                 >
@@ -214,7 +214,7 @@ export default function Dashboard() {
 
         {/* Additional Feature Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Link href="/groups">
+          <Link href="/pastures">
             <Card className="rounded-2xl shadow-zebby border-0 hover:shadow-zebby-lg transition-shadow cursor-pointer">
               <CardContent className="p-6">
                 <div className="flex items-center gap-3">
@@ -230,7 +230,7 @@ export default function Dashboard() {
             </Card>
           </Link>
 
-          <Link href="/personal-circle">
+          <Link href="/spoonies">
             <Card className="rounded-2xl shadow-zebby border-0 hover:shadow-zebby-lg transition-shadow cursor-pointer">
               <CardContent className="p-6">
                 <div className="flex items-center gap-3">
@@ -246,7 +246,7 @@ export default function Dashboard() {
             </Card>
           </Link>
 
-          <Link href="/marketplace">
+          <Link href="/zebbys-pouch">
             <Card className="rounded-2xl shadow-zebby border-0 hover:shadow-zebby-lg transition-shadow cursor-pointer">
               <CardContent className="p-6">
                 <div className="flex items-center gap-3">

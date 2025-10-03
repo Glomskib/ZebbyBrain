@@ -337,7 +337,7 @@ function GroupCard({ group, membership }: { group: Group; membership?: { joinSta
 
         {/* Action button */}
         {isApprovedMember ? (
-          <Link href={`/groups/${group.slug}`}>
+          <Link href={`/pastures/${group.slug}`}>
             <Button className="w-full" data-testid={`button-view-group-${group.id}`}>
               View Group
             </Button>
@@ -347,7 +347,7 @@ function GroupCard({ group, membership }: { group: Group; membership?: { joinSta
             Pending Approval
           </Button>
         ) : (
-          <Link href={`/groups/${group.slug}`}>
+          <Link href={`/pastures/${group.slug}`}>
             <Button 
               variant="outline" 
               className="w-full" 

@@ -84,10 +84,10 @@ export default function ProductDetail({ productId }: ProductDetailProps) {
             <p className="text-muted-foreground mb-6">
               The product you're looking for doesn't exist or has been removed.
             </p>
-            <Link href="/marketplace">
+            <Link href="/zebbys-pouch">
               <Button>
                 <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Marketplace
+                Back to Zebby's Pouch
               </Button>
             </Link>
           </div>
@@ -127,8 +127,8 @@ export default function ProductDetail({ productId }: ProductDetailProps) {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 mb-6 text-sm text-muted-foreground">
-          <Link href="/marketplace" className="hover:text-foreground transition-colors">
-            Marketplace
+          <Link href="/zebbys-pouch" className="hover:text-foreground transition-colors">
+            Zebby's Pouch
           </Link>
           <span>/</span>
           <span className="text-foreground">{product.name}</span>
@@ -275,12 +275,12 @@ export default function ProductDetail({ productId }: ProductDetailProps) {
         {/* Reviews Section */}
         <ProductReviews productId={productId} />
 
-        {/* Back to Marketplace */}
+        {/* Back to Zebby's Pouch */}
         <div className="mt-16 text-center">
-          <Link href="/marketplace">
+          <Link href="/zebbys-pouch">
             <Button variant="outline">
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Marketplace
+              Back to Zebby's Pouch
             </Button>
           </Link>
         </div>
