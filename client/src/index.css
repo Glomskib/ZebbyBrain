@@ -6,29 +6,34 @@
 @tailwind utilities;
 
 :root {
-  --background: hsl(203, 100%, 90%); /* Sky blue background */
-  --foreground: hsl(215, 20%, 20%);
+  --background: hsl(210, 40%, 98%); /* Clean light gray background */
+  --foreground: hsl(222, 47%, 11%); /* Dark navy text */
   --card: hsl(0, 0%, 100%); /* Pure white cards */
-  --card-foreground: hsl(215, 20%, 20%);
+  --card-foreground: hsl(222, 47%, 11%);
   --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(215, 20%, 20%);
-  --primary: hsl(220, 100%, 55%); /* Vibrant blue */
+  --popover-foreground: hsl(222, 47%, 11%);
+  --primary: hsl(188, 100%, 42%); /* Cyan */
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(120, 60%, 50%); /* Vibrant green */
+  --secondary: hsl(160, 84%, 39%); /* Emerald green */
   --secondary-foreground: hsl(0, 0%, 100%);
-  --muted: hsl(203, 50%, 95%);
-  --muted-foreground: hsl(215, 15%, 45%);
-  --accent: hsl(350, 89%, 60%); /* Bright pink/coral */
-  --accent-foreground: hsl(0, 0%, 100%);
-  --destructive: hsl(0, 70%, 60%);
+  --muted: hsl(210, 40%, 96%);
+  --muted-foreground: hsl(215, 16%, 47%);
+  --accent: hsl(43, 96%, 56%); /* Warm yellow accent */
+  --accent-foreground: hsl(222, 47%, 11%);
+  --destructive: hsl(0, 84%, 60%);
   --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(203, 50%, 85%);
+  --border: hsl(214, 32%, 91%);
   --input: hsl(0, 0%, 100%);
-  --ring: hsl(220, 100%, 55%);
-  --radius: 16px; /* More rounded corners */
-  --font-sans: 'Baloo 2', 'Inter', system-ui, sans-serif; /* Friendlier font */
+  --ring: hsl(188, 100%, 42%);
+  --radius: 24px; /* Very rounded corners */
+  --font-sans: 'Inter', system-ui, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
+  
+  /* Gradient colors */
+  --gradient-cyan: hsl(188, 100%, 42%);
+  --gradient-turquoise: hsl(175, 100%, 45%);
+  --gradient-emerald: hsl(160, 84%, 39%);
 }
 
 .dark {
@@ -64,14 +69,22 @@
 }
 
 @layer components {
+  .zebby-gradient {
+    background: linear-gradient(135deg, var(--gradient-cyan) 0%, var(--gradient-turquoise) 50%, var(--gradient-emerald) 100%);
+  }
+  
+  .zebby-gradient-subtle {
+    background: linear-gradient(135deg, rgba(0, 188, 212, 0.1) 0%, rgba(77, 208, 225, 0.1) 50%, rgba(16, 185, 129, 0.1) 100%);
+  }
+  
   .zebra-pattern {
     background: linear-gradient(45deg, 
       transparent 25%, 
-      rgba(79, 209, 199, 0.1) 25%, 
-      rgba(79, 209, 199, 0.1) 50%, 
+      rgba(0, 188, 212, 0.05) 25%, 
+      rgba(0, 188, 212, 0.05) 50%, 
       transparent 50%, 
       transparent 75%, 
-      rgba(79, 209, 199, 0.1) 75%);
+      rgba(0, 188, 212, 0.05) 75%);
     background-size: 20px 20px;
   }
   
@@ -87,11 +100,19 @@
   }
   
   .symptom-stamp {
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    background: linear-gradient(135deg, var(--gradient-cyan), var(--gradient-emerald));
   }
   
   .floating-animation {
     animation: float 3s ease-in-out infinite;
+  }
+  
+  .shadow-zebby {
+    box-shadow: 0 2px 12px rgba(0, 188, 212, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+  
+  .shadow-zebby-lg {
+    box-shadow: 0 8px 24px rgba(0, 188, 212, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
   }
 }
 

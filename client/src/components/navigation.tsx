@@ -46,24 +46,24 @@ export default function Navigation() {
   };
 
   return (
-    <nav className="bg-card border-b border-border sticky top-0 z-40">
+    <nav className="bg-white/80 backdrop-blur-md border-b border-border/50 sticky top-0 z-40 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-3" data-testid="logo-link">
+          <Link href="/" className="flex items-center gap-2" data-testid="logo-link">
             <ZebbyAvatar size="small" />
             <h1 className="text-xl font-bold text-foreground">Zebby's World</h1>
           </Link>
           
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-6">
+          <div className="hidden lg:flex items-center gap-2">
             {navItems.map(({ path, label, testId }) => (
               <Link key={path} href={path}>
                 <button 
-                  className={`transition-colors ${
+                  className={`px-4 py-2 rounded-xl font-medium transition-all ${
                     location === path 
-                      ? "text-primary font-medium" 
-                      : "text-foreground hover:text-primary"
+                      ? "bg-foreground text-white" 
+                      : "text-foreground/70 hover:text-foreground hover:bg-muted"
                   }`}
                   data-testid={testId}
                 >
