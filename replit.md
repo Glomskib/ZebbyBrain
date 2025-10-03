@@ -19,7 +19,9 @@ Preferred communication style: Simple, everyday language.
 - **Frontend**: React with TypeScript, leveraging functional components and hooks.
 - **Backend**: Express.js with TypeScript for a RESTful API.
 - **Database**: PostgreSQL with Drizzle ORM for type-safe operations, hosted on Neon.
-- **Authentication**: Replit-based OIDC authentication with PostgreSQL-backed session management.
+- **Authentication**: Flexible dual-auth system supporting both Replit OIDC (web) and Firebase Admin SDK (mobile) with PostgreSQL-backed session management.
+  - **Firebase Auth**: Server-side token verification via `firebase-admin`, auto-creates users from Firebase tokens, guards costly endpoints
+  - **Flexible Middleware**: `flexibleAuth` automatically detects Bearer tokens (Firebase) vs session cookies (web), seamless user experience across platforms
 - **AI Integration**: OpenAI GPT-4o-mini and GPT-5 for empathetic responses, personalized insights, and an AI companion.
 - **Build & Development**: Vite for fast development and optimized production builds, ESBuild for bundling, PostCSS for CSS processing.
 
@@ -37,7 +39,12 @@ Preferred communication style: Simple, everyday language.
   - **Configuration**: Centralized in `server/rag/config.ts` with EMBEDDING_MODEL and EMBEDDING_DIM constants.
   - **Cost Controls**: Daily query quotas (free: 5, plus: 100), configurable via DAILY_QUERY_LIMIT_FREE/PAID env vars.
   - **Usage Tracking**: Token usage logging with estimated cost tracking for monitoring OpenAI spend.
+  - **Mobile Support**: `X-Queries-Left` header added to `/api/rag/answer` responses for mobile client quota tracking.
   - **UI**: Ask Zebby page (`/ask-zebby`) with question input, time window selection, answer display, source attribution, usage counter, and upgrade banner for free users at limit.
+- **Uplifting Messages**: Mobile motivation system with 20+ encouraging messages stored in the database.
+  - **API Endpoint**: GET `/api/motivation` returns random uplifting message with timestamp.
+  - **Database**: `uplifting_messages` table with text, active flag, weight for randomization, and category support.
+  - **Mobile Integration**: Designed for mobile home screens and push notifications to provide daily encouragement.
 - **Personal Circle**: Private health data sharing system with granular controls, secure invitations, and automated alert rules for designated members.
   - **Wave 3+ Herd Reach-Out**: Manual alert system with 10-minute cancel window, rate limiting (3/hour), and background processing. Requires `FF_HERD=true` and `VITE_FF_HERD=true` secrets.
 - **Zebby Social (Groups)**: Community groups with a directory, state-based access control, post composer, interactive feed, and moderation tools. Includes age, gender, and diagnosis-gated access.
@@ -55,6 +62,19 @@ Preferred communication style: Simple, everyday language.
 - **Performance**: Gzip/deflate compression, weather API caching, resilient network calls with retry/timeout logic.
 - **Observability**: Client ErrorBoundary for crash handling, request correlation IDs, PII/PHI redaction in logs, RAG usage tracking with token counts and cost estimates.
 - **Cost Management**: Daily per-user RAG query limits with middleware-based quota enforcement, configurable token limits (ANSWER_MAX_TOKENS), and structured usage logging.
+
+### Kickstarter Readiness
+- **Feature Naming**: User-facing features renamed for Kickstarter campaign appeal:
+  - **Pastures** (formerly Groups): Community spaces for peer support
+  - **Spoonies** (formerly Personal Circle): Private health data sharing with trusted contacts
+  - **Zebby's Pouch** (formerly Marketplace): Curated EDS-friendly products
+  - Internal routes and variables unchanged for system stability
+- **API Testing**: Complete Postman collection (`docs/zebby-api.postman_collection.json`) with:
+  - Health check endpoints
+  - Mobile motivation API
+  - RAG (AI Brain) endpoints with both Firebase and session auth examples
+  - Stripe billing endpoints
+  - Reusable environment variables for easy testing
 
 ## External Dependencies
 
