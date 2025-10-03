@@ -14,13 +14,19 @@ function initAdmin() {
     return;
   }
   
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId,
-      clientEmail,
-      privateKey: privateKey.replace(/\\n/g, "\n"),
-    }),
-  });
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey: privateKey.replace(/\\n/g, "\n"),
+      }),
+    });
+    console.info("✅ Firebase Admin initialized successfully");
+  } catch (error) {
+    console.error("❌ Firebase initialization failed:", error instanceof Error ? error.message : String(error));
+    console.warn("Firebase auth will be unavailable. App will continue without Firebase support.");
+  }
 }
 
 initAdmin();
