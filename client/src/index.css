@@ -70,11 +70,17 @@
 
 @layer components {
   .zebby-gradient {
-    background: linear-gradient(135deg, var(--gradient-cyan) 0%, var(--gradient-turquoise) 50%, var(--gradient-emerald) 100%);
+    background: linear-gradient(135deg, hsl(188, 100%, 42%) 0%, hsl(175, 100%, 45%) 50%, hsl(160, 84%, 39%) 100%);
   }
   
   .zebby-gradient-subtle {
     background: linear-gradient(135deg, rgba(0, 188, 212, 0.1) 0%, rgba(77, 208, 225, 0.1) 50%, rgba(16, 185, 129, 0.1) 100%);
+  }
+  
+  .nav-frosted {
+    background-color: rgba(255, 255, 255, 0.85);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
   }
   
   .zebra-pattern {
