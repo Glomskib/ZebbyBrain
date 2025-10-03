@@ -3,6 +3,11 @@ import { EMBEDDING_MODEL, EMBEDDING_DIM } from "../rag/config";
 
 const r = Router();
 
+// Simple uptime check
+r.get("/ping", (_req, res) => {
+  res.json({ ok: true });
+});
+
 // Production health check endpoint
 r.get("/health", (req, res) => {
   res.setHeader('Cache-Control', 'no-store');

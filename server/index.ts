@@ -27,6 +27,10 @@ const allowed = [
   "http://localhost:5000",
   ...(process.env.ALLOWED_ORIGINS || "").split(",").filter(Boolean)
 ].filter(Boolean) as string[];
+
+// Log CORS configuration on boot
+console.log("CORS allowed origins:", allowed.length ? allowed : ["[localhost-only]"]);
+
 app.use(cors({ 
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);

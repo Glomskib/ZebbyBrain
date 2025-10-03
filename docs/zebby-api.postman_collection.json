@@ -21,6 +21,18 @@
       "name": "Health Checks",
       "item": [
         {
+          "name": "Uptime Ping",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/ping",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "ping"]
+            }
+          }
+        },
+        {
           "name": "API Health Check",
           "request": {
             "method": "GET",
