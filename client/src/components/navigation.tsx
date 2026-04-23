@@ -30,11 +30,18 @@ export default function Navigation() {
     { path: "/tracker", label: L.tracker, testId: "nav-tracker" },
     { path: "/history", label: "History", testId: "nav-history" },
     { path: "/ask-zebby", label: L.askZebby, testId: "nav-ask-zebby" },
+    { path: "/zebby-plus", label: "Zebby+", testId: "nav-zebby-plus" },
+  ];
+
+  const moreItems = [
     { path: "/calm-corner", label: "Calm Corner", testId: "nav-calm-corner" },
+    { path: "/zzzebby-sounds", label: "Zzzebby Sounds", testId: "nav-zzzebby-sounds" },
+    { path: "/trusted-trail", label: "Trusted Trail", testId: "nav-trusted-trail" },
+    { path: "/herd-insights", label: "Herd Insights", testId: "nav-herd-insights" },
+    { path: "/doctor-prep", label: "Doctor Prep", testId: "nav-doctor-prep" },
     { path: "/pastures", label: L.pastures, testId: "nav-pastures" },
     { path: "/spoonies", label: L.spoonies, testId: "nav-spoonies" },
     { path: "/zebbys-pouch", label: L.pouch, testId: "nav-zebbys-pouch" },
-    { path: "/zebby-plus", label: "Zebby+", testId: "nav-zebby-plus" },
     { path: "/settings", label: L.settings, testId: "nav-settings" },
   ];
 
@@ -57,19 +64,21 @@ export default function Navigation() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2" data-testid="logo-link">
+          <Link href="/" className="flex items-center gap-2 min-w-0" data-testid="logo-link">
             <ZebbyAvatar size="small" showBadge />
-            <h1 className="text-xl font-bold text-foreground">Zebby's World</h1>
+            <h1 className="text-base sm:text-xl font-bold text-foreground whitespace-nowrap">
+              Zebby's World
+            </h1>
           </Link>
           
           {/* Desktop Navigation */}
-          <div className="hidden lg:flex items-center gap-2">
+          <div className="hidden lg:flex items-center gap-1 xl:gap-2">
             {navItems.map(({ path, label, testId }) => (
               <Link key={path} href={path}>
-                <button 
-                  className={`px-4 py-2 font-medium transition-all ${
-                    location === path 
-                      ? "bg-[#1e293b] text-white rounded-xl" 
+                <button
+                  className={`px-3 xl:px-4 py-2 font-medium text-sm whitespace-nowrap transition-all ${
+                    location === path
+                      ? "bg-[#1e293b] text-white rounded-xl"
                       : "text-foreground/70 hover:text-foreground hover:bg-muted rounded-xl"
                   }`}
                   data-testid={testId}
@@ -78,6 +87,36 @@ export default function Navigation() {
                 </button>
               </Link>
             ))}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className={`px-3 xl:px-4 py-2 font-medium text-sm whitespace-nowrap rounded-xl transition-all ${
+                    moreItems.some((m) => m.path === location)
+                      ? "bg-[#1e293b] text-white"
+                      : "text-foreground/70 hover:text-foreground hover:bg-muted"
+                  }`}
+                  data-testid="nav-more"
+                >
+                  More
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                {moreItems.map(({ path, label, testId }) => (
+                  <DropdownMenuItem key={path} asChild>
+                    <Link href={path}>
+                      <button
+                        className={`w-full text-left ${
+                          location === path ? "text-primary font-medium" : ""
+                        }`}
+                        data-testid={testId}
+                      >
+                        {label}
+                      </button>
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           
           {/* Right side actions */}
@@ -158,20 +197,20 @@ export default function Navigation() {
             </DropdownMenu>
 
             {/* Mobile Menu */}
-            <div className="md:hidden">
+            <div className="lg:hidden">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="icon"
                     data-testid="button-mobile-menu"
                   >
                     <Menu className="w-5 h-5" />
                   </Button>
                 </DropdownMenuTrigger>
-                
-                <DropdownMenuContent align="end" className="w-48">
-                  {navItems.map(({ path, label, testId }) => (
+
+                <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                  {[...navItems, ...moreItems].map(({ path, label, testId }) => (
                     <DropdownMenuItem key={path} asChild>
                       <Link href={path}>
                         <button 

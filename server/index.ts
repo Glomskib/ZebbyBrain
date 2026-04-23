@@ -112,15 +112,23 @@ app.use((req, res, next) => {
 });
 
 // Helmet for comprehensive security headers
+const isDev = process.env.NODE_ENV !== "production";
 const cspDirectives: any = {
   "default-src": ["'self'"],
   "img-src": ["'self'", "data:", "blob:"],
   "font-src": ["'self'", "https://fonts.gstatic.com"],
-  "style-src": ["'self'", "https://fonts.googleapis.com"], // for Tailwind + Google Fonts
-  "script-src": process.env.NODE_ENV === "development" 
-    ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"] // Allow inline scripts in development for Vite + Stripe
+  // In dev, Vite injects styles via runtime <style> tags; allow 'unsafe-inline'.
+  // Prod still locks down to 'self' + Google Fonts.
+  "style-src": isDev
+    ? ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"]
+    : ["'self'", "https://fonts.googleapis.com"],
+  "script-src": isDev
+    ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"]
     : ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],
-  "connect-src": ["'self'", "https://api.stripe.com", "https://api.openai.com"],
+  // Allow Vite's HMR websocket in dev; 'self' only in prod.
+  "connect-src": isDev
+    ? ["'self'", "ws:", "wss:", "https://api.stripe.com", "https://api.openai.com"]
+    : ["'self'", "https://api.stripe.com", "https://api.openai.com"],
   "frame-src": ["https://js.stripe.com"],
   "frame-ancestors": ["'none'"],
   "object-src": ["'none'"],
@@ -142,26 +150,27 @@ app.use(helmet({
   noSniff: true // X-Content-Type-Options: nosniff
 }));
 
-// CSP Report-Only for monitoring violations without blocking
-app.use(helmet.contentSecurityPolicy({
-  reportOnly: true,
-  useDefaults: true,
-  directives: {
-    "default-src": ["'self'"],
-    "img-src": ["'self'", "data:", "blob:"],
-    "font-src": ["'self'", "https://fonts.gstatic.com"],
-    "style-src": ["'self'", "https://fonts.googleapis.com"], // for Tailwind + Google Fonts
-    "script-src": process.env.NODE_ENV === "development" 
-      ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"] // Allow inline scripts in development for Vite + Stripe
-      : ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],
-    "connect-src": ["'self'", "https://api.stripe.com", "https://api.openai.com"],
-    "frame-src": ["https://js.stripe.com"],
-    "frame-ancestors": ["'none'"],
-    "object-src": ["'none'"],
-    "base-uri": ["'self'"],
-    "report-uri": ["/csp/report"]
-  }
-}));
+// CSP Report-Only for monitoring violations without blocking (prod only —
+// in dev it would produce noise for Vite's inline styles).
+if (!isDev) {
+  app.use(helmet.contentSecurityPolicy({
+    reportOnly: true,
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'", "data:", "blob:"],
+      "font-src": ["'self'", "https://fonts.gstatic.com"],
+      "style-src": ["'self'", "https://fonts.googleapis.com"],
+      "script-src": ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],
+      "connect-src": ["'self'", "https://api.stripe.com", "https://api.openai.com"],
+      "frame-src": ["https://js.stripe.com"],
+      "frame-ancestors": ["'none'"],
+      "object-src": ["'none'"],
+      "base-uri": ["'self'"],
+      "report-uri": ["/csp/report"]
+    }
+  }));
+}
 
 // HTTP Parameter Pollution protection
 app.use(hpp());

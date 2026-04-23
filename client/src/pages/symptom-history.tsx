@@ -117,23 +117,29 @@ export default function SymptomHistory() {
                 <CardTitle className="text-base">Daily average intensity</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={byDay} margin={{ top: 10, right: 12, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="day" fontSize={12} />
-                      <YAxis domain={[0, 10]} fontSize={12} />
-                      <Tooltip />
-                      <Line
-                        type="monotone"
-                        dataKey="avg"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        dot={{ r: 3 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
+                {byDay.length === 0 ? (
+                  <EmptyChart message="No entries yet in this window." />
+                ) : (
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={byDay} margin={{ top: 10, right: 12, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="day" fontSize={12} />
+                        <YAxis domain={[0, 10]} fontSize={12} />
+                        <Tooltip />
+                        <Line
+                          type="monotone"
+                          dataKey="avg"
+                          stroke="#06b6d4"
+                          strokeWidth={3}
+                          dot={{ r: 5, fill: "#06b6d4" }}
+                          activeDot={{ r: 7 }}
+                          isAnimationActive={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -144,19 +150,23 @@ export default function SymptomHistory() {
                 <CardTitle className="text-base">Most-logged symptoms</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={bySymptom} margin={{ top: 10, right: 12, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="name" fontSize={12} interval={0} angle={-20} textAnchor="end" height={60} />
-                      <YAxis fontSize={12} />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="count" name="Times logged" fill="hsl(var(--primary))" radius={[8, 8, 0, 0]} />
-                      <Bar dataKey="avgIntensity" name="Avg intensity" fill="hsl(var(--accent))" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                {bySymptom.length === 0 ? (
+                  <EmptyChart message="No symptoms logged yet in this window." />
+                ) : (
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={bySymptom} margin={{ top: 10, right: 12, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="name" fontSize={12} interval={0} angle={-20} textAnchor="end" height={60} />
+                        <YAxis fontSize={12} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="count" name="Times logged" fill="#06b6d4" radius={[8, 8, 0, 0]} isAnimationActive={false} />
+                        <Bar dataKey="avgIntensity" name="Avg intensity" fill="#f59e0b" radius={[8, 8, 0, 0]} isAnimationActive={false} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -249,4 +259,18 @@ function topSymptoms(entries: Entry[]) {
 function avg(ns: number[]) {
   if (ns.length === 0) return 0;
   return ns.reduce((a, b) => a + b, 0) / ns.length;
+}
+
+function EmptyChart({ message }: { message: string }) {
+  return (
+    <div className="h-64 flex flex-col items-center justify-center text-center text-sm text-muted-foreground gap-2">
+      <Activity className="h-6 w-6 opacity-50" />
+      <p>{message}</p>
+      <Link href="/tracker">
+        <Button size="sm" variant="outline" className="rounded-full mt-1">
+          Go to tracker
+        </Button>
+      </Link>
+    </div>
+  );
 }

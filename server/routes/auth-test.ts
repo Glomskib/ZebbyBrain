@@ -77,6 +77,24 @@ r.post("/test-login", async (req: any, res) => {
   }
 });
 
+// E2E-only: elevate the currently authenticated user to plus plan. Lets
+// browser smoke tests exercise premium-gated flows (Doctor Prep, etc).
+r.post("/e2e/upgrade-self-to-plus", async (req: any, res) => {
+  if (!allow) return res.status(403).json({ error: "disabled" });
+  const userId = req.user?.claims?.sub || req.user?.id;
+  if (!userId) return res.status(401).json({ error: "unauthenticated" });
+  try {
+    const [updated] = await db
+      .update(users)
+      .set({ plan: "plus", planStatus: "active", updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    res.json({ ok: true, plan: updated?.plan, planStatus: updated?.planStatus });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || "upgrade_failed" });
+  }
+});
+
 // E2E-only: Manually trigger herd alert processing
 r.post("/e2e/process-herd-alerts", async (req, res) => {
   if (!allow) return res.status(403).json({ error: "disabled" });

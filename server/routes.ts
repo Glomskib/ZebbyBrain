@@ -156,12 +156,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
   });
 
-  // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+  // Auth routes — /api/auth/user returns 200 + null when unauthenticated so
+  // the browser doesn't log console 401 noise on public pages.
+  app.get('/api/auth/user', async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      if (!req.isAuthenticated?.() || !req.user) {
+        return res.status(200).json(null);
+      }
+      const now = Math.floor(Date.now() / 1000);
+      if (req.user.expires_at && now > req.user.expires_at) {
+        req.logout?.(() => {});
+        return res.status(200).json(null);
+      }
+      const userId = req.user.claims?.sub || req.user.id;
+      if (!userId) return res.status(200).json(null);
       const user = await storage.getUser(userId);
-      if (!user) return res.status(404).json({ message: "User not found" });
+      if (!user) return res.status(200).json(null);
       const { passwordHash, deleteToken, ...safe } = user as any;
       res.json(safe);
     } catch (error) {

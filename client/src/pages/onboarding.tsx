@@ -83,12 +83,24 @@ export default function Onboarding() {
     }
   }, [profile, isLoading, setLocation]);
 
+  // Pre-fill first/last name from what we already have so we don't blank it out.
+  useEffect(() => {
+    if (profile && (profile.firstName || profile.lastName)) {
+      setFormData((prev) => ({
+        ...prev,
+        firstName: prev.firstName || profile.firstName || "",
+        lastName: prev.lastName || profile.lastName || "",
+      }));
+    }
+  }, [profile]);
+
   const updateProfileMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest('PUT', '/api/user/profile', {
-        ...data,
-        onboardingCompleted: true,
-      });
+      // Don't clobber the name set at signup with empty strings.
+      const payload: Record<string, any> = { ...data, onboardingCompleted: true };
+      if (payload.firstName === "" || payload.firstName == null) delete payload.firstName;
+      if (payload.lastName === "" || payload.lastName == null) delete payload.lastName;
+      return apiRequest('PUT', '/api/user/profile', payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
