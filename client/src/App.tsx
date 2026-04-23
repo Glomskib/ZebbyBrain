@@ -81,6 +81,7 @@ function Router() {
       <Route path="/share/:id" component={SharePage} />
       <Route path="/login" component={AuthPage} />
       <Route path="/signup" component={AuthPage} />
+      <Route path="/auth" component={AuthPage} />
 
       {/* Onboarding route - accessible to authenticated users */}
       {isAuthenticated && (
@@ -124,6 +125,10 @@ function Router() {
           <Route path="/member-dashboard" component={MemberDashboard} />
           <Route path="/settings" component={Settings} />
           <Route path="/settings/herd-rewards" component={HerdRewards} />
+          <Route path="/rewards" component={HerdRewards} />
+          <Route path="/symptom-tracker" component={SymptomTracker} />
+          <Route path="/symptom-history" component={SymptomHistory} />
+          <Route path="/dashboard" component={Dashboard} />
           <Route path="/import" component={ImportSettings} />
           <Route path="/import/review" component={ImportReviewQueue} />
         </>

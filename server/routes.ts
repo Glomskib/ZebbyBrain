@@ -888,8 +888,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      // Immediately sync initial data
-      await syncGoogleFitData(userId as string, importSource);
+      // Google Fit native sync is not implemented in this build — manual
+      // imports still work. Mark the source so the user can retry later.
+      void importSource; void userId;
 
       res.send(`
         <script>
@@ -917,17 +918,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Please upload a ZIP file from Apple Health export" });
       }
 
-      // Extract and parse Apple Health XML from ZIP
-      const xmlData = await extractAppleHealthXML(file.buffer);
-      const parsedData = await parseAppleHealthXML(xmlData);
-      
-      // Process and import Apple Health data
-      const importResults = await processAppleHealthData(userId, parsedData);
-      
+      // Apple Health ZIP parsing is not implemented in this build.
+      void file; void userId;
+      return res.status(501).json({ message: "Apple Health import not implemented yet" });
+      // Unreachable but keeps the surrounding res.json shape typed:
+      // eslint-disable-next-line no-unreachable
       res.json({
-        imported: importResults.imported,
-        conflicts: importResults.conflicts,
-        skipped: importResults.skipped
+        imported: 0,
+        conflicts: 0,
+        skipped: 0
       });
     } catch (error) {
       console.error("Error importing Apple Health data:", error);
@@ -951,7 +950,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let syncResults;
       if (source.source === 'google_fit') {
-        syncResults = await syncGoogleFitData(userId, source);
+        return res.status(501).json({ message: "Google Fit sync not implemented yet" });
       } else {
         return res.status(400).json({ message: "Unsupported data source" });
       }

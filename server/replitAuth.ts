@@ -32,9 +32,15 @@ const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function getSession() {
   const secret = process.env.SESSION_SECRET || "dev-insecure-session-secret-change-me";
+  // Secure cookies require HTTPS. In production we default to secure=true;
+  // set SESSION_INSECURE=true if you're doing a local prod-build smoke over
+  // plain HTTP and know the risk.
+  const secureCookie =
+    process.env.NODE_ENV === "production" &&
+    process.env.SESSION_INSECURE !== "true";
   const cookie = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookie,
     maxAge: ONE_WEEK_MS,
     sameSite: "lax" as const,
   };

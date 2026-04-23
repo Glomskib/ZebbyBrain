@@ -9,7 +9,7 @@ import SymptomLogger from "@/components/symptom-logger";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
-import { BarChart3, Heart, Sparkles, TrendingUp, Users, Package, MessageCircle, HeartHandshake, Moon, Route as RouteIcon, Stethoscope, Gem } from "lucide-react";
+import { BarChart3, Heart, Sparkles, TrendingUp, Users, Package, MessageCircle, HeartHandshake, Moon, Route as RouteIcon, Stethoscope, Gem, Gift, ShoppingBag } from "lucide-react";
 import { Link } from "wouter";
 import { L } from "@/i18n/labels";
 
@@ -279,6 +279,8 @@ export default function Dashboard() {
               { to: "/trusted-trail", label: "Trusted Trail", sub: "Guided tour", icon: <RouteIcon className="w-5 h-5" />, color: "bg-emerald-100 text-emerald-600" },
               { to: "/herd-insights", label: "Herd Insights", sub: "Patterns vs herd", icon: <TrendingUp className="w-5 h-5" />, color: "bg-violet-100 text-violet-600" },
               { to: "/doctor-prep", label: "Doctor Prep", sub: "Appointment briefs", icon: <Stethoscope className="w-5 h-5" />, color: "bg-sky-100 text-sky-600" },
+              { to: "/zebbys-pouch", label: "Zebby's Pouch", sub: "Curated products", icon: <ShoppingBag className="w-5 h-5" />, color: "bg-teal-100 text-teal-600" },
+              { to: "/settings/herd-rewards", label: "Rewards", sub: "Earn points", icon: <Gift className="w-5 h-5" />, color: "bg-fuchsia-100 text-fuchsia-600" },
               { to: "/zebby-plus", label: "Zebby+", sub: "Unlock more", icon: <Gem className="w-5 h-5" />, color: "bg-amber-100 text-amber-600" },
             ].map((t) => (
               <Link key={t.to} href={t.to}>
