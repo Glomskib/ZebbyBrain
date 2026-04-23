@@ -1,11 +1,14 @@
 import OpenAI from "openai";
 
 const apiKey = process.env.OPENAI_API_KEY;
+export const OPENAI_AVAILABLE = !!apiKey;
 if (!apiKey) {
-  throw new Error("OPENAI_API_KEY is required");
+  console.warn(
+    "[openai] OPENAI_API_KEY not set — AI features will return graceful fallbacks.",
+  );
 }
 
-const openai = new OpenAI({ apiKey });
+const openai = apiKey ? new OpenAI({ apiKey }) : (null as unknown as OpenAI);
 
 export const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-5"; // default ok, but env-override
 
@@ -89,6 +92,7 @@ Respond in JSON format with:
 Focus on concrete, actionable insights based on the actual data provided.`;
 
   try {
+    if (!OPENAI_AVAILABLE) throw new Error("openai_disabled");
     const response = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [
@@ -111,8 +115,10 @@ Focus on concrete, actionable insights based on the actual data provided.`;
       sentiment: result.sentiment || "analytical",
       stamps: result.stamps || ["Pattern Noted", "Data Tracked", "Insights Ready"]
     };
-  } catch (error) {
-    console.error("Failed to generate AI reflection:", error);
+  } catch (error: any) {
+    if (error?.message !== "openai_disabled") {
+      console.error("Failed to generate AI reflection:", error);
+    }
     
     // Analytical fallback using actual data
     const contextInsights = [];
@@ -177,6 +183,7 @@ Recent symptoms: ${symptomsText}
 Provide a brief, encouraging insight in 1-2 sentences that might help them feel understood or notice positive patterns.`;
 
   try {
+    if (!OPENAI_AVAILABLE) throw new Error("openai_disabled");
     const response = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages: [
@@ -192,8 +199,10 @@ Provide a brief, encouraging insight in 1-2 sentences that might help them feel 
     });
 
     return response.choices[0].message.content || "You're doing great by tracking these patterns. Keep listening to your body.";
-  } catch (error) {
-    console.error("Failed to generate insight:", error);
+  } catch (error: any) {
+    if (error?.message !== "openai_disabled") {
+      console.error("Failed to generate insight:", error);
+    }
     return "You're doing amazing by staying aware of your body's signals. Every day you track is a step toward better understanding yourself.";
   }
 }

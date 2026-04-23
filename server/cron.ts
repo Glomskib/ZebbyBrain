@@ -4,6 +4,7 @@ import { processCircleAlerts } from "./lib/circle-alerts";
 import { processWeekActiveRewards } from "./lib/week-active-rewards";
 import { processHerdAlerts } from "./lib/herd-alerts";
 import { purgeDeletedAccounts } from "./routes/account";
+import { schedBoot, schedInfo, schedError } from "./lib/schedLog";
 
 /**
  * Enhanced cron scheduler for insights precomputation and reminder processing
@@ -11,10 +12,7 @@ import { purgeDeletedAccounts } from "./routes/account";
  * - Reminders: Runs every 15 minutes to check for due reminders
  */
 export function setupCronJobs() {
-  console.info(JSON.stringify({
-    evt: "cron_scheduler_started",
-    timestamp: new Date().toISOString()
-  }));
+  schedBoot({ evt: "cron_scheduler_started" });
 
   // Calculate time until next 2 AM
   function getTimeUntilNext2AM(): number {
@@ -37,42 +35,32 @@ export function setupCronJobs() {
     const msUntilNext2AM = getTimeUntilNext2AM();
     const hoursUntil = Math.round(msUntilNext2AM / (1000 * 60 * 60) * 10) / 10;
     
-    console.info(JSON.stringify({
+    schedBoot({
       evt: "cron_next_run_scheduled",
       hoursUntil,
       nextRunAt: new Date(Date.now() + msUntilNext2AM).toISOString(),
-      timestamp: new Date().toISOString()
-    }));
+    });
 
     setTimeout(async () => {
       try {
-        console.info(JSON.stringify({
-          evt: "cron_job_triggered",
-          type: "daily_2am",
-          timestamp: new Date().toISOString()
-        }));
+        schedInfo({ evt: "cron_job_triggered", type: "daily_2am" });
 
         // Run insights precomputation
         await precomputeInsightsForActiveUsers();
-        
+
         // Run week-active rewards processing
         await processWeekActiveRewards();
-        
+
         // Run account purge (7-day deleted accounts)
         await purgeDeletedAccounts();
-        
-        console.info(JSON.stringify({
-          evt: "cron_job_completed",
-          type: "daily_2am",
-          timestamp: new Date().toISOString()
-        }));
+
+        schedInfo({ evt: "cron_job_completed", type: "daily_2am" });
       } catch (error) {
-        console.error(JSON.stringify({
+        schedError({
           evt: "cron_job_error",
           type: "daily_2am",
           error: error instanceof Error ? error.message : "Unknown error",
-          timestamp: new Date().toISOString()
-        }));
+        });
       }
       
       // Schedule the next run (24 hours from now)
@@ -87,31 +75,18 @@ export function setupCronJobs() {
   function scheduleReminderProcessing() {
     const reminderInterval = 15 * 60 * 1000; // 15 minutes in milliseconds
 
-    console.info(JSON.stringify({
-      evt: "reminder_scheduler_started",
-      intervalMinutes: 15,
-      timestamp: new Date().toISOString()
-    }));
+    schedBoot({ evt: "reminder_scheduler_started", intervalMinutes: 15 });
 
     const processRemindersNow = async () => {
       try {
-        console.info(JSON.stringify({
-          evt: "reminder_processing_triggered",
-          timestamp: new Date().toISOString()
-        }));
-
+        schedInfo({ evt: "reminder_processing_triggered" });
         await processReminders();
-        
-        console.info(JSON.stringify({
-          evt: "reminder_processing_completed",
-          timestamp: new Date().toISOString()
-        }));
+        schedInfo({ evt: "reminder_processing_completed" });
       } catch (error) {
-        console.error(JSON.stringify({
+        schedError({
           evt: "reminder_processing_error",
           error: error instanceof Error ? error.message : "Unknown error",
-          timestamp: new Date().toISOString()
-        }));
+        });
       }
     };
 
@@ -126,21 +101,16 @@ export function setupCronJobs() {
   function scheduleCircleAlertProcessing() {
     const alertInterval = 15 * 60 * 1000; // 15 minutes in milliseconds
 
-    console.info(JSON.stringify({
-      evt: "circle_alert_scheduler_started",
-      intervalMinutes: 15,
-      timestamp: new Date().toISOString()
-    }));
+    schedBoot({ evt: "circle_alert_scheduler_started", intervalMinutes: 15 });
 
     const processCircleAlertsNow = async () => {
       try {
         await processCircleAlerts();
       } catch (error) {
-        console.error(JSON.stringify({
+        schedError({
           evt: "circle_alert_processing_error",
           error: error instanceof Error ? error.message : "Unknown error",
-          timestamp: new Date().toISOString()
-        }));
+        });
       }
     };
 
@@ -161,21 +131,16 @@ export function setupCronJobs() {
   function scheduleHerdAlertProcessing() {
     const alertInterval = 60 * 1000; // 1 minute in milliseconds
 
-    console.info(JSON.stringify({
-      evt: "herd_alert_scheduler_started",
-      intervalMinutes: 1,
-      timestamp: new Date().toISOString()
-    }));
+    schedBoot({ evt: "herd_alert_scheduler_started", intervalMinutes: 1 });
 
     const processHerdAlertsNow = async () => {
       try {
         await processHerdAlerts();
       } catch (error) {
-        console.error(JSON.stringify({
+        schedError({
           evt: "herd_alert_processing_error",
           error: error instanceof Error ? error.message : "Unknown error",
-          timestamp: new Date().toISOString()
-        }));
+        });
       }
     };
 
@@ -194,23 +159,15 @@ export function setupCronJobs() {
   // In development, also run once immediately for testing (but don't reschedule)
   if (process.env.NODE_ENV === "development") {
     setTimeout(async () => {
-      console.info(JSON.stringify({
-        evt: "dev_insights_precompute_start",
-        timestamp: new Date().toISOString()
-      }));
-      
+      schedInfo({ evt: "dev_insights_precompute_start" });
       try {
         await precomputeInsightsForActiveUsers();
-        console.info(JSON.stringify({
-          evt: "dev_insights_precompute_complete",
-          timestamp: new Date().toISOString()
-        }));
+        schedInfo({ evt: "dev_insights_precompute_complete" });
       } catch (error) {
-        console.error(JSON.stringify({
+        schedError({
           evt: "dev_insights_precompute_error",
           error: error instanceof Error ? error.message : "Unknown error",
-          timestamp: new Date().toISOString()
-        }));
+        });
       }
       // Note: Don't call scheduleNextRun() here to avoid duplicate timers
     }, 30_000); // 30 seconds after server start

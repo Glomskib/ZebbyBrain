@@ -161,7 +161,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
-      res.json(user);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const { passwordHash, deleteToken, ...safe } = user as any;
+      res.json(safe);
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -208,6 +210,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         primarySymptoms: z.array(z.string()).nullable().optional(),
         experienceLevel: z.string().nullable().optional(),
         dailyGoals: z.array(z.string()).nullable().optional(),
+        avatarKey: z.string().nullable().optional(),
+        firstName: z.string().nullable().optional(),
+        lastName: z.string().nullable().optional(),
       });
       
       // Validate request body
@@ -382,8 +387,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           aiResponse.reflection,
           aiResponse.sentiment
         );
-      }).catch(error => {
-        console.error("Failed to generate AI reflection:", error);
+      }).catch((error: any) => {
+        if (error?.message !== "openai_disabled") {
+          console.error("Failed to generate AI reflection:", error);
+        }
       });
 
       // Invalidate insights cache after successful creation

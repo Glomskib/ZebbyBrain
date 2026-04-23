@@ -19,9 +19,19 @@ const STEPS = [
   { id: "welcome", title: "Welcome to Zebby's World" },
   { id: "about-eds", title: "Understanding EDS" },
   { id: "your-eds", title: "Your EDS Journey" },
+  { id: "avatar", title: "Choose your Zebby" },
   { id: "symptoms", title: "Your Symptoms" },
   { id: "goals", title: "Your Goals" },
   { id: "complete", title: "All Set!" },
+];
+
+const AVATARS = [
+  { key: "zebby_classic", label: "Zebby", emoji: "🦓", vibe: "Classic & grounded" },
+  { key: "zebby_cozy", label: "Cozy Zebby", emoji: "🧣", vibe: "Warm & soft days" },
+  { key: "zebby_spoonie", label: "Spoonie Zebby", emoji: "🥄", vibe: "Pacing energy" },
+  { key: "zebby_sparkle", label: "Sparkle Zebby", emoji: "✨", vibe: "For the bright days" },
+  { key: "zebby_sleepy", label: "Sleepy Zebby", emoji: "🌙", vibe: "Rest forward" },
+  { key: "zebby_brave", label: "Brave Zebby", emoji: "💪", vibe: "Flare warrior" },
 ];
 
 const EDS_TYPES = [
@@ -61,6 +71,9 @@ export default function Onboarding() {
     primarySymptoms: [] as string[],
     experienceLevel: "",
     dailyGoals: [] as string[],
+    avatarKey: "zebby_classic",
+    firstName: "",
+    lastName: "",
   });
 
   // Redirect if user has already completed onboarding
@@ -290,6 +303,68 @@ export default function Onboarding() {
           </div>
         );
 
+      case "avatar":
+        return (
+          <div className="space-y-6">
+            <div className="text-center space-y-4">
+              <h2 className="text-3xl font-bold text-foreground">Choose your Zebby</h2>
+              <p className="text-lg text-muted-foreground">
+                Pick the vibe that feels right today — you can switch anytime.
+              </p>
+            </div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="first-name" className="text-sm">First name</Label>
+                <Input
+                  id="first-name"
+                  value={formData.firstName}
+                  onChange={(e) => updateFormData({ firstName: e.target.value })}
+                  className="mt-1 rounded-xl"
+                  placeholder="What should Zebby call you?"
+                  data-testid="input-onboarding-first"
+                />
+              </div>
+              <div>
+                <Label htmlFor="last-name" className="text-sm">Last name (optional)</Label>
+                <Input
+                  id="last-name"
+                  value={formData.lastName}
+                  onChange={(e) => updateFormData({ lastName: e.target.value })}
+                  className="mt-1 rounded-xl"
+                  data-testid="input-onboarding-last"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-2">
+              {AVATARS.map((a) => {
+                const active = formData.avatarKey === a.key;
+                return (
+                  <button
+                    key={a.key}
+                    type="button"
+                    onClick={() => updateFormData({ avatarKey: a.key })}
+                    className={`rounded-2xl p-5 text-center border transition-all flex flex-col items-center gap-2 ${
+                      active
+                        ? "border-primary bg-primary/5 shadow-md scale-[1.02]"
+                        : "border-border hover:bg-muted/50"
+                    }`}
+                    data-testid={`avatar-${a.key}`}
+                  >
+                    <ZebbyAvatar
+                      size="medium"
+                      variant={a.key as any}
+                      followUser={false}
+                      showBadge
+                    />
+                    <div className="font-semibold text-sm">{a.label}</div>
+                    <div className="text-xs text-muted-foreground">{a.vibe}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+
       case "symptoms":
         return (
           <div className="space-y-6">
@@ -440,33 +515,36 @@ export default function Onboarding() {
         </div>
 
         {/* Step Content */}
-        <Card className="mb-8">
-          <CardContent className="p-8">
+        <Card className="mb-6 rounded-3xl border-0 shadow-zebby">
+          <CardContent className="p-6 md:p-8">
             {renderStepContent()}
           </CardContent>
         </Card>
 
         {/* Navigation */}
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3 pb-10">
           <Button
             variant="outline"
             onClick={handleBack}
             disabled={currentStep === 0}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 rounded-full"
             data-testid="button-back"
           >
             <ArrowLeft className="w-4 h-4" />
             Back
           </Button>
-          
+
           <Button
             onClick={handleNext}
             disabled={!canProceed() || updateProfileMutation.isPending}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 rounded-full px-6"
             data-testid="button-next"
           >
-            {updateProfileMutation.isPending ? "Setting up..." : 
-             currentStep === STEPS.length - 1 ? "Complete Setup" : "Continue"}
+            {updateProfileMutation.isPending
+              ? "Setting up..."
+              : currentStep === STEPS.length - 1
+                ? "Complete setup"
+                : "Continue"}
             {currentStep < STEPS.length - 1 && <ArrowRight className="w-4 h-4" />}
           </Button>
         </div>

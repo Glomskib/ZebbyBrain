@@ -287,3 +287,11 @@
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
   }
 }
+
+/* Leave room for the global mobile bottom nav on small screens. */
+@media (max-width: 767px) {
+  body {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 68px);
+  }
+}
+

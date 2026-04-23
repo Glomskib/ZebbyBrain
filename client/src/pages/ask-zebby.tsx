@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import ZebbyAvatar from "@/components/zebby-avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -54,7 +55,7 @@ export default function AskZebby() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/login";
       }, 500);
       return;
     }
@@ -171,24 +172,7 @@ export default function AskZebby() {
   }
 
   if (!ragEnabled) {
-    return (
-      <div className="min-h-screen sky-background">
-        <Navigation />
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="text-center py-8">
-                <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h2 className="text-xl font-semibold mb-2">Feature Not Available</h2>
-                <p className="text-muted-foreground">
-                  The EDS AI Brain is currently disabled. Please contact support for more information.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </main>
-      </div>
-    );
+    return <SimpleChat />;
   }
 
   return (
@@ -423,6 +407,185 @@ export default function AskZebby() {
             </CardContent>
           </Card>
         )}
+      </main>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SimpleChat: supportive conversational UI used when FF_RAG is off. Uses
+// /api/ai/chat which falls back to a canned empathetic reply when OpenAI
+// is not configured — so this always works, with or without an API key.
+// ---------------------------------------------------------------------------
+type ChatTurn = { id: string; role: "zebby" | "user"; text: string; fallback?: boolean };
+
+function SimpleChat() {
+  const [messages, setMessages] = useState<ChatTurn[]>([
+    {
+      id: "welcome",
+      role: "zebby",
+      text: "Hi. I'm Zebby. Tell me how today's going — physically, emotionally, whichever. I'm here.",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length]);
+
+  async function send(text?: string) {
+    const message = (text ?? input).trim();
+    if (!message || busy) return;
+    const userTurn: ChatTurn = { id: `u-${Date.now()}`, role: "user", text: message };
+    setMessages((m) => [...m, userTurn]);
+    setInput("");
+    setBusy(true);
+    try {
+      const r = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ message }),
+      });
+      const data = await r.json();
+      const reply: ChatTurn = {
+        id: `z-${Date.now()}`,
+        role: "zebby",
+        text: data?.reply || "I'm here with you.",
+        fallback: !!data?.fallback,
+      };
+      setMessages((m) => [...m, reply]);
+    } catch {
+      setMessages((m) => [
+        ...m,
+        {
+          id: `z-${Date.now()}`,
+          role: "zebby",
+          text: "I can't reach the servers right now — but you can always log symptoms and come back.",
+        },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const prompts = [
+    "What helps during a flare?",
+    "Why am I so fatigued today?",
+    "Help me prep for my doctor",
+    "Gentle pacing ideas?",
+  ];
+
+  return (
+    <div className="min-h-screen sky-background">
+      <Navigation />
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-28 md:pb-10">
+        <div className="flex items-center gap-3 mb-4">
+          <ZebbyAvatar size="medium" showBadge />
+          <div>
+            <h1 className="text-xl font-bold">Talk to Zebby</h1>
+            <p className="text-xs text-muted-foreground">
+              Gentle support — not medical advice.
+            </p>
+          </div>
+        </div>
+
+        <Card className="rounded-3xl overflow-hidden border-0 shadow-zebby">
+          <div ref={scrollerRef} className="h-[60vh] md:h-[55vh] overflow-y-auto bg-gradient-to-b from-muted/20 to-transparent p-4 space-y-3">
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                {m.role === "zebby" && (
+                  <div className="mr-2 mt-auto shrink-0">
+                    <ZebbyAvatar size="small" />
+                  </div>
+                )}
+                <div
+                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
+                    m.role === "user"
+                      ? "bg-primary text-primary-foreground rounded-br-md"
+                      : "bg-card border border-border rounded-bl-md"
+                  }`}
+                  data-testid={`chat-turn-${m.role}`}
+                >
+                  {m.text}
+                  {m.fallback && (
+                    <div className="text-[10px] text-muted-foreground mt-1 italic">
+                      offline reply
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {busy && (
+              <div className="flex justify-start">
+                <div className="mr-2 mt-auto shrink-0">
+                  <ZebbyAvatar size="small" />
+                </div>
+                <div className="bg-card border border-border rounded-2xl rounded-bl-md px-4 py-2.5 text-sm text-muted-foreground inline-flex items-center gap-2">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Zebby is thinking…
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-border p-3 space-y-3 bg-card">
+            <div className="flex flex-wrap gap-2">
+              {prompts.map((p) => (
+                <Button
+                  key={p}
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full text-xs"
+                  disabled={busy}
+                  onClick={() => send(p)}
+                  data-testid={`chat-prompt-${p.replace(/\W+/g, "-").toLowerCase()}`}
+                >
+                  {p}
+                </Button>
+              ))}
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                send();
+              }}
+              className="flex gap-2"
+            >
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                rows={1}
+                placeholder="Tell Zebby what's on your mind…"
+                className="rounded-2xl resize-none min-h-[46px] max-h-32"
+                data-testid="chat-input"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+              />
+              <Button
+                type="submit"
+                className="rounded-2xl"
+                disabled={busy || !input.trim()}
+                data-testid="chat-send"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send"}
+              </Button>
+            </form>
+          </div>
+        </Card>
+
+        <p className="text-xs text-muted-foreground text-center mt-3">
+          Voice input is coming soon. For now, text only.
+        </p>
       </main>
     </div>
   );

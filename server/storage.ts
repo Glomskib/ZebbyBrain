@@ -313,6 +313,9 @@ export class DatabaseStorage implements IStorage {
     primarySymptoms?: string[] | null;
     experienceLevel?: string | null;
     dailyGoals?: string[] | null;
+    avatarKey?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
   }): Promise<User> {
     const [user] = await db
       .update(users)

@@ -18,17 +18,23 @@ export default function Navigation() {
   const [location] = useLocation();
   const { user } = useAuth();
 
-  const handleLogout = () => {
-    window.location.href = "/api/logout";
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    } catch {}
+    window.location.href = "/login";
   };
 
   const navItems = [
     { path: "/", label: L.dashboard, testId: "nav-dashboard" },
     { path: "/tracker", label: L.tracker, testId: "nav-tracker" },
+    { path: "/history", label: "History", testId: "nav-history" },
     { path: "/ask-zebby", label: L.askZebby, testId: "nav-ask-zebby" },
+    { path: "/calm-corner", label: "Calm Corner", testId: "nav-calm-corner" },
     { path: "/pastures", label: L.pastures, testId: "nav-pastures" },
     { path: "/spoonies", label: L.spoonies, testId: "nav-spoonies" },
     { path: "/zebbys-pouch", label: L.pouch, testId: "nav-zebbys-pouch" },
+    { path: "/zebby-plus", label: "Zebby+", testId: "nav-zebby-plus" },
     { path: "/settings", label: L.settings, testId: "nav-settings" },
   ];
 
@@ -52,7 +58,7 @@ export default function Navigation() {
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2" data-testid="logo-link">
-            <ZebbyAvatar size="small" />
+            <ZebbyAvatar size="small" showBadge />
             <h1 className="text-xl font-bold text-foreground">Zebby's World</h1>
           </Link>
           

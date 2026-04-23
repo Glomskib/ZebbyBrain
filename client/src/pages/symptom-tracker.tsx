@@ -46,7 +46,7 @@ export default function SymptomTracker() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/login";
       }, 500);
       return;
     }
@@ -81,20 +81,22 @@ export default function SymptomTracker() {
     <div className="min-h-screen bg-background">
       <Navigation />
       
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 pb-24 md:pb-12">
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground mb-2">Symptom Tracker</h1>
-            <p className="text-muted-foreground">Track your symptoms and let Zebby help you understand your patterns.</p>
+        <div className="mb-6 md:mb-8 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Symptom tracker</h1>
+            <p className="text-sm md:text-base text-muted-foreground mt-1">
+              Log what's happening — categories, body parts, mood, hydration, salt, and notes.
+            </p>
           </div>
-          <Button 
+          <Button
             onClick={() => setShowSymptomLogger(true)}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            className="rounded-full shrink-0"
             data-testid="button-new-log"
           >
-            <span className="mr-2">➕</span>
-            New Entry
+            <span className="mr-1">+</span>
+            New entry
           </Button>
         </div>
 
@@ -104,19 +106,19 @@ export default function SymptomTracker() {
             <p className="text-muted-foreground">Loading your symptom history...</p>
           </div>
         ) : (recentLogs as any).length > 0 ? (
-          <div className="space-y-8">
+          <div className="space-y-6">
             {/* Chart Section */}
-            <Card>
-              <CardContent className="p-6">
-                <h2 className="text-xl font-semibold text-foreground mb-4">Your Symptom Patterns</h2>
+            <Card className="rounded-2xl border-0 shadow-zebby">
+              <CardContent className="p-5 md:p-6">
+                <h2 className="text-lg md:text-xl font-semibold mb-4">Your patterns</h2>
                 <SymptomChart symptoms={recentLogs as any} />
               </CardContent>
             </Card>
 
             {/* Recent Entries */}
-            <Card>
-              <CardContent className="p-6">
-                <h2 className="text-xl font-semibold text-foreground mb-6">Recent Entries</h2>
+            <Card className="rounded-2xl border-0 shadow-zebby">
+              <CardContent className="p-5 md:p-6">
+                <h2 className="text-lg md:text-xl font-semibold mb-5">Recent entries</h2>
                 <div className="space-y-4">
                   {(recentLogs as any).slice(0, 10).map((log: any, index: number) => (
                     <div 
@@ -231,23 +233,25 @@ export default function SymptomTracker() {
           </div>
         ) : (
           // Empty State
-          <div className="text-center py-16">
-            <ZebbyAvatar size="large" />
-            <h2 className="text-2xl font-semibold text-foreground mt-6 mb-3">
-              Ready to Start Tracking?
-            </h2>
-            <p className="text-muted-foreground text-lg mb-8 max-w-md mx-auto">
-              Begin your journey with Zebby by logging your first symptom. 
-              I'm here to listen and provide understanding insights.
-            </p>
-            <Button 
-              onClick={() => setShowSymptomLogger(true)}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground text-lg px-8 py-3"
-              data-testid="button-first-log"
-            >
-              Log Your First Symptom
-            </Button>
-          </div>
+          <Card className="rounded-3xl border-0 shadow-zebby">
+            <CardContent className="p-8 md:p-12 text-center">
+              <ZebbyAvatar size="large" className="mx-auto" />
+              <h2 className="text-xl md:text-2xl font-semibold mt-5 mb-2">
+                Ready when you are
+              </h2>
+              <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+                Log your first symptom — intensity, body part, a note if you want.
+                Zebby will start spotting patterns after a handful of entries.
+              </p>
+              <Button
+                onClick={() => setShowSymptomLogger(true)}
+                className="rounded-full px-6"
+                data-testid="button-first-log"
+              >
+                Log your first symptom
+              </Button>
+            </CardContent>
+          </Card>
         )}
       </main>
 

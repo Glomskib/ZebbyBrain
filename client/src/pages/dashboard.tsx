@@ -9,7 +9,7 @@ import SymptomLogger from "@/components/symptom-logger";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
-import { BarChart3, Heart, Sparkles, TrendingUp, Users, Package, MessageCircle } from "lucide-react";
+import { BarChart3, Heart, Sparkles, TrendingUp, Users, Package, MessageCircle, HeartHandshake, Moon, Route as RouteIcon, Stethoscope, Gem } from "lucide-react";
 import { Link } from "wouter";
 import { L } from "@/i18n/labels";
 
@@ -27,7 +27,7 @@ export default function Dashboard() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/login";
       }, 500);
       return;
     }
@@ -78,32 +78,37 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background">
       <Navigation />
       
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8">
         {/* Hero Section with Gradient */}
         <div className="mb-8">
-          <div className="zebby-gradient rounded-3xl p-8 md:p-10 text-white shadow-zebby-lg relative overflow-hidden">
-            <div className="relative z-10">
-              <h1 className="text-3xl md:text-4xl font-bold mb-3" data-testid="text-welcome">
-                How are you feeling today?
-              </h1>
-              <p className="text-white/90 text-lg mb-6 max-w-2xl">
-                You're doing your best—remember to pace like a pro. 💙
-              </p>
+          <div className="zebby-gradient rounded-3xl p-6 md:p-10 text-white shadow-zebby-lg relative overflow-hidden">
+            <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center gap-5">
+              <ZebbyAvatar size="large" className="shrink-0" showBadge />
+              <div className="flex-1">
+                <p className="text-white/80 text-sm mb-1">Hi {firstName} 👋</p>
+                <h1 className="text-3xl md:text-4xl font-bold mb-2" data-testid="text-welcome">
+                  How are you feeling today?
+                </h1>
+                <p className="text-white/90 text-base md:text-lg mb-5 max-w-2xl">
+                  You're doing your best — remember to pace like a pro. 💙
+                </p>
               <div className="flex flex-wrap gap-3">
-                <Button 
+                <Button
                   onClick={() => setShowSymptomLogger(true)}
                   className="bg-white text-primary font-semibold hover:bg-white/95 rounded-2xl px-6 py-6 text-base shadow-lg"
                   data-testid="button-log-symptoms"
                 >
-                  Log Today's Symptoms
+                  Log today's symptoms
                 </Button>
-                <Button 
-                  onClick={() => window.location.href = '/spoonies'}
-                  className="bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white font-semibold rounded-2xl px-6 py-6 text-base border border-white/30"
-                  data-testid="button-reach-out"
-                >
-                  Reach Out to Spoonies
-                </Button>
+                <Link href="/ask-zebby">
+                  <Button
+                    className="bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white font-semibold rounded-2xl px-6 py-6 text-base border border-white/30"
+                    data-testid="button-ask-zebby"
+                  >
+                    Talk to Zebby
+                  </Button>
+                </Link>
+              </div>
               </div>
             </div>
           </div>
@@ -261,6 +266,36 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           </Link>
+        </div>
+
+        {/* Expansion suite */}
+        <div className="mt-6">
+          <h2 className="text-sm uppercase tracking-wide text-muted-foreground mb-3">Explore</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {[
+              { to: "/history", label: "History", sub: "Charts & trends", icon: <BarChart3 className="w-5 h-5" />, color: "bg-primary/10 text-primary" },
+              { to: "/calm-corner", label: "Calm Corner", sub: "Grounding & pacing", icon: <HeartHandshake className="w-5 h-5" />, color: "bg-rose-100 text-rose-600" },
+              { to: "/zzzebby-sounds", label: "Zzzebby Sounds", sub: "Sleep & sensory", icon: <Moon className="w-5 h-5" />, color: "bg-indigo-100 text-indigo-600" },
+              { to: "/trusted-trail", label: "Trusted Trail", sub: "Guided tour", icon: <RouteIcon className="w-5 h-5" />, color: "bg-emerald-100 text-emerald-600" },
+              { to: "/herd-insights", label: "Herd Insights", sub: "Patterns vs herd", icon: <TrendingUp className="w-5 h-5" />, color: "bg-violet-100 text-violet-600" },
+              { to: "/doctor-prep", label: "Doctor Prep", sub: "Appointment briefs", icon: <Stethoscope className="w-5 h-5" />, color: "bg-sky-100 text-sky-600" },
+              { to: "/zebby-plus", label: "Zebby+", sub: "Unlock more", icon: <Gem className="w-5 h-5" />, color: "bg-amber-100 text-amber-600" },
+            ].map((t) => (
+              <Link key={t.to} href={t.to}>
+                <Card className="rounded-2xl shadow-zebby border-0 hover:shadow-zebby-lg transition-shadow cursor-pointer h-full">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${t.color}`}>
+                      {t.icon}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-foreground text-sm truncate">{t.label}</h3>
+                      <p className="text-xs text-muted-foreground truncate">{t.sub}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
         </div>
 
         {/* Insight Card */}

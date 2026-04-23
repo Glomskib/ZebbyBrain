@@ -1,3 +1,48 @@
+// ---------------------------------------------------------------------------
+// Scheduler log gate: dev noisy by default. Set VERBOSE_SCHEDULER=true to see
+// the 15-min heartbeat lines; errors always pass through.
+// ---------------------------------------------------------------------------
+(() => {
+  if ((process.env.VERBOSE_SCHEDULER || "").toLowerCase() === "true") return;
+  const NOISY = new Set<string>([
+    // cron / scheduler heartbeat
+    "reminder_processing_triggered",
+    "reminder_processing_start",
+    "reminder_processing_completed",
+    "reminder_processing_no_due_reminders",
+    "circle_alerts_processing_start",
+    "circle_alerts_no_active_rules",
+    "circle_alerts_processing_complete",
+    "circle_alerts_processing_complete_with_count",
+    "insights_precompute_start",
+    "insights_precompute_complete",
+    "insights_precompute_progress",
+    "insights_precomputed",
+    "active_users_identified",
+    "dev_insights_precompute_start",
+    "dev_insights_precompute_complete",
+    "cron_job_triggered",
+    "cron_job_completed",
+    "cache_invalidated",
+    "api_perf",
+  ]);
+  const origInfo = console.info.bind(console);
+  console.info = (...args: any[]) => {
+    const first = args[0];
+    if (typeof first === "string" && first.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(first);
+        if (parsed && typeof parsed.evt === "string" && NOISY.has(parsed.evt)) {
+          return;
+        }
+      } catch {
+        /* not JSON — pass through */
+      }
+    }
+    origInfo(...args);
+  };
+})();
+
 import express, { type Request, Response, NextFunction } from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -9,12 +54,16 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupCronJobs } from "./cron";
 import { configMeta } from "./meta/config";
+import { initDb } from "./bootstrap/initDb";
 
 const app = express();
 
-// Validate required secrets on boot (fail-fast security)
+// Fail-fast on secrets in production only. Dev gets sane defaults.
 if (!process.env.SESSION_SECRET) {
-  throw new Error("SESSION_SECRET must be set for secure session management");
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET must be set for secure session management");
+  }
+  process.env.SESSION_SECRET = "dev-insecure-session-secret-change-me";
 }
 if (!process.env.STRIPE_WEBHOOK_SECRET && process.env.NODE_ENV === "production") {
   throw new Error("STRIPE_WEBHOOK_SECRET must be set for webhook signature verification in production");
@@ -173,6 +222,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize local DB (pglite) if needed — idempotent. No-op against Neon.
+  await initDb();
+
   // Add rate limiting for API endpoints BEFORE route registration
   const authdLimiter = rateLimit({ 
     windowMs: 60_000, // 1 minute window
@@ -227,11 +279,10 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
+  // reusePort is not supported on macOS/BSD; keep it off outside Linux.
+  const listenOpts: any = { port, host: "0.0.0.0" };
+  if (process.platform === "linux") listenOpts.reusePort = true;
+  server.listen(listenOpts, () => {
     log(`serving on port ${port}`);
     
     // Start cron jobs for nightly insights precomputation

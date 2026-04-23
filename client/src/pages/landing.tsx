@@ -5,7 +5,7 @@ import { BarChart3, ShoppingBag, Heart } from "lucide-react";
 
 export default function Landing() {
   const handleLogin = () => {
-    window.location.href = "/api/login";
+    window.location.href = "/login";
   };
 
   return (
@@ -15,16 +15,16 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <ZebbyAvatar size="small" />
+              <ZebbyAvatar size="small" followUser={false} />
               <h1 className="text-xl font-bold text-foreground">Zebby's World</h1>
             </div>
             
-            <Button 
+            <Button
               onClick={handleLogin}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-full px-5"
               data-testid="button-login"
             >
-              Get Started
+              Sign in
             </Button>
           </div>
         </div>
@@ -49,21 +49,22 @@ export default function Landing() {
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button 
+              <Button
                 size="lg"
                 onClick={handleLogin}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground text-lg px-8 py-3"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground text-lg px-8 py-3 rounded-full"
                 data-testid="button-start-journey"
               >
-                Start Your Journey
+                Start your journey
               </Button>
-              <Button 
+              <Button
                 size="lg"
                 variant="outline"
-                className="border-border text-foreground hover:bg-muted text-lg px-8 py-3"
+                onClick={() => { window.location.href = "/signup"; }}
+                className="border-border text-foreground hover:bg-muted text-lg px-8 py-3 rounded-full"
                 data-testid="button-learn-more"
               >
-                Learn More
+                Create account
               </Button>
             </div>
           </div>
@@ -77,8 +78,8 @@ export default function Landing() {
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <Card className="text-center">
-                <CardContent className="p-8">
+              <Card className="text-center rounded-3xl border-0 shadow-zebby">
+                <CardContent className="p-6 md:p-8">
                   <div className="w-16 h-16 bg-primary/10 rounded-xl flex items-center justify-center mx-auto mb-4">
                     <ZebbyAvatar size="small" />
                   </div>
@@ -90,8 +91,8 @@ export default function Landing() {
                 </CardContent>
               </Card>
               
-              <Card className="text-center">
-                <CardContent className="p-8">
+              <Card className="text-center rounded-3xl border-0 shadow-zebby">
+                <CardContent className="p-6 md:p-8">
                   <div className="w-16 h-16 bg-accent/10 rounded-xl flex items-center justify-center mx-auto mb-4">
                     <BarChart3 className="w-8 h-8 text-accent" />
                   </div>
@@ -103,8 +104,8 @@ export default function Landing() {
                 </CardContent>
               </Card>
               
-              <Card className="text-center">
-                <CardContent className="p-8">
+              <Card className="text-center rounded-3xl border-0 shadow-zebby">
+                <CardContent className="p-6 md:p-8">
                   <div className="w-16 h-16 bg-secondary/10 rounded-xl flex items-center justify-center mx-auto mb-4">
                     <ShoppingBag className="w-8 h-8 text-secondary" />
                   </div>
@@ -129,13 +130,13 @@ export default function Landing() {
             <p className="text-xl mb-8 text-white/90">
               Join thousands of others who have found validation, support, and community with Zebby.
             </p>
-            <Button 
+            <Button
               size="lg"
               onClick={handleLogin}
-              className="bg-white text-primary hover:bg-white/90 text-lg px-8 py-3"
+              className="bg-white text-primary hover:bg-white/90 text-lg px-8 py-3 rounded-full"
               data-testid="button-join-now"
             >
-              Join Zebby's World Today
+              Join Zebby's World today
             </Button>
           </div>
         </section>
