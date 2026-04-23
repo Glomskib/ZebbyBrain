@@ -51,6 +51,11 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
   const [sodiumIntakeToday, setSodiumIntakeToday] = useState(0); // in mg
   const [currentHeartRate, setCurrentHeartRate] = useState<number | null>(null);
   const [currentLocation, setCurrentLocation] = useState<string>("");
+  const [mood, setMood] = useState<string>("");
+  const [activity, setActivity] = useState<string>("");
+  const [diet, setDiet] = useState<string>("");
+  const [busyWater, setBusyWater] = useState(false);
+  const [busySodium, setBusySodium] = useState(false);
 
   // Fetch user profile for timezone
   const { data: userProfile } = useQuery<{ timezone?: string }>({
@@ -126,7 +131,57 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
     setSessionNotes("");
     setTimestamp(new Date().toISOString().slice(0, 16));
     setCurrentHeartRate(null);
+    setMood("");
+    setActivity("");
+    setDiet("");
   };
+
+  async function quickLogWater(amountMl: number) {
+    if (busyWater) return;
+    setBusyWater(true);
+    try {
+      await apiRequest("POST", "/api/water-intake", {
+        amountMl,
+        timestamp: new Date().toISOString(),
+      });
+      setWaterIntakeToday((n) => n + amountMl);
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-intakes"] });
+    } catch (e) {
+      toast({ title: "Couldn't log water", variant: "destructive" });
+    } finally {
+      setBusyWater(false);
+    }
+  }
+
+  async function quickLogSodium(amountMg: number) {
+    if (busySodium) return;
+    setBusySodium(true);
+    try {
+      await apiRequest("POST", "/api/sodium-intake", {
+        amountMg,
+        timestamp: new Date().toISOString(),
+      });
+      setSodiumIntakeToday((n) => n + amountMg);
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-intakes"] });
+    } catch (e) {
+      toast({ title: "Couldn't log sodium", variant: "destructive" });
+    } finally {
+      setBusySodium(false);
+    }
+  }
+
+  function buildSessionNotes(): string | null {
+    const meta: string[] = [];
+    if (mood) meta.push(`Mood: ${mood}`);
+    if (activity) meta.push(`Activity: ${activity}`);
+    if (diet) meta.push(`Diet: ${diet}`);
+    const prefix = meta.length ? meta.join(" · ") : "";
+    const body = sessionNotes.trim();
+    if (!prefix && !body) return null;
+    if (!prefix) return body;
+    if (!body) return prefix;
+    return `${prefix}\n${body}`;
+  }
 
   const addSymptom = (symptomName: string) => {
     if (!symptomRatings.find(s => s.name === symptomName)) {
@@ -202,7 +257,7 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
     
     const payload = {
       timestamp: isoTimestamp,
-      notes: sessionNotes.trim() || null,
+      notes: buildSessionNotes(),
       waterIntakeCurrentMl: waterIntakeToday,
       sodiumIntakeCurrentMg: sodiumIntakeToday,
       heartRateBpm: currentHeartRate,
@@ -360,41 +415,113 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
             
             {/* Contextual Data Display */}
             {symptomRatings.length > 0 && (
-              <div className="bg-muted/30 rounded-lg p-4">
-                <Label className="text-base font-medium text-foreground mb-3 block">
-                  Contextual Data Being Captured
+              <div className="bg-muted/30 rounded-2xl p-4 space-y-4">
+                <Label className="text-base font-medium text-foreground block">
+                  Context
                 </Label>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+
+                {/* Mood / Activity / Diet chips */}
+                <div className="space-y-3">
+                  <ChipRow
+                    label="Mood"
+                    options={["calm", "anxious", "tired", "irritable", "hopeful", "flaring"]}
+                    value={mood}
+                    onChange={setMood}
+                    testIdPrefix="mood"
+                  />
+                  <ChipRow
+                    label="Activity today"
+                    options={["rest", "light", "errands", "exercise", "work", "overdid it"]}
+                    value={activity}
+                    onChange={setActivity}
+                    testIdPrefix="activity"
+                  />
+                  <ChipRow
+                    label="Diet so far"
+                    options={["balanced", "low appetite", "salty", "processed", "hydrating", "gut-friendly"]}
+                    value={diet}
+                    onChange={setDiet}
+                    testIdPrefix="diet"
+                  />
+                </div>
+
+                {/* Hydration + Sodium quick-log */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-card border border-border p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Droplets className="w-4 h-4 text-blue-500" />
+                        <span className="text-sm font-medium">Water · {waterIntakeToday}ml today</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[250, 500, 750].map((ml) => (
+                        <Button
+                          key={ml}
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="rounded-full h-7 px-3 text-xs"
+                          disabled={busyWater}
+                          onClick={() => quickLogWater(ml)}
+                          data-testid={`button-water-${ml}`}
+                        >
+                          +{ml}ml
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-card border border-border p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Utensils className="w-4 h-4 text-green-600" />
+                        <span className="text-sm font-medium">Sodium · {sodiumIntakeToday}mg today</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[250, 500, 1000].map((mg) => (
+                        <Button
+                          key={mg}
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="rounded-full h-7 px-3 text-xs"
+                          disabled={busySodium}
+                          onClick={() => quickLogSodium(mg)}
+                          data-testid={`button-sodium-${mg}`}
+                        >
+                          +{mg}mg
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <Thermometer className="w-4 h-4 text-orange-500" />
-                    <span>Weather: Detecting...</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Droplets className="w-4 h-4 text-blue-500" />
-                    <span>Water: {waterIntakeToday}ml today</span>
+                    <span>Weather: Detecting…</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Heart className="w-4 h-4 text-red-500" />
-                    <span>Heart Rate: {currentHeartRate ? `${currentHeartRate} bpm` : 'Optional'}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Utensils className="w-4 h-4 text-green-500" />
-                    <span>Sodium: {sodiumIntakeToday}mg today</span>
+                    <span>Heart rate: {currentHeartRate ? `${currentHeartRate} bpm` : "optional"}</span>
                   </div>
                 </div>
-                
+
                 {/* Optional Heart Rate Input */}
-                <div className="mt-4">
+                <div>
                   <Label className="text-sm text-muted-foreground mb-2 block">
-                    Current Heart Rate (optional)
+                    Current heart rate (optional)
                   </Label>
                   <input
                     type="number"
                     placeholder="e.g. 72"
                     min="30"
                     max="220"
-                    value={currentHeartRate || ''}
-                    onChange={(e) => setCurrentHeartRate(e.target.value ? parseInt(e.target.value) : null)}
+                    value={currentHeartRate || ""}
+                    onChange={(e) =>
+                      setCurrentHeartRate(e.target.value ? parseInt(e.target.value) : null)
+                    }
                     className="w-full px-3 py-2 bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring text-sm"
                     data-testid="input-heart-rate"
                   />
@@ -478,6 +605,48 @@ export default function SymptomLogger({ isOpen, onClose }: SymptomLoggerProps) {
           </form>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ChipRow({
+  label,
+  options,
+  value,
+  onChange,
+  testIdPrefix,
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+  testIdPrefix: string;
+}) {
+  return (
+    <div>
+      <Label className="text-xs uppercase tracking-wide text-muted-foreground block mb-1.5">
+        {label}
+      </Label>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((opt) => {
+          const active = value === opt;
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onChange(active ? "" : opt)}
+              className={`px-3 py-1 rounded-full text-xs transition-colors border ${
+                active
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-card border-border hover:bg-muted"
+              }`}
+              data-testid={`chip-${testIdPrefix}-${opt.replace(/\s+/g, "-")}`}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
