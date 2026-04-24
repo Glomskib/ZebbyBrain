@@ -39,10 +39,14 @@ export default function AuthPage() {
     e.preventDefault();
     setLoginBusy(true);
     try {
-      await apiRequest("POST", "/api/auth/login", {
+      const r = await apiRequest("POST", "/api/auth/login", {
         email: loginEmail.trim().toLowerCase(),
         password: loginPassword,
       });
+      const data = await r.json().catch(() => null);
+      // Seed the auth cache synchronously so the Router flips to the
+      // authenticated branch without a one-frame flash of the Landing page.
+      if (data?.user) qc.setQueryData(["/api/auth/user"], data.user);
       await qc.invalidateQueries();
       toast({ title: "Welcome back!", description: "You're signed in." });
       navigate("/");
@@ -77,12 +81,14 @@ export default function AuthPage() {
     }
     setSignupBusy(true);
     try {
-      await apiRequest("POST", "/api/auth/signup", {
+      const r = await apiRequest("POST", "/api/auth/signup", {
         email: signupEmail.trim().toLowerCase(),
         password: signupPassword,
         firstName: signupFirst.trim() || null,
         lastName: signupLast.trim() || null,
       });
+      const data = await r.json().catch(() => null);
+      if (data?.user) qc.setQueryData(["/api/auth/user"], data.user);
       await qc.invalidateQueries();
       toast({
         title: "Welcome to Zebby's World!",

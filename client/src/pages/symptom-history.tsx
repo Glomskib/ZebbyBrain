@@ -22,6 +22,7 @@ import { Activity, Droplet, Heart, Plus } from "lucide-react";
 
 type RawEntry = {
   id: string;
+  symptomLogId?: string;
   symptomName: string;
   intensity: number;
   bodyPart?: string | null;
@@ -32,9 +33,39 @@ type RawEntry = {
   tags?: string[] | null;
 };
 
-type Entry = RawEntry & { loggedAt: string };
+type Entry = RawEntry & {
+  loggedAt: string;
+  mood?: string;
+  activity?: string;
+  diet?: string;
+};
 
 type GroupedByDate = Array<{ date: string; count: number; entries: RawEntry[] }>;
+
+type SessionLog = {
+  id: string;
+  notes?: string | null;
+  waterIntakeCurrentMl?: number | null;
+  sodiumIntakeCurrentMg?: number | null;
+};
+
+function parseSessionMeta(notes?: string | null): {
+  mood?: string;
+  activity?: string;
+  diet?: string;
+} {
+  if (!notes) return {};
+  const first = notes.split("\n")[0] || "";
+  const out: { mood?: string; activity?: string; diet?: string } = {};
+  for (const part of first.split("·").map((p) => p.trim())) {
+    const m = /^(Mood|Activity|Diet):\s*(.+)$/.exec(part);
+    if (m) {
+      const key = m[1].toLowerCase() as "mood" | "activity" | "diet";
+      out[key] = m[2].trim();
+    }
+  }
+  return out;
+}
 
 export default function SymptomHistory() {
   const [range, setRange] = useState<"7d" | "30d" | "90d">("30d");
@@ -48,6 +79,26 @@ export default function SymptomHistory() {
     },
   });
 
+  // Also fetch session-level logs so we can surface mood/activity/diet
+  // (persisted into symptom_logs.notes as a structured prefix).
+  const { data: sessionLogs } = useQuery<SessionLog[]>({
+    queryKey: ["/api/symptoms"],
+    queryFn: async () => {
+      const r = await fetch(`/api/symptoms`, { credentials: "include" });
+      if (!r.ok) throw new Error(String(r.status));
+      return r.json();
+    },
+  });
+
+  const sessionById = useMemo(() => {
+    const m = new Map<string, { mood?: string; activity?: string; diet?: string; water?: number | null; sodium?: number | null }>();
+    for (const s of sessionLogs || []) {
+      const meta = parseSessionMeta(s.notes);
+      m.set(s.id, { ...meta, water: s.waterIntakeCurrentMl, sodium: s.sodiumIntakeCurrentMg });
+    }
+    return m;
+  }, [sessionLogs]);
+
   const entries: Entry[] = useMemo(() => {
     if (!data) return [];
     const flat: RawEntry[] = [];
@@ -60,11 +111,17 @@ export default function SymptomHistory() {
         }
       }
     }
-    return flat.map((e) => ({
-      ...e,
-      loggedAt: e.loggedAt || e.occurredAt || e.createdAt || new Date().toISOString(),
-    }));
-  }, [data]);
+    return flat.map((e) => {
+      const meta = (e.symptomLogId && sessionById.get(e.symptomLogId)) || {};
+      return {
+        ...e,
+        loggedAt: e.loggedAt || e.occurredAt || e.createdAt || new Date().toISOString(),
+        mood: (meta as any).mood,
+        activity: (meta as any).activity,
+        diet: (meta as any).diet,
+      };
+    });
+  }, [data, sessionById]);
 
   const byDay = useMemo(() => groupByDay(entries), [entries]);
   const bySymptom = useMemo(() => topSymptoms(entries), [entries]);
@@ -184,8 +241,8 @@ export default function SymptomHistory() {
                     .sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime())
                     .slice(0, 100)
                     .map((e) => (
-                      <div key={e.id} className="p-4 flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-sm font-semibold">
+                      <div key={e.id} className="p-4 flex items-start gap-3" data-testid="history-entry">
+                        <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-sm font-semibold shrink-0">
                           {e.intensity}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -196,7 +253,26 @@ export default function SymptomHistory() {
                               <Badge key={t} variant="outline">{t}</Badge>
                             ))}
                           </div>
-                          {e.notes && <p className="text-sm text-muted-foreground mt-1">{e.notes}</p>}
+                          {(e.mood || e.activity || e.diet) && (
+                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                              {e.mood && (
+                                <Badge variant="outline" className="text-[11px]" data-testid="badge-mood">
+                                  😌 {e.mood}
+                                </Badge>
+                              )}
+                              {e.activity && (
+                                <Badge variant="outline" className="text-[11px]" data-testid="badge-activity">
+                                  🏃 {e.activity}
+                                </Badge>
+                              )}
+                              {e.diet && (
+                                <Badge variant="outline" className="text-[11px]" data-testid="badge-diet">
+                                  🥗 {e.diet}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+                          {e.notes && <p className="text-sm text-muted-foreground mt-1.5">{e.notes}</p>}
                           <p className="text-xs text-muted-foreground mt-1">
                             {new Date(e.loggedAt).toLocaleString()}
                           </p>

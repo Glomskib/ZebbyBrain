@@ -296,8 +296,10 @@ test("full user journey: signup → onboarding → dashboard → tracker → his
   await mobilePage.waitForTimeout(500);
   attachListeners(mobilePage, "mobile-dashboard");
   await shot(mobilePage, "17-mobile-dashboard");
-  // Bottom nav should be present at mobile width
-  await expect(mobilePage.locator('[data-testid="mobile-bottom-nav"]')).toBeVisible();
+  // Bottom nav should be present at mobile width (wait for useAuth refetch)
+  await expect(mobilePage.locator('[data-testid="mobile-bottom-nav"]')).toBeVisible({
+    timeout: 10_000,
+  });
   await shot(mobilePage, "18-mobile-with-bottomnav");
 
   // ---- write problems report ---------------------------------------

@@ -129,10 +129,18 @@ test("tracker: mood/activity/diet + water/salt quick-log + entry saves", async (
   expect(di.waterMl).toBeGreaterThanOrEqual(500);
   expect(di.sodiumMg).toBeGreaterThanOrEqual(500);
 
-  // history should show the entries
+  // history should show the entries AND the mood/activity/diet badges
   await goto(page, "/history");
   await page.screenshot({ path: path.join(OUT_DIR, "trk-04-history.png"), fullPage: true });
   await expect(page.locator("text=Entries logged").first()).toBeVisible();
+  // switch to entries tab
+  await page.getByRole("tab", { name: /Entries/i }).click();
+  await page.waitForTimeout(400);
+  await expect(page.locator('[data-testid="history-entry"]').first()).toBeVisible();
+  await expect(page.locator('[data-testid="badge-mood"]').first()).toContainText("anxious");
+  await expect(page.locator('[data-testid="badge-activity"]').first()).toContainText("overdid it");
+  await expect(page.locator('[data-testid="badge-diet"]').first()).toContainText("salty");
+  await page.screenshot({ path: path.join(OUT_DIR, "trk-05-history-entries.png"), fullPage: true });
 
   await ctx.close();
 });
