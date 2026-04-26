@@ -17,12 +17,15 @@ export default function AuthPage() {
   const [location, navigate] = useLocation();
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) navigate("/");
+    if (!isLoading && isAuthenticated) {
+      const onboarded = (user as any)?.onboardingCompleted;
+      navigate(onboarded ? "/" : "/onboarding");
+    }
     if (location === "/signup") setTab("signup");
-  }, [isAuthenticated, isLoading, navigate, location]);
+  }, [isAuthenticated, isLoading, navigate, location, user]);
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");

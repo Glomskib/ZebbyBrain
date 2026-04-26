@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Check, Gift, TrendingUp, Users } from "lucide-react";
+import { Copy, Check, Gift, TrendingUp, Users, Sticker, Tag, Droplets, BadgePercent, Shirt, Lock } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import Navigation from "@/components/navigation";
 
@@ -77,6 +77,9 @@ export default function HerdRewards() {
             Grow the zebra herd and earn rewards! Invite friends and stay active to unlock points.
           </p>
         </div>
+
+        {/* Reward Ladder */}
+        <RewardLadder points={balanceData?.points || 0} />
 
         {/* Points Balance Card */}
         <Card className="mb-6">
@@ -193,5 +196,89 @@ export default function HerdRewards() {
         </Card>
       </div>
     </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// RewardLadder: visual 5-tier progression with thresholds. Cosmetic only —
+// real fulfillment is manual / placeholder until a shop is connected.
+// ----------------------------------------------------------------------------
+const TIERS = [
+  { id: "sticker", label: "Zebra sticker pack", at: 100, icon: Sticker },
+  { id: "discount", label: "10% off Zebby's Pouch", at: 300, icon: Tag },
+  { id: "electrolytes", label: "Electrolyte sample", at: 600, icon: Droplets },
+  { id: "discount-2", label: "25% off Zebby's Pouch", at: 1000, icon: BadgePercent },
+  { id: "hoodie", label: "Zebby herd hoodie", at: 2000, icon: Shirt },
+] as const;
+
+function RewardLadder({ points }: { points: number }) {
+  const nextIdx = TIERS.findIndex((t) => points < t.at);
+  const next = nextIdx >= 0 ? TIERS[nextIdx] : null;
+  const progressPct = next
+    ? Math.min(100, Math.round((points / next.at) * 100))
+    : 100;
+  return (
+    <Card className="mb-6 rounded-3xl border-0 shadow-zebby overflow-hidden">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Gift className="w-5 h-5 text-primary" />
+          Reward ladder
+        </CardTitle>
+        <CardDescription>
+          {next
+            ? `${next.at - points} more points until "${next.label}"`
+            : "All tiers unlocked — thank you for being part of the herd."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-primary to-secondary"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+          {TIERS.map((t, i) => {
+            const unlocked = points >= t.at;
+            const isNext = nextIdx === i;
+            const Icon = t.icon;
+            return (
+              <div
+                key={t.id}
+                className={`rounded-2xl border p-3 flex flex-col items-center text-center gap-1 transition-all ${
+                  unlocked
+                    ? "border-primary bg-primary/5"
+                    : isNext
+                      ? "border-amber-300 bg-amber-50 dark:bg-amber-900/20"
+                      : "border-border bg-card"
+                }`}
+              >
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    unlocked
+                      ? "bg-primary/15 text-primary"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {unlocked ? <Icon className="w-5 h-5" /> : <Lock className="w-4 h-4" />}
+                </div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t.at} pts
+                </div>
+                <div className="text-sm font-medium leading-tight">{t.label}</div>
+                {isNext && (
+                  <div className="text-[10px] text-amber-700 dark:text-amber-300 font-medium">
+                    Up next
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Free for everyone. Zebby+ members earn 1.5× points and unlock priority support.
+        </p>
+      </CardContent>
+    </Card>
   );
 }

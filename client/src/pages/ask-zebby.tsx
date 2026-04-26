@@ -473,17 +473,17 @@ function SimpleChat() {
   }
 
   const prompts = [
-    "What helps during a flare?",
-    "Why am I so fatigued today?",
-    "Help me prep for my doctor",
-    "Gentle pacing ideas?",
+    "Help me explain this to my doctor",
+    "What patterns should I track?",
+    "What can I do during a flare?",
+    "Summarize my recent symptoms",
   ];
 
   return (
     <div className="min-h-screen sky-background">
       <Navigation />
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-28 md:pb-10">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-3">
           <ZebbyAvatar size="medium" showBadge />
           <div>
             <h1 className="text-xl font-bold">Talk to Zebby</h1>
@@ -491,6 +491,12 @@ function SimpleChat() {
               Gentle support — not medical advice.
             </p>
           </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-3 mb-4 text-xs text-muted-foreground leading-relaxed">
+          Zebby can help you track patterns and prepare for conversations with
+          your care team, but it does not replace medical advice. If symptoms
+          feel severe, sudden, or dangerous, please seek urgent medical care.
         </div>
 
         <Card className="rounded-3xl overflow-hidden border-0 shadow-zebby">

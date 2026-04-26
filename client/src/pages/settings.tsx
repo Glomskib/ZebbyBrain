@@ -6,11 +6,14 @@ import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Crown, Check, X, Loader2, Download, LogIn } from "lucide-react";
+import { Crown, Check, X, Loader2, Download, LogIn, ArrowLeft, LogOut, Bell, Globe, Mail } from "lucide-react";
 import { ExportSection } from "@/components/ExportSection";
 import { DataRetentionSection } from "@/components/DataRetentionSection";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { AccountManagement } from "@/components/AccountManagement";
+import ZebbyAvatar from "@/components/zebby-avatar";
+import Navigation from "@/components/navigation";
+import { Link } from "wouter";
 
 interface BillingStatus {
   plan: string;
@@ -92,14 +95,86 @@ export default function Settings() {
     );
   }
 
+  const userTyped = user as any;
+  const fullName =
+    userTyped?.firstName && userTyped?.lastName
+      ? `${userTyped.firstName} ${userTyped.lastName}`
+      : userTyped?.firstName || userTyped?.email || "Your account";
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    } catch {}
+    queryClient.clear();
+    window.location.href = "/login";
+  }
+
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-8">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold">Settings</h1>
-        <p className="text-muted-foreground mt-2">
-          Manage your Zebby account and subscription
-        </p>
-      </div>
+    <div className="min-h-screen bg-background">
+      <Navigation />
+      <div className="max-w-4xl mx-auto p-4 md:p-6 pb-24 md:pb-12 space-y-6">
+        <Link href="/">
+          <button
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground rounded-full px-3 py-1.5"
+            data-testid="button-back-to-dashboard"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back to dashboard
+          </button>
+        </Link>
+
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Settings</h1>
+          <p className="text-muted-foreground mt-1 text-sm md:text-base">
+            Manage your Zebby account, preferences, and subscription.
+          </p>
+        </div>
+
+        {/* Profile summary */}
+        <Card className="rounded-2xl border-0 shadow-zebby" data-testid="card-profile">
+          <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <ZebbyAvatar size="medium" showBadge />
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-lg truncate" data-testid="text-profile-name">
+                {fullName}
+              </div>
+              {userTyped?.email && (
+                <div className="text-sm text-muted-foreground truncate flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5" /> {userTyped.email}
+                </div>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <Badge variant={isPlusUser ? "default" : "secondary"}>
+                  {isPlusUser ? "Zebby+" : "Free plan"}
+                </Badge>
+                {userTyped?.edsType && <Badge variant="outline">{userTyped.edsType}</Badge>}
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              className="rounded-full shrink-0"
+              onClick={handleLogout}
+              data-testid="button-logout"
+            >
+              <LogOut className="w-4 h-4 mr-1.5" /> Log out
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Preferences (placeholder, but visible + organized) */}
+        <Card className="rounded-2xl border-0 shadow-zebby">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Bell className="w-4 h-4" /> Preferences
+            </CardTitle>
+            <CardDescription>Quick tweaks to how Zebby works for you.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid md:grid-cols-2 gap-3 text-sm">
+            <PrefRow icon={<Bell className="w-4 h-4" />} title="Reminders" body="Manage symptom + hydration nudges" cta="Open" href="/settings/herd-rewards" />
+            <PrefRow icon={<Globe className="w-4 h-4" />} title="Language & timezone" body="English · auto-detected" cta="Soon" disabled />
+            <PrefRow icon={<Crown className="w-4 h-4" />} title="Zebby+ subscription" body={isPlusUser ? "Active member" : "Upgrade for premium tools"} cta={isPlusUser ? "Manage" : "Upgrade"} href="/zebby-plus" />
+            <PrefRow icon={<Download className="w-4 h-4" />} title="Export data" body="Download your symptom log" cta="See below" disabled />
+          </CardContent>
+        </Card>
 
       {/* Current Plan Status */}
       <Card data-testid="plan-status-card">
@@ -321,6 +396,46 @@ export default function Settings() {
           <AccountManagement />
         </CardContent>
       </Card>
+      </div>
     </div>
   );
+}
+
+function PrefRow({
+  icon,
+  title,
+  body,
+  cta,
+  href,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  cta: string;
+  href?: string;
+  disabled?: boolean;
+}) {
+  const inner = (
+    <div className="rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+      <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-medium truncate">{title}</div>
+        <div className="text-xs text-muted-foreground truncate">{body}</div>
+      </div>
+      <span
+        className={`text-xs rounded-full px-3 py-1 border ${
+          disabled
+            ? "border-border text-muted-foreground"
+            : "border-primary/40 text-primary hover:bg-primary/10"
+        }`}
+      >
+        {cta}
+      </span>
+    </div>
+  );
+  if (disabled || !href) return inner;
+  return <Link href={href}>{inner}</Link>;
 }

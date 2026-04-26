@@ -1,155 +1,162 @@
-# Zebby's World - Testing Guide
+# Zebby's World — Testing Guide
 
-## Quick Start
+A short, manual happy-path QA you can walk on a fresh Mac. Pairs with the
+automated browser tests in `e2e/tests/`.
 
-This guide helps you test Zebby's World features locally and in production.
-
-## Prerequisites
-
-- Node.js 18+ installed
-- PostgreSQL database (provided by Replit)
-- Required environment secrets configured (see below)
-
-## Local Development Testing
-
-### 1. Start the Application
+## Setup
 
 ```bash
+npm install
+cp .env.example .env       # blanks are fine for local
 npm run dev
 ```
 
-The app will be available at `http://localhost:5000`
+Open **http://localhost:5000** in Chrome/Safari/Firefox.
 
-### 2. Smoke Tests
+If you want a clean slate between runs:
+```bash
+rm -rf .data/pglite
+```
 
-Run these curl commands to verify API endpoints:
+## Automated browser tests
+
+Run these from a second terminal while `npm run dev` is alive:
 
 ```bash
-# Health check
-curl -s http://localhost:5000/api/rag/health
-
-# Uplifting message (motivation API)
-curl -s http://localhost:5000/api/motivation
+npx playwright install chromium      # one-time
+npx playwright test e2e/tests/smoke.spec.ts --project=chromium
+npx playwright test e2e/tests/tracker.spec.ts --project=chromium
 ```
 
-### 3. UI Feature Verification
+Both should pass with **0 console errors** and write screenshots to
+`/tmp/zebby-smoke/`.
 
-1. **Navigation Labels** - Check that the nav shows:
-   - "Pastures" (not "Groups")
-   - "Spoonies" (not "Personal Circle")  
-   - "Zebby's Pouch" (not "Marketplace")
-   - "Ask Zebby"
+## Manual checklist
 
-2. **Legacy Route Redirects** - Test these URLs preserve query params:
-   - `/store?ref=kickstarter` → `/marketplace?ref=kickstarter`
-   - `/pastures?campaign=2025` → `/groups?campaign=2025`
-   - `/spoonies?source=email` → `/circle?source=email`
-   - `/personal-circle?v=2` → `/circle?v=2`
-   - `/zebbys-pouch?utm=test` → `/marketplace?utm=test`
+Each box is a discrete acceptance test. Don't skip — they expose the most
+common regressions in order of severity.
 
-3. **Ask Zebby** (requires VITE_FF_RAG=true):
-   - Query counter shows "5" for new users
-   - Counter decrements after each question
-   - Upgrade banner appears at 0 queries
-   - Sources displayed with each answer
+### 1. Signup
+- [ ] Visit `/login` → click **Sign up** tab
+- [ ] Fill first name, last name, email (any), password (8+ chars), confirm
+- [ ] Click **Create account**
+- [ ] Toast: "Welcome to Zebby's World!"
+- [ ] URL becomes `/onboarding`
+- [ ] No console errors
 
-## Production Testing
+### 2. Login
+- [ ] Click your avatar → **Log out**
+- [ ] You land at `/login`
+- [ ] Re-enter the email/password from step 1
+- [ ] You land back at `/` (dashboard) — **no flash of the Landing page**
 
-### Required Secrets
+### 3. Onboarding
+- [ ] Walk all 7 steps; the avatar step shows 6 visually distinct Zebbys
+- [ ] Pick **Sparkle Zebby** (or any other variant)
+- [ ] Complete setup → URL becomes `/`
+- [ ] Dashboard hero greets you by first name
+- [ ] Top-left logo + chat-bubble avatars reflect your variant
 
-Before deploying, configure these in Replit Secrets:
+### 4. Symptom tracker — saves a real entry
+- [ ] From dashboard click **Tracker**
+- [ ] Click **New entry**
+- [ ] Pick at least one symptom card (e.g. Joint Pain)
+- [ ] Set intensity slider, optional body part
+- [ ] In the Context block: tap a Mood chip, an Activity chip, a Diet chip
+- [ ] Click **+500ml** under Water; the "Water · 500ml today" total updates
+- [ ] Click **+500mg** under Sodium; the "Sodium · 500mg today" total updates
+- [ ] Type a note in "Overall session notes"
+- [ ] Click **Log Symptoms**
+- [ ] Toast: "Symptom logged successfully"
+- [ ] Modal closes; the tracker page now lists your entry
 
-**Firebase Authentication** (for mobile apps):
-```
-FIREBASE_PROJECT_ID=your-project-id
-FIREBASE_CLIENT_EMAIL=your-service-account@your-project.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-```
+### 5. History fetch
+- [ ] Visit `/history`
+- [ ] **Entries logged** tile shows a number ≥ 1
+- [ ] **Avg intensity** is a number, not "—"
+- [ ] **Top symptom** matches what you logged
+- [ ] Switch to **Entries** tab — your row shows: intensity badge, symptom name,
+      mood/activity/diet badges (😌 / 🏃 / 🥗), timestamp, body part if you set one
+- [ ] Switch to **Timeline** — daily-average line chart renders
+- [ ] Switch to **By symptom** — bar chart renders
 
-**CORS Configuration**:
-```
-ALLOWED_ORIGINS=https://preview.flutterflow.app,https://app.zebbysworld.com,capacitor://localhost,ionic://localhost
-```
+### 6. Ask Zebby — fallback works
+- [ ] Visit `/ask-zebby`
+- [ ] Banner shows the medical-disclaimer copy
+- [ ] Welcome bubble from Zebby is visible
+- [ ] Click any quick-prompt chip — Zebby replies
+- [ ] If `OPENAI_API_KEY` is unset, the reply has a small "offline reply" label
+- [ ] Type a custom message in the textarea, hit Send — get another reply
+- [ ] Voice-coming-soon footer is visible
 
-**Feature Flags** (optional):
-```
-VITE_FF_RAG=true
-FF_RAG=true
-```
+### 7. Rewards page
+- [ ] Visit `/rewards` (or click the **Rewards** tile on dashboard)
+- [ ] **Reward ladder** shows 5 tiers: Sticker → 10% off Pouch → Electrolyte
+      sample → 25% off Pouch → Hoodie
+- [ ] Progress bar reflects your point total (likely 0 on a fresh account)
+- [ ] **Up next** badge appears on the first locked tier
+- [ ] Your **referral link** can be copied; the **Code** is visible
 
-### Smoke Tests for Production
+### 8. Zebby+ premium
+- [ ] Visit `/zebby-plus`
+- [ ] Cards explain the perks
+- [ ] **Upgrade to Zebby+** button is visible. If Stripe isn't configured,
+      clicking it shows a polite toast — it does **not** crash
 
-Replace `<your-domain>` with your actual domain:
+### 9. Settings + logout
+- [ ] Visit `/settings`
+- [ ] **Back to dashboard** link is at the top
+- [ ] Profile card shows your name + email + plan badge
+- [ ] **Log out** button is on the profile card
+- [ ] Preferences card lists Reminders / Language / Subscription / Export
+- [ ] Click **Log out** → land on `/login`
+
+### 10. Mobile viewport
+Use Chrome DevTools → toggle device toolbar → iPhone 14 Pro (or similar).
+
+- [ ] Top nav collapses to hamburger; **Zebby's World** doesn't wrap to two lines
+- [ ] **Bottom nav** shows Home / Track / History / Zebby / Zebby+ pinned to bottom
+- [ ] Active page tab is highlighted
+- [ ] Logger modal is usable on mobile (chips wrap, water/sodium tiles stack)
+
+### 11. Protected-route enforcement
+- [ ] In an incognito window, visit `/tracker` directly
+- [ ] You should see the Landing page (or be sent to `/login`) — never the tracker
+- [ ] Visit `/api/symptoms` directly → JSON `{"message":"Unauthorized"}` with HTTP 401
+
+### 12. Health endpoints
+- [ ] `curl http://localhost:5000/api/health` → `{"status":"ok"...}`
+- [ ] `curl http://localhost:5000/api/billing/health` → JSON, `mode: "test"` when no Stripe keys
+
+## Build
+
+- [ ] `npm run build` finishes without errors
+- [ ] `dist/public/` contains hashed JS + CSS + the Zebby PNG
+- [ ] `dist/index.js` is the bundled server (≈ 525KB)
+
+## Production smoke
 
 ```bash
-# Health check
-curl -s https://<your-domain>/api/rag/health
-
-# Motivation endpoint
-curl -s https://<your-domain>/api/motivation
-
-# Firebase auth test (requires valid Firebase ID token)
-curl -i -s -X POST https://<your-domain>/api/rag/answer \
-  -H "Authorization: Bearer $FIREBASE_ID_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"question":"What are common EDS symptoms?","window":"30d"}'
-
-# Stripe checkout (requires valid Firebase ID token)
-curl -i -s -X POST https://<your-domain>/api/billing/create-checkout-session \
-  -H "Authorization: Bearer $FIREBASE_ID_TOKEN"
+NODE_ENV=production SESSION_INSECURE=true \
+DATABASE_URL=pglite://.data/pglite-prod \
+SESSION_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" \
+PORT=5001 \
+node dist/index.js
 ```
 
-## Postman Collection
+- [ ] Boot logs show "serving on port 5001" with `env=production`
+- [ ] `curl http://localhost:5001/api/health` → 200
+- [ ] Signup via the prod port also works (cookie persists across requests)
 
-Complete API documentation and test collection available at:
-```
-docs/zebby-api.postman_collection.json
-```
+## Known graceful-fallback behaviors
 
-Import this into Postman and configure environment variables:
-- `baseUrl` - Your deployed domain
-- `firebaseIdToken` - Valid Firebase ID token for testing
+| Missing env | Behavior |
+|---|---|
+| `OPENAI_API_KEY` | Ask Zebby + AI reflections return canned warm replies labelled "offline reply"; RAG endpoints return clear errors instead of crashing |
+| `STRIPE_*` | Billing endpoints return `test_mode: true`; Upgrade buttons toast politely without crashing |
+| `FIREBASE_*` | Mobile token verification disabled; web auth unaffected |
+| `SHOPIFY_*` | Pouch shows Zebby's curated cards; live storefront list is empty |
+| `OPENWEATHER_API_KEY` | Symptom logs save without weather context |
 
-## Troubleshooting
-
-### "Firebase auth unavailable" in logs
-- Missing Firebase secrets (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY)
-- Only needed for mobile app authentication
-
-### "Feature Not Available" on Ask Zebby page
-- Missing VITE_FF_RAG=true secret
-- Feature flag controls RAG/AI Brain access
-
-### Legacy redirects showing 404
-- Clear browser cache
-- Verify routes in client/src/App.tsx
-
-### CORS errors
-- Check ALLOWED_ORIGINS includes your mobile app origins
-- Restart deployment after changing secrets
-
-## Kickstarter Demo Script (60-90 seconds)
-
-1. Open app → Show uplifting message banner
-2. Navigate to Ask Zebby → Ask "What are common EDS symptoms?"
-3. Show answer with sources
-4. Ask 2-3 more questions until counter shows 0
-5. Click "Upgrade to Zebby Plus" → Show Stripe checkout
-6. Navigate through: Pastures, Spoonies, Zebby's Pouch
-7. End with: "Cost controls keep it under pennies per user"
-
-## Cost Monitoring
-
-Watch RAG usage in logs:
-```bash
-grep "rag_usage" logs/*.log
-```
-
-Set OpenAI usage alerts at $20 and $50 in your OpenAI dashboard.
-
-## Support
-
-For issues or questions, check:
-- `replit.md` - Project architecture
-- Server logs in Replit console
-- Browser console for client-side errors
+If you see a real crash that isn't caused by missing keys, capture the
+console error and the request URL — that's the bug to file.
