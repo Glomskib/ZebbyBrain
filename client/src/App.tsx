@@ -89,8 +89,13 @@ function Router() {
       )}
       
       {/* Authentication-dependent routes */}
-      {isLoading || !isAuthenticated ? (
-        <Route path="/" component={Landing} />
+      {isLoading ? (
+        <Route path="/" component={() => null} />
+      ) : !isAuthenticated ? (
+        <>
+          <Route path="/" component={() => { window.location.href = '/auth'; return null; }} />
+          <Route path="/landing" component={Landing} />
+        </>
       ) : needsOnboarding ? (
         /* Redirect to onboarding for users who haven't completed it */
         <>
