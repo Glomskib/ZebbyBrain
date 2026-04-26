@@ -279,22 +279,20 @@ test("full user journey: signup → onboarding → dashboard → tracker → his
   }
 
   // ---- mobile layout check ------------------------------------------
+  // Reuse the desktop session via storageState to avoid hitting the auth
+  // rate limit on a fresh re-login. Real users don't need this dance.
+  const storage = await context.storageState();
   await context.close();
   const mobileCtx = await browser.newContext({
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
+    storageState: storage,
   });
   const mobilePage = await mobileCtx.newPage();
-  attachListeners(mobilePage, "mobile-login");
-  // Sign in as the user we just created
-  await goto(mobilePage, "/login");
-  await mobilePage.fill('[data-testid="input-login-email"]', email);
-  await mobilePage.fill('[data-testid="input-login-password"]', "zebratest1");
-  await mobilePage.click('[data-testid="button-login-submit"]');
-  await mobilePage.waitForURL(/\/$|\/onboarding/, { timeout: 15_000 });
-  await mobilePage.waitForTimeout(500);
   attachListeners(mobilePage, "mobile-dashboard");
+  await goto(mobilePage, "/");
+  await mobilePage.waitForTimeout(500);
   await shot(mobilePage, "17-mobile-dashboard");
   // Bottom nav should be present at mobile width (wait for useAuth refetch)
   await expect(mobilePage.locator('[data-testid="mobile-bottom-nav"]')).toBeVisible({
