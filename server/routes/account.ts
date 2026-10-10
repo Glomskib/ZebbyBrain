@@ -1,15 +1,24 @@
 import { Router } from 'express';
 import { db } from '../db';
-import { users, symptomLogs, symptomEntries, sleepLogs, aiInteractions } from '@shared/schema';
-import { eq, and, lt, isNotNull } from 'drizzle-orm';
+import {
+  users, symptomLogs, symptomEntries, sleepLogs, aiInteractions,
+  vitalsLogs, waterIntakeLogs, sodiumIntakeLogs, visitConsents,
+} from '@shared/schema';
+import { purgeAllVisitsForUser } from '../lib/visitRetention';
+import { eq, and, lt, isNotNull, isNull, ne, or } from 'drizzle-orm';
 import { randomBytes, createCipheriv, createDecipheriv, scrypt } from 'crypto';
 import { promisify } from 'util';
 import AdmZip from 'adm-zip';
 
 const router = Router();
+
+// Set on accounts that were anonymized because other records still reference them.
+const PURGED_MARKER = 'purged_anonymized';
 const scryptAsync = promisify(scrypt);
 
-const FF_DELETE_ACCOUNT = (process.env.FF_DELETE_ACCOUNT || "").toLowerCase() === "true";
+// In-app account deletion is required by the App Store (guideline 5.1.1(v))
+// and by state health-data laws, so it is ON unless explicitly turned off.
+const FF_DELETE_ACCOUNT = (process.env.FF_DELETE_ACCOUNT || "true").toLowerCase() !== "false";
 const FF_BACKUP_RESTORE = (process.env.FF_BACKUP_RESTORE || "").toLowerCase() === "true";
 
 router.post('/delete', async (req: any, res) => {
@@ -235,32 +244,81 @@ async function decryptData(encryptedJson: string, passphrase: string): Promise<s
 export async function purgeDeletedAccounts() {
   if (!FF_DELETE_ACCOUNT) return;
 
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  let usersToDelete: Array<typeof users.$inferSelect> = [];
   try {
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-
-    const usersToDelete = await db.select()
+    usersToDelete = await db.select()
       .from(users)
       .where(and(
         isNotNull(users.deletedAt),
-        lt(users.deletedAt, sevenDaysAgo)
+        lt(users.deletedAt, sevenDaysAgo),
+        or(isNull(users.deletionReason), ne(users.deletionReason, PURGED_MARKER)),
       ));
+  } catch (error) {
+    console.error('[PURGE] Could not list accounts to purge:', (error as Error).name);
+    return;
+  }
 
-    for (const user of usersToDelete) {
-      await db.delete(symptomLogs).where(eq(symptomLogs.userId, user.id));
+  let removed = 0;
+  let anonymized = 0;
+  // Each account is handled on its own, so one failure never blocks the rest.
+  for (const user of usersToDelete) {
+    try {
+      // Health data first: this must go even if the account row can't.
       await db.delete(symptomEntries).where(eq(symptomEntries.userId, user.id));
+      await db.delete(symptomLogs).where(eq(symptomLogs.userId, user.id));
       await db.delete(sleepLogs).where(eq(sleepLogs.userId, user.id));
       await db.delete(aiInteractions).where(eq(aiInteractions.userId, user.id));
-      
-      await db.delete(users).where(eq(users.id, user.id));
-      
-      console.log(`[PURGE] Permanently deleted user ${user.id} and all associated data`);
+      await db.delete(vitalsLogs).where(eq(vitalsLogs.userId, user.id));
+      await db.delete(waterIntakeLogs).where(eq(waterIntakeLogs.userId, user.id));
+      await db.delete(sodiumIntakeLogs).where(eq(sodiumIntakeLogs.userId, user.id));
+      // Visit Recorder: audio files in storage + encrypted transcripts/recaps,
+      // then the consent log (kept until the account itself is gone).
+      await purgeAllVisitsForUser(user.id);
+      await db.delete(visitConsents).where(eq(visitConsents.userId, user.id));
+    } catch (error) {
+      console.error(`[PURGE] Health data purge failed for ${user.id}; will retry next run:`, (error as Error).name);
+      continue;
     }
 
-    if (usersToDelete.length > 0) {
-      console.log(`[PURGE] Completed: ${usersToDelete.length} accounts permanently deleted`);
+    try {
+      await db.delete(users).where(eq(users.id, user.id));
+      removed++;
+    } catch {
+      // Other records (orders, reviews, community posts) still point at this
+      // account. Strip everything that identifies the person instead, and mark
+      // it done so it isn't retried every night.
+      try {
+        await db.update(users).set({
+          email: null,
+          passwordHash: null,
+          firstName: null,
+          lastName: null,
+          profileImageUrl: null,
+          avatarKey: null,
+          stripeCustomerId: null,
+          edsType: null,
+          diagnosisYear: null,
+          primarySymptoms: null,
+          experienceLevel: null,
+          dailyGoals: null,
+          birthYear: null,
+          gender: null,
+          identity: null,
+          referralCode: null,
+          deleteToken: null,
+          deletionReason: PURGED_MARKER,
+          updatedAt: new Date(),
+        }).where(eq(users.id, user.id));
+        anonymized++;
+      } catch (error) {
+        console.error(`[PURGE] Could not remove or anonymize ${user.id}; will retry next run:`, (error as Error).name);
+      }
     }
-  } catch (error) {
-    console.error('[PURGE] Error during account purge:', error);
+  }
+
+  if (removed || anonymized) {
+    console.log(`[PURGE] Completed: ${removed} accounts deleted, ${anonymized} anonymized`);
   }
 }
 

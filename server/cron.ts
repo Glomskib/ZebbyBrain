@@ -4,6 +4,7 @@ import { processCircleAlerts } from "./lib/circle-alerts";
 import { processWeekActiveRewards } from "./lib/week-active-rewards";
 import { processHerdAlerts } from "./lib/herd-alerts";
 import { purgeDeletedAccounts } from "./routes/account";
+import { purgeExpiredVisitAudio } from "./lib/visitRetention";
 import { schedBoot, schedInfo, schedError } from "./lib/schedLog";
 
 /**
@@ -121,8 +122,31 @@ export function setupCronJobs() {
     setInterval(processCircleAlertsNow, alertInterval);
   }
 
+  // Visit Recorder audio retention (hourly): deletes audio once the transcript
+  // is approved, after 30 days at most, or 24h after an upload that never came.
+  function scheduleVisitAudioRetention() {
+    const interval = 60 * 60 * 1000;
+    schedBoot({ evt: "visit_audio_retention_scheduler_started", intervalMinutes: 60 });
+    const run = async () => {
+      try {
+        const removed = await purgeExpiredVisitAudio();
+        if (removed > 0) schedInfo({ evt: "visit_audio_purged", count: removed });
+      } catch (error) {
+        schedError({
+          evt: "visit_audio_retention_error",
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    };
+    setTimeout(run, 3 * 60_000);
+    setInterval(run, interval);
+  }
+
   // Start the reminder processor
   scheduleReminderProcessing();
+
+  // Start Visit Recorder audio retention
+  scheduleVisitAudioRetention();
 
   // Start the circle alert processor
   scheduleCircleAlertProcessing();

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { generateEmbedding } from "../lib/embeddings";
+import { getOpenAI } from "../lib/aiClient";
 import { logUsage } from "../lib/usageLog";
 import { quota } from "../middleware/quota";
 import { flexibleAuth } from "../middleware/flexibleAuth";
@@ -154,8 +155,8 @@ Guidelines:
 - Remind them this is supportive info, not medical advice
 - Keep responses brief and actionable (3-5 sentences)`;
 
-    const openai = (await import("openai")).default;
-    const client = new openai({ apiKey: process.env.OPENAI_API_KEY });
+    const client = getOpenAI();
+    if (!client) throw new Error("openai_disabled");
 
     const completionModel = process.env.COMPLETION_MODEL || "gpt-4o-mini";
     const answerMaxTokens = Number(process.env.ANSWER_MAX_TOKENS ?? 350);

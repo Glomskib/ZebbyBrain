@@ -1,16 +1,16 @@
 import OpenAI from "openai";
+import { getOpenAI, OPENAI_AVAILABLE, OPENAI_MODEL } from "./lib/aiClient";
 
-const apiKey = process.env.OPENAI_API_KEY;
-export const OPENAI_AVAILABLE = !!apiKey;
-if (!apiKey) {
+export { OPENAI_AVAILABLE, OPENAI_MODEL };
+
+if (!OPENAI_AVAILABLE) {
   console.warn(
     "[openai] OPENAI_API_KEY not set — AI features will return graceful fallbacks.",
   );
 }
 
-const openai = apiKey ? new OpenAI({ apiKey }) : (null as unknown as OpenAI);
-
-export const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-5"; // default ok, but env-override
+// Shared client (null when no key). Calls below are guarded by OPENAI_AVAILABLE.
+const openai = getOpenAI() as OpenAI;
 
 export async function generateAnalyticalReflection(
   symptomEntries: Array<{ name: string; intensity: number; notes?: string }>,

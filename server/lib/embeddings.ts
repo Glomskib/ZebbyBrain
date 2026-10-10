@@ -1,8 +1,8 @@
 import OpenAI from "openai";
 import { EMBEDDING_MODEL } from "../rag/config";
+import { getOpenAI } from "./aiClient";
 
-const apiKey = process.env.OPENAI_API_KEY;
-const openai = apiKey ? new OpenAI({ apiKey }) : null;
+const openai = getOpenAI();
 
 function ensureClient(): OpenAI {
   if (!openai) {

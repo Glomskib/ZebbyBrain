@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { chatText } from "../lib/aiClient";
 import rateLimit from "express-rate-limit";
 import { FF } from "../config/flags";
 import { getUserStats } from "../services/insightStats";
@@ -52,24 +53,14 @@ Please return JSON with keys: analysis (<=140 words), trendBullets (3-5 short bu
 
     let result;
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
+      const text =
+        (await chatText(
+          [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          temperature: 0.3,
-        }),
-      });
-
-      const data = await response.json();
-      const text = data.choices?.[0]?.message?.content ?? "{}";
+          { temperature: 0.3, json: true },
+        )) || "{}";
       result = JSON.parse(text);
     } catch (error) {
       console.error("AI insights error:", error);

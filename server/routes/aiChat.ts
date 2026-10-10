@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { FF } from "../config/flags";
 import { getUserStats } from "../services/insightStats";
+import { chatText, OPENAI_AVAILABLE } from "../lib/aiClient";
 
 const router = Router();
 router.use(rateLimit({ windowMs: 60_000, max: 10 }));
@@ -27,7 +28,7 @@ router.post("/chat", async (req, res) => {
     const facts = await getUserStats(userId, "30d");
 
     // Graceful fallback when OpenAI isn't configured — never 500.
-    if (!process.env.OPENAI_API_KEY) {
+    if (!OPENAI_AVAILABLE) {
       res.set("Cache-Control", "no-store");
       return res.json({
         reply: fallbackReply(String(message), facts),
@@ -47,30 +48,28 @@ Avoid PII; keep under 120 words.`;
       .filter(Boolean)
       .join("\n");
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
+    const text =
+      (await chatText(
+        [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMsg },
         ],
-        temperature: 0.4,
-      }),
-    });
-
-    const data = await response.json();
-    const text = data.choices?.[0]?.message?.content ?? "I'm here with you.";
+        { temperature: 0.4 },
+      )) || "I'm here with you.";
 
     res.set("Cache-Control", "no-store");
     return res.json({ reply: text });
   } catch (error) {
-    console.error("AI chat error:", error);
-    return res.status(500).json({ error: "AI unavailable" });
+    // Keep Zebby talking when the AI service hiccups: answer with the offline
+    // reply (labelled as such) instead of an error screen.
+    console.error("AI chat error:", error instanceof Error ? error.name : "unknown");
+    try {
+      const facts = await getUserStats(userId, "30d");
+      res.set("Cache-Control", "no-store");
+      return res.json({ reply: fallbackReply(String(message), facts), fallback: true });
+    } catch {
+      return res.status(500).json({ error: "AI unavailable" });
+    }
   }
 });
 

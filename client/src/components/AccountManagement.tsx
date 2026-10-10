@@ -28,7 +28,7 @@ export function AccountManagement() {
   const [undoToken, setUndoToken] = useState("");
   const { toast } = useToast();
 
-  const isDeleteEnabled = import.meta.env.VITE_FF_DELETE_ACCOUNT === "true";
+  const isDeleteEnabled = import.meta.env.VITE_FF_DELETE_ACCOUNT !== "false";
   const isBackupEnabled = import.meta.env.VITE_FF_BACKUP_RESTORE === "true";
 
   const deleteAccountMutation = useMutation({

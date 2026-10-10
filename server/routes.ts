@@ -106,6 +106,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const aiInsightsRoutes = await import('./routes/aiInsights');
   app.use('/api/ai', isAuthenticated, aiInsightsRoutes.default);
 
+  // Mount Visit Recorder routes (Zebby+, behind FF_VISIT_RECORDER)
+  const visitsRoutes = await import('./routes/visits');
+  app.use('/api/visits', isAuthenticated, visitsRoutes.default);
+
   // Mount AI chat routes with authentication
   const aiChatRoutes = await import('./routes/aiChat');
   app.use('/api/ai', isAuthenticated, aiChatRoutes.default);

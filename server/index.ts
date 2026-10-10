@@ -68,6 +68,23 @@ if (!process.env.SESSION_SECRET) {
 if (!process.env.STRIPE_WEBHOOK_SECRET && process.env.NODE_ENV === "production") {
   throw new Error("STRIPE_WEBHOOK_SECRET must be set for webhook signature verification in production");
 }
+// The shared-password test login is for local/staging smoke tests only.
+// Refuse to boot a production server with it switched on.
+if (
+  process.env.NODE_ENV === "production" &&
+  (process.env.ALLOW_TEST_LOGIN || "").toLowerCase() === "true"
+) {
+  throw new Error("ALLOW_TEST_LOGIN must not be enabled in production");
+}
+// Health data (Visit Recorder transcripts and recaps) is encrypted at rest.
+// If the feature is on in production, the key must be present and valid.
+if (
+  process.env.NODE_ENV === "production" &&
+  (process.env.FF_VISIT_RECORDER || "").toLowerCase() === "true" &&
+  !/^[0-9a-fA-F]{64}$/.test(process.env.HEALTH_DATA_KEY || "")
+) {
+  throw new Error("HEALTH_DATA_KEY (64 hex chars) must be set when FF_VISIT_RECORDER is on in production");
+}
 
 // HTTP Security Headers and Protection
 // Strict CORS: only your known origins (including mobile)
@@ -113,6 +130,13 @@ app.use((req, res, next) => {
 
 // Helmet for comprehensive security headers
 const isDev = process.env.NODE_ENV !== "production";
+const supabaseOrigin = (() => {
+  try {
+    return process.env.SUPABASE_URL ? [new URL(process.env.SUPABASE_URL).origin] : [];
+  } catch {
+    return [];
+  }
+})();
 const cspDirectives: any = {
   "default-src": ["'self'"],
   "img-src": ["'self'", "data:", "blob:"],
@@ -125,10 +149,18 @@ const cspDirectives: any = {
   "script-src": isDev
     ? ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com"]
     : ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],
-  // Allow Vite's HMR websocket in dev; 'self' only in prod.
-  "connect-src": isDev
-    ? ["'self'", "ws:", "wss:", "https://api.stripe.com", "https://api.openai.com"]
-    : ["'self'", "https://api.stripe.com", "https://api.openai.com"],
+  // Allow Vite's HMR websocket in dev; 'self' only in prod. AI calls are
+  // server-side only, so OpenAI is never reachable from the browser. Supabase
+  // is allowed so Visit Recorder audio can upload straight to private storage
+  // through a short-lived signed link.
+  "connect-src": [
+    "'self'",
+    ...(isDev ? ["ws:", "wss:"] : []),
+    "https://api.stripe.com",
+    ...supabaseOrigin,
+  ],
+  // Recorded audio is played back from local blob: URLs before upload.
+  "media-src": ["'self'", "blob:"],
   "frame-src": ["https://js.stripe.com"],
   "frame-ancestors": ["'none'"],
   "object-src": ["'none'"],
@@ -162,7 +194,8 @@ if (!isDev) {
       "font-src": ["'self'", "https://fonts.gstatic.com"],
       "style-src": ["'self'", "https://fonts.googleapis.com"],
       "script-src": ["'self'", "https://js.stripe.com", (req: any, res: any) => `'nonce-${res.nonce}'`],
-      "connect-src": ["'self'", "https://api.stripe.com", "https://api.openai.com"],
+      "connect-src": ["'self'", "https://api.stripe.com", ...supabaseOrigin],
+      "media-src": ["'self'", "blob:"],
       "frame-src": ["https://js.stripe.com"],
       "frame-ancestors": ["'none'"],
       "object-src": ["'none'"],
@@ -171,6 +204,17 @@ if (!isDev) {
     }
   }));
 }
+
+// Browser feature lockdown. The microphone is allowed for our own pages only
+// (Visit Recorder), geolocation for our own pages only (weather on symptom
+// logs), and everything else sensitive is off.
+app.use((_req, res, next) => {
+  res.setHeader(
+    "Permissions-Policy",
+    "microphone=(self), geolocation=(self), camera=(), payment=(self \"https://js.stripe.com\"), usb=(), serial=(), bluetooth=()",
+  );
+  next();
+});
 
 // HTTP Parameter Pollution protection
 app.use(hpp());
@@ -194,7 +238,10 @@ app.use((req, res, next) => {
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
   // PII/PHI redaction for health data protection
-  const SENSITIVE_KEYS = ["notes", "email", "phone", "token", "accessToken", "profile", "address"];
+  const SENSITIVE_KEYS = [
+    "notes", "email", "phone", "token", "accessToken", "profile", "address",
+    "title", "transcript", "recap", "consentEvidence", "reply", "answer", "url", "signedUrl",
+  ];
   function redact(obj: any): any {
     if (!obj || typeof obj !== "object") return obj;
     if (Array.isArray(obj)) return obj.map(redact);
@@ -215,7 +262,10 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      // Response bodies are logged in development only. In production they
+      // can hold health text (titles, transcripts, recaps, AI replies) or
+      // short-lived upload links, so nothing past the status line is written.
+      if (capturedJsonResponse && process.env.NODE_ENV !== "production") {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
@@ -233,6 +283,16 @@ app.use((req, res, next) => {
 (async () => {
   // Initialize local DB (pglite) if needed — idempotent. No-op against Neon.
   await initDb();
+
+  // Visit Recorder: make sure the private audio bucket exists and stays private.
+  if ((process.env.FF_VISIT_RECORDER || "").toLowerCase() === "true") {
+    try {
+      const { ensureVisitAudioBucket } = await import("./lib/visitStorage");
+      await ensureVisitAudioBucket();
+    } catch (err) {
+      console.error("[visits] could not prepare the private audio bucket:", (err as Error).message);
+    }
+  }
 
   // Add rate limiting for API endpoints BEFORE route registration
   const authdLimiter = rateLimit({ 

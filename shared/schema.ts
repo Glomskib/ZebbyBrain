@@ -871,6 +871,86 @@ export const devices = pgTable("devices", {
   tokenIdx: uniqueIndex("devices_token_idx").on(table.deviceToken),
 }));
 
+// ---------------------------------------------------------------------------
+// Visit Recorder (Zebby+)
+// Every free-text health field here is stored encrypted (columns ending in
+// "Enc") with the per-user key from server/lib/healthCrypto.ts. Audio lives in
+// a private storage bucket and is deleted on a schedule (audioDeleteAfter).
+// ---------------------------------------------------------------------------
+
+// Append-only log of the user's own opt-in / opt-out for Visit Recorder.
+// Never updated or deleted while the account exists: it is the proof of
+// consent (what they agreed to, which wording, when, on which app version).
+export const visitConsents = pgTable("visit_consents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  action: varchar("action").notNull(), // "granted" | "withdrawn"
+  scope: varchar("scope").notNull().default("visit_recorder"),
+  consentTextVersion: varchar("consent_text_version").notNull(), // e.g. "vr-optin-2026-10-09"
+  appVersion: varchar("app_version"),
+  platform: varchar("platform"), // "web" | "ios" | "android"
+  ipHash: varchar("ip_hash"), // sha256 of IP, never the raw IP
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userIdx: index("visit_consents_user_idx").on(table.userId, table.createdAt),
+}));
+
+export const visits = pgTable("visits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  titleEnc: text("title_enc"), // e.g. "Cardiology follow-up" (encrypted)
+  setting: varchar("setting"), // "office" | "er" | "hospital" | "video" | "other"
+  participants: text("participants").array(), // roles only: "me", "nurse", "doctor", "family", "other"
+
+  // Lifecycle: awaiting_upload -> uploaded -> transcribing -> consent_check
+  //            -> ready | failed | deleted
+  status: varchar("status").notNull().default("awaiting_upload"),
+  errorCode: varchar("error_code"),
+
+  // Consent from the people in the room (per visit)
+  consentTappedAt: timestamp("consent_tapped_at"), // "Everyone's OK, start recording"
+  consentTextVersion: varchar("consent_text_version"), // the spoken line shown on screen
+  consentCheck: varchar("consent_check").notNull().default("pending"), // pending | heard | not_heard | user_confirmed | declined
+  consentCheckedAt: timestamp("consent_checked_at"),
+  consentEvidenceEnc: text("consent_evidence_enc"), // transcript lines + timestamps of the ask and the yes
+
+  // Audio (private bucket; never public)
+  audioPath: varchar("audio_path"),
+  audioMime: varchar("audio_mime"),
+  audioBytes: integer("audio_bytes"),
+  audioDurationSec: integer("audio_duration_sec"),
+  audioUploadedAt: timestamp("audio_uploaded_at"),
+  audioDeleteAfter: timestamp("audio_delete_after"), // hard cap: created + 30 days
+  audioDeletedAt: timestamp("audio_deleted_at"),
+
+  // Results (encrypted)
+  transcriptEnc: text("transcript_enc"),
+  recapEnc: text("recap_enc"),
+  transcriptApprovedAt: timestamp("transcript_approved_at"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userIdx: index("visits_user_idx").on(table.userId, table.createdAt),
+  audioCleanupIdx: index("visits_audio_cleanup_idx").on(table.audioDeleteAfter),
+}));
+
+// Who looked at, shared, exported or deleted a visit, and when.
+export const visitAccessLog = pgTable("visit_access_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  visitId: varchar("visit_id").notNull(),
+  userId: varchar("user_id").notNull(), // who did it
+  action: varchar("action").notNull(), // created | upload_link | uploaded | viewed | shared | exported | deleted | audio_purged
+  detail: varchar("detail"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  visitIdx: index("visit_access_visit_idx").on(table.visitId, table.createdAt),
+}));
+
+export type VisitConsent = typeof visitConsents.$inferSelect;
+export type Visit = typeof visits.$inferSelect;
+export type VisitAccessLogEntry = typeof visitAccessLog.$inferSelect;
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   symptomLogs: many(symptomLogs),
